@@ -11,10 +11,15 @@
 #define BOOST_BURL_AUTH_HPP
 
 #include <boost/burl/fwd.hpp>
-#include <boost/http/request.hpp>
 
 #include <memory>
 #include <string>
+
+namespace boost {
+namespace http {
+    class request;
+}
+}
 
 namespace boost {
 namespace burl {

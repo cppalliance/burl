@@ -9,7 +9,7 @@
 
 #include <boost/burl/session.hpp>
 
-#include <boost/http/request.hpp>
+#include <boost/http/message.hpp>
 #include <boost/http/serializer.hpp>
 #include <boost/http/response_parser.hpp>
 #include <boost/corosio/socket.hpp>

@@ -102,24 +102,32 @@ jobs:
           scan-modules-dir: burl-root
           scan-modules-ignore: burl
 
+      - name: Clone cppalliance/http
+        run: |
+          git clone --depth 1 -b develop https://github.com/cppalliance/http.git boost-source/libs/http
+
+      - name: Clone cppalliance/capy
+        run: |
+          git clone --depth 1 -b develop https://github.com/cppalliance/capy.git boost-source/libs/capy
+
       - name: Patch Boost
         id: patch
         run: |
           set -xe
           module=burl
           echo "module=$module" >> $GITHUB_OUTPUT
-          
+
           workspace_root=$(echo "$GITHUB_WORKSPACE" | sed 's/\\/\//g')
           echo -E "workspace_root=$workspace_root" >> $GITHUB_OUTPUT
-          
+
           rm -r "boost-source/libs/$module" || true
           cp -r boost-source boost-root
-          
+
           cd boost-root
           boost_root="$(pwd)"
           boost_root=$(echo "$boost_root" | sed 's/\\/\//g')
           echo -E "boost_root=$boost_root" >> $GITHUB_OUTPUT
-          
+
           cp -r "$workspace_root"/burl-root "libs/$module"
 
       - name: CMake Build
