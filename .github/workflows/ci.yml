@@ -137,5 +137,5 @@ jobs:
           cmake-version: '>=3.20'
           extra-args: |
             -D Boost_VERBOSE=ON
-            -D BOOST_INCLUDE_LIBRARIES=burl
+            -D BOOST_INCLUDE_LIBRARIES=burl;http
           ref-source-dir: boost-root/libs/burl
