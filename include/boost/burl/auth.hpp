@@ -11,7 +11,7 @@
 #define BOOST_BURL_AUTH_HPP
 
 #include <boost/burl/fwd.hpp>
-#include <boost/http/request.hpp>
+#include <boost/http/message.hpp>
 
 #include <memory>
 #include <string>
