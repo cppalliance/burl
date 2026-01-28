@@ -1,0 +1,109 @@
+#
+# SLODD Notify - Triggers after CI workflow completes (any failure)
+# Uses workflow_run to ensure secrets are available for both push and PR events
+#
+
+name: SLODD Notify
+
+on:
+  workflow_run:
+    workflows: ["CI"]
+    types: [completed]
+
+jobs:
+  slodd-notify:
+    name: SLODD Notify
+    runs-on: ubuntu-latest
+    if: github.event.workflow_run.conclusion == 'failure'
+    steps:
+      - name: Determine context
+        id: context
+        env:
+          GH_TOKEN: ${{ secrets.SLODD_TRIGGER_TOKEN }}
+        run: |
+          EVENT="${{ github.event.workflow_run.event }}"
+          HEAD_BRANCH="${{ github.event.workflow_run.head_branch }}"
+          HEAD_SHA="${{ github.event.workflow_run.head_sha }}"
+          RUN_ID="${{ github.event.workflow_run.id }}"
+          ACTOR="${{ github.event.workflow_run.actor.login }}"
+
+          echo "Event: ${EVENT}"
+          echo "Head branch: ${HEAD_BRANCH}"
+          echo "Head SHA: ${HEAD_SHA}"
+          echo "Run ID: ${RUN_ID}"
+
+          # Check for skip-slodd in commit message
+          COMMIT_MSG=$(gh api "repos/${{ github.repository }}/commits/${HEAD_SHA}" --jq '.commit.message' 2>/dev/null || echo "")
+          if echo "${COMMIT_MSG}" | grep -q '\[skip-slodd\]'; then
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+            echo "Skipping SLODD (commit contains [skip-slodd])"
+            exit 0
+          fi
+          echo "skip=false" >> "$GITHUB_OUTPUT"
+
+          if [ "${EVENT}" == "pull_request" ]; then
+            # PR event - check if it's a SLODD branch
+            if [[ "${HEAD_BRANCH}" == slodd/fix-* ]]; then
+              echo "is_slodd_pr=true" >> "$GITHUB_OUTPUT"
+              ORIGINAL_SHA=$(echo "${HEAD_BRANCH}" | sed 's/slodd\/fix-//')
+              echo "sha=${ORIGINAL_SHA}" >> "$GITHUB_OUTPUT"
+
+              # Find the PR
+              PR_DATA=$(gh pr list --repo "${{ github.repository }}" --head "${HEAD_BRANCH}" --json number,body,baseRefName --jq '.[0]' || echo "{}")
+              if [ -n "${PR_DATA}" ] && [ "${PR_DATA}" != "null" ] && [ "${PR_DATA}" != "{}" ]; then
+                PR_NUMBER=$(echo "${PR_DATA}" | jq -r '.number')
+                BASE_BRANCH=$(echo "${PR_DATA}" | jq -r '.baseRefName')
+                ISSUE_NUMBER=$(echo "${PR_DATA}" | jq -r '.body' | grep -oE 'Fixes #[0-9]+' | grep -oE '[0-9]+' || echo "")
+                CURRENT_ITER=$(gh pr view "${PR_NUMBER}" --repo "${{ github.repository }}" --json commits --jq '.commits | length' || echo "1")
+                ITERATION=$((CURRENT_ITER + 1))
+
+                echo "pr_number=${PR_NUMBER}" >> "$GITHUB_OUTPUT"
+                echo "issue_number=${ISSUE_NUMBER}" >> "$GITHUB_OUTPUT"
+                echo "branch=${BASE_BRANCH}" >> "$GITHUB_OUTPUT"
+                echo "iteration=${ITERATION}" >> "$GITHUB_OUTPUT"
+                echo "SLODD PR iteration: #${PR_NUMBER}, Issue: #${ISSUE_NUMBER}, Iter: ${ITERATION}"
+              fi
+            else
+              # Regular PR (not SLODD) - skip for now
+              echo "is_slodd_pr=false" >> "$GITHUB_OUTPUT"
+              echo "skip=true" >> "$GITHUB_OUTPUT"
+              echo "Non-SLODD PR - skipping"
+            fi
+          else
+            # Push event
+            echo "is_slodd_pr=false" >> "$GITHUB_OUTPUT"
+            echo "sha=${HEAD_SHA}" >> "$GITHUB_OUTPUT"
+            echo "branch=${HEAD_BRANCH}" >> "$GITHUB_OUTPUT"
+            echo "pr_number=" >> "$GITHUB_OUTPUT"
+            echo "issue_number=" >> "$GITHUB_OUTPUT"
+            echo "iteration=1" >> "$GITHUB_OUTPUT"
+            echo "Push to ${HEAD_BRANCH} - new SLODD fix"
+          fi
+
+          echo "run_id=${RUN_ID}" >> "$GITHUB_OUTPUT"
+          echo "actor=${ACTOR}" >> "$GITHUB_OUTPUT"
+
+      - name: Trigger SLODD
+        if: steps.context.outputs.skip != 'true'
+        env:
+          GH_TOKEN: ${{ secrets.SLODD_TRIGGER_TOKEN }}
+        run: |
+          echo "Triggering SLODD..."
+          curl -X POST \
+            -H "Accept: application/vnd.github+json" \
+            -H "Authorization: Bearer ${GH_TOKEN}" \
+            https://api.github.com/repos/cppalliance/boost-workspace/dispatches \
+            -d "{
+              \"event_type\": \"slodd-fix\",
+              \"client_payload\": {
+                \"repo\": \"${{ github.repository }}\",
+                \"run_id\": \"${{ steps.context.outputs.run_id }}\",
+                \"sha\": \"${{ steps.context.outputs.sha }}\",
+                \"branch\": \"${{ steps.context.outputs.branch }}\",
+                \"actor\": \"${{ steps.context.outputs.actor }}\",
+                \"issue_number\": \"${{ steps.context.outputs.issue_number }}\",
+                \"pr_number\": \"${{ steps.context.outputs.pr_number }}\",
+                \"iteration\": \"${{ steps.context.outputs.iteration }}\"
+              }
+            }"
+          echo "SLODD triggered!"
