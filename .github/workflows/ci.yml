@@ -106,6 +106,10 @@ jobs:
         run: |
           git clone --depth 1 -b develop https://github.com/cppalliance/http.git boost-source/libs/http
 
+      - name: Clone cppalliance/capy
+        run: |
+          git clone --depth 1 -b develop https://github.com/cppalliance/capy.git boost-source/libs/capy
+
       - name: Patch Boost
         id: patch
         run: |
