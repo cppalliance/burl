@@ -17,38 +17,6 @@ namespace boost {
 namespace burl {
 
 //----------------------------------------------------------
-// threads compilation tests
-//----------------------------------------------------------
-
-static_assert(std::is_trivially_copyable_v<threads>);
-
-void test_threads_construction()
-{
-    threads t1{1};
-    threads t2{4};
-    threads t3(8);
-    
-    (void)t1; (void)t2; (void)t3;
-}
-
-void test_threads_access()
-{
-    threads t{4};
-    unsigned count = t.count;
-    (void)count;
-}
-
-//----------------------------------------------------------
-// multithreaded_t compilation tests
-//----------------------------------------------------------
-
-void test_multithreaded_tag()
-{
-    // Tag value exists
-    [[maybe_unused]] multithreaded_t tag = multithreaded;
-}
-
-//----------------------------------------------------------
 // verify_config compilation tests
 //----------------------------------------------------------
 

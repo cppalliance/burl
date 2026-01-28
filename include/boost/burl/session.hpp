@@ -18,9 +18,10 @@
 #include <boost/burl/options.hpp>
 #include <boost/burl/response.hpp>
 
+#include <boost/capy/ex/run_async.hpp>
 #include <boost/capy/io_task.hpp>
 #include <boost/corosio/io_context.hpp>
-#include <boost/corosio/ssl_context.hpp>
+#include <boost/corosio/tls/openssl_stream.hpp>
 #include <boost/http/fields.hpp>
 #include <boost/http/method.hpp>
 #include <boost/json/value.hpp>
@@ -39,35 +40,32 @@ namespace burl {
     and default headers. It supports both HTTP and HTTPS connections
     with automatic connection pooling and redirect handling.
 
-    The session can operate in two modes:
-
-    **Built-in io_context mode**: The session owns its io_context
-    and manages worker threads internally.
-
-    **External io_context mode**: The session uses an io_context
-    provided by the user.
-
-    For multi-threaded operation, the session automatically uses
-    a strand to ensure thread safety.
+    The session requires a caller-provided io_context and TLS context.
+    The caller is responsible for running the io_context and managing
+    its lifetime.
 
     @par Thread Safety
     A single session instance is not thread-safe. However, multiple
-    sessions can be used from different threads.
+    sessions can be used from different threads. If the io_context
+    is run from multiple threads, callers should ensure proper
+    synchronization when accessing the session.
 
     @par Example
     @code
-    // Built-in single-threaded
-    burl::session s;
-    
-    // Built-in multi-threaded with 4 threads
-    burl::session s(burl::threads{4});
-    
-    // External io_context, single-threaded
     corosio::io_context ioc;
-    burl::session s(ioc);
+    corosio::tls::context tls_ctx;
     
-    // External io_context, multi-threaded
-    burl::session s(ioc, burl::multithreaded);
+    // Configure TLS
+    tls_ctx.set_default_verify_paths();
+    
+    burl::session s(ioc, tls_ctx);
+    
+    capy::run_async(ioc.get_executor())([&]() -> capy::io_task<> {
+        auto [ec, r] = co_await s.get("https://example.com");
+        co_return {};
+    }());
+    
+    ioc.run();
     @endcode
 */
 class session
@@ -80,48 +78,22 @@ public:
     // Construction
     //------------------------------------------------------
 
-    /** Construct with built-in io_context (single-threaded).
+    /** Construct with io_context and TLS context.
 
-        Creates a session that owns its io_context. The io_context
-        is run when run() is called, blocking until all work completes.
-    */
-    session();
-
-    /** Construct with built-in io_context (multi-threaded).
-
-        Creates a session that owns its io_context and runs it on
-        the specified number of threads. A strand is used for
-        thread safety.
-
-        @param t Thread configuration
-    */
-    explicit
-    session(threads t);
-
-    /** Construct with external io_context (single-threaded).
-
-        Creates a session that uses the provided io_context.
-        The user is responsible for running the io_context.
+        Creates a session using the provided io_context and TLS context.
+        The caller is responsible for running the io_context and ensuring
+        both contexts outlive the session.
 
         @param ioc Reference to the io_context to use
+        @param tls_ctx Reference to the TLS context for HTTPS connections
     */
-    explicit
-    session(corosio::io_context& ioc);
-
-    /** Construct with external io_context (multi-threaded).
-
-        Creates a session that uses the provided io_context which
-        will be run from multiple threads. A strand is used for
-        thread safety.
-
-        @param ioc Reference to the io_context to use
-        @param tag Multi-threaded tag
-    */
-    session(corosio::io_context& ioc, multithreaded_t tag);
+    session(
+        corosio::io_context& ioc,
+        corosio::tls::context& tls_ctx);
 
     /** Destructor.
 
-        Closes all connections and stops any internal threads.
+        Closes all connections.
     */
     ~session();
 
@@ -139,63 +111,36 @@ public:
     session& operator=(session const&) = delete;
 
     //------------------------------------------------------
-    // io_context management
+    // Context access
     //------------------------------------------------------
 
-    /** Run the internal io_context.
-
-        Only valid when using built-in io_context mode.
-        Blocks until all work completes or close() is called.
-
-        @throws std::logic_error if using external io_context
-    */
-    void
-    run();
-
     /** Get a reference to the io_context.
-
-        Returns the io_context used by this session, whether
-        built-in or external.
     */
     corosio::io_context&
     get_io_context() noexcept;
 
-    //------------------------------------------------------
-    // TLS configuration
-    //------------------------------------------------------
+    /** Get a reference to the TLS context.
 
-    /** Get the TLS context.
-
-        Returns a reference to the SSL context used for HTTPS
-        connections. Use this to configure certificates and
-        verification settings.
+        Returns a reference to the TLS context used for HTTPS
+        connections.
 
         @par Example
         @code
-        burl::session s;
-        auto& ctx = s.tls_context();
-        ctx.set_verify_mode(corosio::ssl::verify_peer);
-        ctx.load_verify_file("/path/to/ca-bundle.crt");
+        corosio::io_context ioc;
+        corosio::tls::context tls_ctx;
+        burl::session s(ioc, tls_ctx);
+        
+        // Can still modify TLS settings via the reference
+        s.tls_context().set_verify_mode(corosio::tls::verify_mode::peer);
         @endcode
     */
-    corosio::ssl_context&
+    corosio::tls::context&
     tls_context() noexcept;
 
-    /** Get the TLS context (const).
+    /** Get a reference to the TLS context (const).
     */
-    corosio::ssl_context const&
+    corosio::tls::context const&
     tls_context() const noexcept;
-
-    /** Set a custom TLS context.
-
-        Replaces the default TLS context with a user-provided one.
-        The context is shared, so changes affect all sessions
-        using the same context.
-
-        @param ctx The TLS context to use
-    */
-    void
-    set_tls_context(std::shared_ptr<corosio::ssl_context> ctx);
 
     //------------------------------------------------------
     // Session configuration

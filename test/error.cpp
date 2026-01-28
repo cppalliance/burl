@@ -25,7 +25,7 @@ static_assert(std::is_enum_v<error>);
 static_assert(!std::is_convertible_v<error, int>);
 
 // error is registered as an error_code_enum
-static_assert(system::is_error_code_enum<error>::value);
+static_assert(std::is_error_code_enum<error>::value);
 
 void test_error_values()
 {
@@ -55,22 +55,22 @@ void test_error_values()
 
 void test_make_error_code()
 {
-    system::error_code ec = make_error_code(error::timeout);
+    std::error_code ec = make_error_code(error::timeout);
     
     // Should have a message
     std::string msg = ec.message();
     (void)msg;
     
     // Should reference burl category
-    system::error_category const& cat = ec.category();
+    std::error_category const& cat = ec.category();
     (void)cat;
 }
 
 void test_error_code_comparison()
 {
-    system::error_code ec1 = make_error_code(error::timeout);
-    system::error_code ec2 = make_error_code(error::timeout);
-    system::error_code ec3 = make_error_code(error::cancelled);
+    std::error_code ec1 = make_error_code(error::timeout);
+    std::error_code ec2 = make_error_code(error::timeout);
+    std::error_code ec3 = make_error_code(error::cancelled);
     
     bool same = (ec1 == ec2);
     bool diff = (ec1 != ec3);
@@ -80,7 +80,7 @@ void test_error_code_comparison()
 
 void test_error_category()
 {
-    system::error_category const& cat = burl_category();
+    std::error_category const& cat = burl_category();
     
     char const* name = cat.name();
     std::string msg = cat.message(static_cast<int>(error::timeout));

@@ -143,14 +143,16 @@ The library is inspired by the Python Requests API but adapted for C++ idioms an
 | `response.hpp` | `response<Body>`, `streamed_response`, `streamed_request` |
 | `session.hpp` | `session` class with all HTTP methods |
 
-### Session Constructors
+### Session Constructor
 
 ```cpp
-session();                                    // Built-in, single-threaded
-session(threads{N});                          // Built-in, N threads, uses strand
-session(io_context& ioc);                     // External, single-threaded
-session(io_context& ioc, multithreaded);      // External, multi-threaded, uses strand
+session(io_context& ioc, tls::context& tls_ctx);  // Caller provides both contexts
 ```
+
+The session always requires caller-provided `io_context` and `tls::context`. The caller is responsible for:
+- Running the io_context (via `ioc.run()`)
+- Configuring TLS settings before creating the session
+- Ensuring both contexts outlive the session
 
 ### HTTP Methods
 
@@ -185,22 +187,9 @@ get_streamed(url);                  // streamed_response
 
 ```cpp
 struct session::impl {
-    // io_context ownership
-    std::unique_ptr<corosio::io_context> owned_ioc_;  // null if external
-    corosio::io_context& ioc_;                         // reference to active
-
-    // Threading
-    std::vector<std::thread> threads_;
-    bool multithreaded_ = false;
-    
-    // Executor
-    using executor_variant = std::variant<
-        corosio::io_context::executor_type,
-        corosio::io_context::strand>;
-    executor_variant executor_;
-
-    // TLS
-    std::shared_ptr<corosio::ssl_context> ssl_ctx_;
+    // Context references (caller-provided)
+    corosio::io_context& ioc_;
+    corosio::tls::context& tls_ctx_;
 
     // Configuration
     http::fields default_headers_;
@@ -212,7 +201,10 @@ struct session::impl {
 
     // Connection pools
     struct pool_key { host, port, https };
-    struct connection { socket, tls };
+    struct connection { 
+        std::unique_ptr<corosio::socket> socket;
+        std::unique_ptr<corosio::tls::stream> tls;
+    };
     std::map<pool_key, std::vector<connection>> pools_;
 };
 ```
@@ -232,41 +224,13 @@ struct session::impl {
 
 ## Threading Model
 
-### Single-Threaded Mode
+The session does not manage threading internally. The caller is responsible for:
 
-- `executor_` = `ioc_.get_executor()`
-- No strand needed
-- Session operations not thread-safe
+1. Running the io_context (single or multi-threaded)
+2. Ensuring proper synchronization if session is accessed from multiple threads
 
-### Multi-Threaded Mode
-
-- `executor_` = `corosio::io_context::strand(ioc_)`
-- All session operations go through strand
-- Connection pool access serialized via strand
-
-### Executor Selection
-
-```cpp
-auto get_executor() {
-    return std::visit([](auto& ex) { return ex; }, executor_);
-}
-```
-
-### Built-in Threading
-
-When session owns io_context:
-
-```cpp
-impl(unsigned thread_count)
-    : owned_ioc_(make_unique<io_context>())
-    , ioc_(*owned_ioc_)
-    , multithreaded_(thread_count > 1)
-    , executor_(multithreaded_ ? strand(ioc_) : ioc_.get_executor())
-{
-    for (unsigned i = 0; i < thread_count; ++i)
-        threads_.emplace_back([this] { ioc_.run(); });
-}
-```
+If the caller runs the io_context from multiple threads and accesses the session
+concurrently, the caller must provide external synchronization.
 
 ---
 
@@ -323,11 +287,22 @@ struct connection {
 
 ## TLS/HTTPS Support
 
-### SSL Context Access
+### TLS Context
+
+The TLS context is provided by the caller and must outlive the session:
 
 ```cpp
-corosio::ssl_context& session::tls_context();
-void session::set_tls_context(std::shared_ptr<ssl_context> ctx);
+corosio::io_context ioc;
+corosio::tls::context tls_ctx;
+
+// Configure before creating session
+tls_ctx.set_default_verify_paths();
+tls_ctx.set_verify_mode(corosio::tls::verify_mode::peer);
+
+burl::session s(ioc, tls_ctx);
+
+// Can still access via session
+s.tls_context().set_min_protocol_version(corosio::tls::version::tls_1_2);
 ```
 
 ### TLS Configuration Options
@@ -343,17 +318,17 @@ struct verify_config {
 
 ### Implementation Notes
 
-1. Default ssl_context created on session construction
-2. User can configure via `tls_context()` reference
-3. Or replace entirely via `set_tls_context()`
+1. TLS context is caller-provided (not internally owned)
+2. User configures TLS context before creating session
+3. Can still modify via `session::tls_context()` reference
 4. Per-request verify override via `request_options::verify`
 
 ### TLS Stream Creation
 
 ```cpp
 // When creating HTTPS connection:
-auto tls = make_unique<corosio::tls_stream>(ioc_, *ssl_ctx_);
-co_await tls->async_handshake(ssl::stream_base::client);
+auto tls = make_unique<corosio::tls::stream>(ioc_, tls_ctx_);
+co_await tls->handshake(corosio::tls::role::client);
 ```
 
 ---

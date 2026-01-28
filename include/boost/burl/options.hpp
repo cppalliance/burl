@@ -22,55 +22,6 @@ namespace burl {
 
 //----------------------------------------------------------
 
-/** Tag type indicating multi-threaded execution.
-
-    When passed to session constructor with an external io_context,
-    indicates that the io_context will be run from multiple threads.
-    The session will use a strand to ensure thread safety.
-
-    @see multithreaded
-*/
-struct multithreaded_t
-{
-    explicit constexpr multithreaded_t() = default;
-};
-
-/** Tag value for multi-threaded execution.
-
-    @par Example
-    @code
-    corosio::io_context ioc;
-    burl::session s(ioc, burl::multithreaded);
-    // Safe to call ioc.run() from multiple threads
-    @endcode
-*/
-inline constexpr multithreaded_t multithreaded{};
-
-//----------------------------------------------------------
-
-/** Thread count configuration for built-in io_context.
-
-    Specifies the number of threads to use when session owns
-    its io_context. If count > 1, the session automatically
-    uses a strand for thread safety.
-*/
-struct threads
-{
-    unsigned count;
-
-    /** Constructor.
-
-        @param n Number of threads to use
-    */
-    explicit constexpr
-    threads(unsigned n) noexcept
-        : count(n)
-    {
-    }
-};
-
-//----------------------------------------------------------
-
 /** TLS verification configuration.
 */
 struct verify_config

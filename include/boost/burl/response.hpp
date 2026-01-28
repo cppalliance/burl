@@ -15,7 +15,7 @@
 #include <boost/http/response.hpp>
 #include <boost/http/status.hpp>
 #include <boost/url/url.hpp>
-#include <boost/core/string_view.hpp>
+#include <string_view>
 #include <boost/capy/io/any_buffer_source.hpp>
 
 #include <chrono>
@@ -97,7 +97,7 @@ struct response
 
     /** Get the HTTP reason phrase.
     */
-    core::string_view
+    std::string_view
     reason() const noexcept
     {
         return message.reason();
@@ -115,9 +115,9 @@ struct response
 
         Only available when Body is convertible to string_view.
     */
-    core::string_view
+    std::string_view
     text() const noexcept
-        requires std::convertible_to<Body const&, core::string_view>
+        requires std::convertible_to<Body const&, std::string_view>
     {
         return body;
     }
@@ -199,7 +199,7 @@ struct streamed_response
 
     http::status status() const noexcept { return message.status(); }
     unsigned short status_int() const noexcept { return message.status_int(); }
-    core::string_view reason() const noexcept { return message.reason(); }
+    std::string_view reason() const noexcept { return message.reason(); }
     bool ok() const noexcept { return message.status_int() < 400; }
     bool is_redirect() const noexcept
     {

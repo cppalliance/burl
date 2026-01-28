@@ -13,12 +13,10 @@
 #include <boost/http/serializer.hpp>
 #include <boost/http/response_parser.hpp>
 #include <boost/corosio/socket.hpp>
-#include <boost/corosio/tls_stream.hpp>
+#include <boost/corosio/tls/stream.hpp>
 #include <boost/json/parse.hpp>
 
 #include <map>
-#include <thread>
-#include <variant>
 #include <vector>
 
 namespace boost {
@@ -31,39 +29,14 @@ namespace burl {
 struct session::impl
 {
     //------------------------------------------------------
-    // io_context ownership
+    // Context references (caller-provided)
     //------------------------------------------------------
 
-    // Non-null if session owns the io_context
-    std::unique_ptr<corosio::io_context> owned_ioc_;
-
-    // Reference to active io_context (owned or external)
+    // Reference to caller's io_context
     corosio::io_context& ioc_;
 
-    //------------------------------------------------------
-    // Threading
-    //------------------------------------------------------
-
-    // Worker threads (empty if external io_context)
-    std::vector<std::thread> threads_;
-
-    // True if running on multiple threads
-    bool multithreaded_ = false;
-
-    // Executor type varies by threading mode
-    // - Single-threaded: plain executor
-    // - Multi-threaded: strand for synchronization
-    using executor_variant = std::variant<
-        corosio::io_context::executor_type,
-        corosio::io_context::strand>;
-    executor_variant executor_;
-
-    //------------------------------------------------------
-    // TLS
-    //------------------------------------------------------
-
-    // SSL context for HTTPS connections
-    std::shared_ptr<corosio::ssl_context> ssl_ctx_;
+    // Reference to caller's TLS context
+    corosio::tls::context& tls_ctx_;
 
     //------------------------------------------------------
     // Configuration
@@ -105,7 +78,7 @@ struct session::impl
     struct connection
     {
         std::unique_ptr<corosio::socket> socket;
-        std::unique_ptr<corosio::tls_stream> tls;
+        std::unique_ptr<corosio::tls::stream> tls;
 
         // Returns the appropriate stream for I/O
         corosio::io_stream&
@@ -120,65 +93,17 @@ struct session::impl
     std::map<pool_key, std::vector<std::unique_ptr<connection>>> pools_;
 
     //------------------------------------------------------
-    // Constructors
+    // Constructor
     //------------------------------------------------------
 
-    // Built-in single-threaded
-    impl()
-        : owned_ioc_(std::make_unique<corosio::io_context>())
-        , ioc_(*owned_ioc_)
-        , executor_(ioc_.get_executor())
-        , ssl_ctx_(std::make_shared<corosio::ssl_context>())
+    impl(corosio::io_context& ioc, corosio::tls::context& tls_ctx)
+        : ioc_(ioc)
+        , tls_ctx_(tls_ctx)
     {
         // TODO: Set default User-Agent header
     }
 
-    // Built-in multi-threaded
-    explicit
-    impl(unsigned thread_count)
-        : owned_ioc_(std::make_unique<corosio::io_context>())
-        , ioc_(*owned_ioc_)
-        , multithreaded_(thread_count > 1)
-        , executor_(multithreaded_
-            ? executor_variant{corosio::io_context::strand(ioc_)}
-            : executor_variant{ioc_.get_executor()})
-        , ssl_ctx_(std::make_shared<corosio::ssl_context>())
-    {
-        // TODO: Start worker threads
-        // threads_.reserve(thread_count);
-        // for (unsigned i = 0; i < thread_count; ++i)
-        //     threads_.emplace_back([this] { ioc_.run(); });
-    }
-
-    // External single-threaded
-    explicit
-    impl(corosio::io_context& ioc)
-        : ioc_(ioc)
-        , executor_(ioc_.get_executor())
-        , ssl_ctx_(std::make_shared<corosio::ssl_context>())
-    {
-    }
-
-    // External multi-threaded
-    impl(corosio::io_context& ioc, bool multi)
-        : ioc_(ioc)
-        , multithreaded_(multi)
-        , executor_(multi
-            ? executor_variant{corosio::io_context::strand(ioc_)}
-            : executor_variant{ioc_.get_executor()})
-        , ssl_ctx_(std::make_shared<corosio::ssl_context>())
-    {
-    }
-
-    ~impl()
-    {
-        // TODO: Stop io_context and join threads
-        // if (owned_ioc_)
-        //     owned_ioc_->stop();
-        // for (auto& t : threads_)
-        //     if (t.joinable())
-        //         t.join();
-    }
+    ~impl() = default;
 
     //------------------------------------------------------
     // Internal request handling
@@ -290,23 +215,10 @@ struct session::impl
 // session public interface implementation
 //----------------------------------------------------------
 
-session::session()
-    : impl_(std::make_unique<impl>())
-{
-}
-
-session::session(threads t)
-    : impl_(std::make_unique<impl>(t.count))
-{
-}
-
-session::session(corosio::io_context& ioc)
-    : impl_(std::make_unique<impl>(ioc))
-{
-}
-
-session::session(corosio::io_context& ioc, multithreaded_t)
-    : impl_(std::make_unique<impl>(ioc, true))
+session::session(
+    corosio::io_context& ioc,
+    corosio::tls::context& tls_ctx)
+    : impl_(std::make_unique<impl>(ioc, tls_ctx))
 {
 }
 
@@ -317,42 +229,22 @@ session::session(session&&) noexcept = default;
 session&
 session::operator=(session&&) noexcept = default;
 
-void
-session::run()
-{
-    // TODO: Implementation steps:
-    // 1. Check that we own the io_context
-    // 2. If owned, call ioc_.run()
-    // 3. If external, throw std::logic_error
-    
-    if (!impl_->owned_ioc_)
-        throw std::logic_error("run() called on session with external io_context");
-    
-    impl_->ioc_.run();
-}
-
 corosio::io_context&
 session::get_io_context() noexcept
 {
     return impl_->ioc_;
 }
 
-corosio::ssl_context&
+corosio::tls::context&
 session::tls_context() noexcept
 {
-    return *impl_->ssl_ctx_;
+    return impl_->tls_ctx_;
 }
 
-corosio::ssl_context const&
+corosio::tls::context const&
 session::tls_context() const noexcept
 {
-    return *impl_->ssl_ctx_;
-}
-
-void
-session::set_tls_context(std::shared_ptr<corosio::ssl_context> ctx)
-{
-    impl_->ssl_ctx_ = std::move(ctx);
+    return impl_->tls_ctx_;
 }
 
 http::fields&
@@ -532,20 +424,9 @@ session::close()
 {
     // TODO: Implementation steps:
     // 1. Close all pooled connections
-    // 2. Stop io_context if owned
-    // 3. Join worker threads if any
-    // 4. Clear connection pools
+    // 2. Clear connection pools
     
     impl_->pools_.clear();
-    
-    if (impl_->owned_ioc_)
-        impl_->owned_ioc_->stop();
-    
-    for (auto& t : impl_->threads_)
-        if (t.joinable())
-            t.join();
-    
-    impl_->threads_.clear();
 }
 
 } // namespace burl

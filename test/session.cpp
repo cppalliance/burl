@@ -10,6 +10,7 @@
 // Unit tests to verify session.hpp compiles correctly
 
 #include <boost/burl/session.hpp>
+#include <boost/corosio/tls/context.hpp>
 
 #include <type_traits>
 
@@ -32,33 +33,12 @@ static_assert(!std::is_copy_assignable_v<session>);
 // Construction tests
 //----------------------------------------------------------
 
-void test_default_construction()
+void test_construction()
 {
-    // Built-in single-threaded
-    session s;
-    (void)s;
-}
-
-void test_threads_construction()
-{
-    // Built-in multi-threaded
-    session s(threads{4});
-    (void)s;
-}
-
-void test_external_io_context_construction()
-{
-    // External single-threaded
     corosio::io_context ioc;
-    session s(ioc);
-    (void)s;
-}
-
-void test_external_multithreaded_construction()
-{
-    // External multi-threaded
-    corosio::io_context ioc;
-    session s(ioc, multithreaded);
+    corosio::tls::context tls_ctx;
+    
+    session s(ioc, tls_ctx);
     (void)s;
 }
 
@@ -68,21 +48,35 @@ void test_external_multithreaded_construction()
 
 void test_tls_context_access()
 {
-    session s;
+    corosio::io_context ioc;
+    corosio::tls::context tls_ctx;
+    session s(ioc, tls_ctx);
     
     // Non-const access
-    corosio::ssl_context& ctx = s.tls_context();
+    corosio::tls::context& ctx = s.tls_context();
     (void)ctx;
     
     // Const access
     session const& cs = s;
-    corosio::ssl_context const& cctx = cs.tls_context();
+    corosio::tls::context const& cctx = cs.tls_context();
     (void)cctx;
+}
+
+void test_io_context_access()
+{
+    corosio::io_context ioc;
+    corosio::tls::context tls_ctx;
+    session s(ioc, tls_ctx);
+    
+    corosio::io_context& ref = s.get_io_context();
+    (void)ref;
 }
 
 void test_headers_access()
 {
-    session s;
+    corosio::io_context ioc;
+    corosio::tls::context tls_ctx;
+    session s(ioc, tls_ctx);
     
     // Non-const access
     http::fields& h = s.headers();
@@ -96,7 +90,9 @@ void test_headers_access()
 
 void test_cookies_access()
 {
-    session s;
+    corosio::io_context ioc;
+    corosio::tls::context tls_ctx;
+    session s(ioc, tls_ctx);
     
     // Non-const access
     cookie_jar& jar = s.cookies();
@@ -110,14 +106,20 @@ void test_cookies_access()
 
 void test_auth_configuration()
 {
-    session s;
+    corosio::io_context ioc;
+    corosio::tls::context tls_ctx;
+    session s(ioc, tls_ctx);
+    
     s.set_auth(std::make_shared<http_basic_auth>("user", "pass"));
     s.set_auth(std::make_shared<http_bearer_auth>("token"));
 }
 
 void test_verify_configuration()
 {
-    session s;
+    corosio::io_context ioc;
+    corosio::tls::context tls_ctx;
+    session s(ioc, tls_ctx);
+    
     s.set_verify(verify_config{
         .verify_peer = true,
         .ca_file = "/etc/ssl/certs/ca-certificates.crt"
@@ -126,13 +128,19 @@ void test_verify_configuration()
 
 void test_redirects_configuration()
 {
-    session s;
+    corosio::io_context ioc;
+    corosio::tls::context tls_ctx;
+    session s(ioc, tls_ctx);
+    
     s.set_max_redirects(10);
 }
 
 void test_timeout_configuration()
 {
-    session s;
+    corosio::io_context ioc;
+    corosio::tls::context tls_ctx;
+    session s(ioc, tls_ctx);
+    
     s.set_timeout(std::chrono::milliseconds{5000});
 }
 
@@ -146,7 +154,10 @@ void test_timeout_configuration()
 
 void test_request_method_signatures()
 {
-    session s;
+    corosio::io_context ioc;
+    corosio::tls::context tls_ctx;
+    session s(ioc, tls_ctx);
+    
     urls::url_view url("https://example.com");
     request_options opts;
     
@@ -166,7 +177,10 @@ void test_request_method_signatures()
 
 void test_request_with_options()
 {
-    session s;
+    corosio::io_context ioc;
+    corosio::tls::context tls_ctx;
+    session s(ioc, tls_ctx);
+    
     urls::url_view url("https://example.com");
     
     request_options opts;
@@ -179,7 +193,10 @@ void test_request_with_options()
 
 void test_json_body_signatures()
 {
-    session s;
+    corosio::io_context ioc;
+    corosio::tls::context tls_ctx;
+    session s(ioc, tls_ctx);
+    
     urls::url_view url("https://example.com/api");
     
     // JSON body returns io_task<response<json::value>>
@@ -191,7 +208,10 @@ void test_json_body_signatures()
 
 void test_custom_type_signatures()
 {
-    session s;
+    corosio::io_context ioc;
+    corosio::tls::context tls_ctx;
+    session s(ioc, tls_ctx);
+    
     urls::url_view url("https://example.com/api");
     
     struct MyType { int x; };
@@ -205,7 +225,10 @@ void test_custom_type_signatures()
 
 void test_streaming_signatures()
 {
-    session s;
+    corosio::io_context ioc;
+    corosio::tls::context tls_ctx;
+    session s(ioc, tls_ctx);
+    
     urls::url_view url("https://example.com/large-file");
     
     // Streaming returns io_task<streamed_response>

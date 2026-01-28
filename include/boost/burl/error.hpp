@@ -11,8 +11,7 @@
 #define BOOST_BURL_ERROR_HPP
 
 #include <boost/burl/fwd.hpp>
-#include <boost/system/error_code.hpp>
-#include <boost/system/system_error.hpp>
+#include <system_error>
 
 #include <exception>
 #include <string>
@@ -70,7 +69,7 @@ enum class error
 
 /** Error category for burl errors.
 */
-class error_category : public system::error_category
+class error_category : public std::error_category
 {
 public:
     /** Return the name of the category.
@@ -88,7 +87,7 @@ public:
 
     /** Return the error condition for an error code.
     */
-    system::error_condition
+    std::error_condition
     default_error_condition(int ev) const noexcept override;
 };
 
@@ -97,15 +96,15 @@ public:
 /** Return the error category for burl errors.
 */
 BOOST_BURL_DECL
-system::error_category const&
+std::error_category const&
 burl_category() noexcept;
 
 /** Create an error_code from a burl error.
 */
-inline system::error_code
+inline std::error_code
 make_error_code(error e) noexcept
 {
-    return system::error_code(
+    return std::error_code(
         static_cast<int>(e),
         burl_category());
 }
@@ -174,17 +173,8 @@ public:
 
 //----------------------------------------------------------
 
-namespace boost {
-namespace system {
-
 template<>
-struct is_error_code_enum<boost::burl::error>
-{
-    static bool const value = true;
-};
-
-} // namespace system
-} // namespace boost
+struct std::is_error_code_enum<boost::burl::error> : std::true_type {};
 
 //----------------------------------------------------------
 
@@ -220,14 +210,14 @@ error_category::message(int ev) const
 }
 
 BOOST_BURL_DECL
-system::error_condition
+std::error_condition
 error_category::default_error_condition(int ev) const noexcept
 {
-    return system::error_condition(ev, *this);
+    return std::error_condition(ev, *this);
 }
 
 BOOST_BURL_DECL
-system::error_category const&
+std::error_category const&
 burl_category() noexcept
 {
     static error_category const cat{};

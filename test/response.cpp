@@ -56,10 +56,10 @@ void test_response_convenience_accessors()
     // Convenience accessors
     http::status s = r.status();
     unsigned short si = r.status_int();
-    core::string_view reason = r.reason();
+    std::string_view reason = r.reason();
     bool ok = r.ok();
     bool redirect = r.is_redirect();
-    core::string_view text = r.text();
+    std::string_view text = r.text();
     
     (void)s; (void)si; (void)reason; (void)ok; (void)redirect; (void)text;
 }
@@ -144,7 +144,7 @@ void test_streamed_response_accessors()
     // Convenience accessors
     http::status s = r.status();
     unsigned short si = r.status_int();
-    core::string_view reason = r.reason();
+    std::string_view reason = r.reason();
     bool ok = r.ok();
     bool redirect = r.is_redirect();
     

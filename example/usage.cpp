@@ -11,21 +11,25 @@
 //
 
 #include <boost/burl/session.hpp>
+#include <boost/capy/ex/run_async.hpp>
+#include <boost/corosio/tls/context.hpp>
 
 #include <iostream>
 #include <thread>
 #include <vector>
 
 namespace burl = boost::burl;
+namespace capy = boost::capy;
 namespace http = boost::http;
 namespace urls = boost::urls;
 namespace json = boost::json;
+namespace corosio = boost::corosio;
 
 //==============================================================
-// Example 1: Built-in io_context (simplest usage)
+// Example 1: Basic session setup and GET request
 //==============================================================
 
-burl::capy::io_task<> example_simple_get(burl::session& s)
+capy::io_task<> example_simple_get(burl::session& s)
 {
     // Simple GET request - body returned as std::string
     auto [ec, r] = co_await s.get("https://api.github.com/users/octocat");
@@ -48,7 +52,7 @@ burl::capy::io_task<> example_simple_get(burl::session& s)
 // Example 2: Accessing HTTP response headers
 //==============================================================
 
-burl::capy::io_task<> example_headers(burl::session& s)
+capy::io_task<> example_headers(burl::session& s)
 {
     auto [ec, r] = co_await s.get("https://httpbin.org/headers");
     
@@ -74,7 +78,7 @@ burl::capy::io_task<> example_headers(burl::session& s)
 // Example 3: Accessing URL components
 //==============================================================
 
-burl::capy::io_task<> example_url_components(burl::session& s)
+capy::io_task<> example_url_components(burl::session& s)
 {
     auto [ec, r] = co_await s.get("https://httpbin.org/get?foo=bar&baz=123");
     
@@ -100,7 +104,7 @@ burl::capy::io_task<> example_url_components(burl::session& s)
 // Example 4: Building URLs programmatically
 //==============================================================
 
-burl::capy::io_task<> example_url_building(burl::session& s)
+capy::io_task<> example_url_building(burl::session& s)
 {
     // Build URL with query parameters
     urls::url url("https://httpbin.org/get");
@@ -123,7 +127,7 @@ burl::capy::io_task<> example_url_building(burl::session& s)
 // Example 5: POST with JSON body
 //==============================================================
 
-burl::capy::io_task<> example_post_json(burl::session& s)
+capy::io_task<> example_post_json(burl::session& s)
 {
     burl::request_options opts;
     opts.json = R"({
@@ -147,7 +151,7 @@ burl::capy::io_task<> example_post_json(burl::session& s)
 // Example 6: Response with JSON parsing
 //==============================================================
 
-burl::capy::io_task<> example_json_response(burl::session& s)
+capy::io_task<> example_json_response(burl::session& s)
 {
     // Request with JSON parsing - body is json::value
     auto [ec, r] = co_await s.get(
@@ -181,7 +185,7 @@ struct GitHubUser
 // Requires BOOST_DESCRIBE_STRUCT or reflection support
 // BOOST_DESCRIBE_STRUCT(GitHubUser, (), (login, id, avatar_url, type))
 
-burl::capy::io_task<> example_custom_type(burl::session& s)
+capy::io_task<> example_custom_type(burl::session& s)
 {
     // Deserialize response directly into custom type
     auto [ec, r] = co_await s.get(
@@ -204,7 +208,7 @@ burl::capy::io_task<> example_custom_type(burl::session& s)
 // Example 8: Streaming large responses
 //==============================================================
 
-burl::capy::io_task<> example_streaming(burl::session& s)
+capy::io_task<> example_streaming(burl::session& s)
 {
     // Get streaming response for large files
     auto [ec, r] = co_await s.get_streamed(
@@ -217,7 +221,7 @@ burl::capy::io_task<> example_streaming(burl::session& s)
     
     // Read body incrementally
     std::size_t total = 0;
-    burl::capy::const_buffer arr[16];
+    capy::const_buffer arr[16];
     
     while (true) {
         auto [err, count] = co_await r.body.pull(arr, 16);
@@ -246,7 +250,7 @@ burl::capy::io_task<> example_streaming(burl::session& s)
 // Example 9: Request with custom headers
 //==============================================================
 
-burl::capy::io_task<> example_custom_headers(burl::session& s)
+capy::io_task<> example_custom_headers(burl::session& s)
 {
     burl::request_options opts;
     opts.headers = http::fields{};
@@ -268,7 +272,7 @@ burl::capy::io_task<> example_custom_headers(burl::session& s)
 // Example 10: Authentication - Basic
 //==============================================================
 
-burl::capy::io_task<> example_basic_auth(burl::session& s)
+capy::io_task<> example_basic_auth(burl::session& s)
 {
     // Set authentication on session
     s.set_auth(std::make_shared<burl::http_basic_auth>("user", "passwd"));
@@ -287,7 +291,7 @@ burl::capy::io_task<> example_basic_auth(burl::session& s)
 // Example 11: Authentication - Bearer token
 //==============================================================
 
-burl::capy::io_task<> example_bearer_auth(burl::session& s)
+capy::io_task<> example_bearer_auth(burl::session& s)
 {
     s.set_auth(std::make_shared<burl::http_bearer_auth>("my-api-token"));
     
@@ -305,7 +309,7 @@ burl::capy::io_task<> example_bearer_auth(burl::session& s)
 // Example 12: Per-request authentication
 //==============================================================
 
-burl::capy::io_task<> example_per_request_auth(burl::session& s)
+capy::io_task<> example_per_request_auth(burl::session& s)
 {
     burl::request_options opts;
     opts.auth = std::make_shared<burl::http_basic_auth>("user", "pass");
@@ -324,7 +328,7 @@ burl::capy::io_task<> example_per_request_auth(burl::session& s)
 // Example 13: Timeout handling
 //==============================================================
 
-burl::capy::io_task<> example_timeout(burl::session& s)
+capy::io_task<> example_timeout(burl::session& s)
 {
     burl::request_options opts;
     opts.timeout = std::chrono::milliseconds{5000};  // 5 second timeout
@@ -348,7 +352,7 @@ burl::capy::io_task<> example_timeout(burl::session& s)
 // Example 14: Redirect handling
 //==============================================================
 
-burl::capy::io_task<> example_redirects(burl::session& s)
+capy::io_task<> example_redirects(burl::session& s)
 {
     // Default: follows redirects automatically
     auto [ec, r] = co_await s.get("https://httpbin.org/redirect/3");
@@ -370,7 +374,7 @@ burl::capy::io_task<> example_redirects(burl::session& s)
 // Example 15: Disable redirects
 //==============================================================
 
-burl::capy::io_task<> example_no_redirects(burl::session& s)
+capy::io_task<> example_no_redirects(burl::session& s)
 {
     burl::request_options opts;
     opts.allow_redirects = false;
@@ -394,7 +398,7 @@ burl::capy::io_task<> example_no_redirects(burl::session& s)
 // Example 16: Error handling with raise_for_status()
 //==============================================================
 
-burl::capy::io_task<> example_raise_for_status(burl::session& s)
+capy::io_task<> example_raise_for_status(burl::session& s)
 {
     auto [ec, r] = co_await s.get("https://httpbin.org/status/404");
     
@@ -418,7 +422,7 @@ burl::capy::io_task<> example_raise_for_status(burl::session& s)
 // Example 17: Cookie handling
 //==============================================================
 
-burl::capy::io_task<> example_cookies(burl::session& s)
+capy::io_task<> example_cookies(burl::session& s)
 {
     // First request sets a cookie
     auto [ec1, r1] = co_await s.get("https://httpbin.org/cookies/set/session/abc123");
@@ -449,23 +453,21 @@ burl::capy::io_task<> example_cookies(burl::session& s)
 
 void example_tls_config()
 {
-    burl::session s;
+    corosio::io_context ioc;
+    corosio::tls::context tls_ctx;
     
-    // Access TLS context for configuration
-    auto& ctx = s.tls_context();
+    // Configure TLS before creating session
+    tls_ctx.set_default_verify_paths();
+    tls_ctx.set_verify_mode(corosio::tls::verify_mode::peer);
     
-    // Set verification mode
-    // ctx.set_verify_mode(boost::asio::ssl::verify_peer);
-    
-    // Load CA certificates
-    // ctx.load_verify_file("/etc/ssl/certs/ca-certificates.crt");
-    
-    // Or use system certificates
-    // ctx.set_default_verify_paths();
+    // Or load specific CA file
+    // tls_ctx.load_verify_file("/etc/ssl/certs/ca-certificates.crt");
     
     // Client certificate authentication
-    // ctx.use_certificate_file("client.crt", boost::asio::ssl::context::pem);
-    // ctx.use_private_key_file("client.key", boost::asio::ssl::context::pem);
+    // tls_ctx.use_certificate_file("client.crt", corosio::tls::file_format::pem);
+    // tls_ctx.use_private_key_file("client.key", corosio::tls::file_format::pem);
+    
+    burl::session s(ioc, tls_ctx);
     
     std::cout << "TLS context configured\n";
 }
@@ -476,7 +478,9 @@ void example_tls_config()
 
 void example_default_headers()
 {
-    burl::session s;
+    corosio::io_context ioc;
+    corosio::tls::context tls_ctx;
+    burl::session s(ioc, tls_ctx);
     
     // Set headers that apply to all requests
     s.headers().set(http::field::user_agent, "MyApp/1.0");
@@ -487,46 +491,44 @@ void example_default_headers()
 }
 
 //==============================================================
-// Example 20: Built-in multi-threaded session
+// Example 20: Basic session usage
 //==============================================================
 
-void example_multithreaded_builtin()
+void example_basic_session()
 {
-    // Session with built-in io_context and 4 threads
-    burl::session s(burl::threads{4});
+    corosio::io_context ioc;
+    corosio::tls::context tls_ctx;
     
-    // Configure TLS, headers, etc.
-    s.headers().set(http::field::user_agent, "MultiThreadedApp/1.0");
+    // Configure TLS
+    tls_ctx.set_default_verify_paths();
     
-    // Spawn work and run
-    // s.spawn([&]() -> burl::capy::io_task<> { ... }());
-    // s.run();
-}
-
-//==============================================================
-// Example 21: External io_context (single-threaded)
-//==============================================================
-
-void example_external_single_threaded()
-{
-    burl::corosio::io_context ioc;
-    burl::session s(ioc);
+    burl::session s(ioc, tls_ctx);
     
-    // User controls the event loop
-    // ioc.spawn([&]() -> burl::capy::io_task<> { ... }());
+    // Configure session
+    s.headers().set(http::field::user_agent, "MyApp/1.0");
+    
+    // Launch work and run
+    // capy::run_async(ioc.get_executor())([&]() -> capy::io_task<> {
+    //     auto [ec, r] = co_await s.get("https://example.com");
+    //     co_return {};
+    // }());
     // ioc.run();
 }
 
 //==============================================================
-// Example 22: External io_context (multi-threaded)
+// Example 21: Multi-threaded usage
 //==============================================================
 
-void example_external_multithreaded()
+void example_multithreaded()
 {
-    burl::corosio::io_context ioc;
-    burl::session s(ioc, burl::multithreaded);  // Uses strand internally
+    corosio::io_context ioc;
+    corosio::tls::context tls_ctx;
+    tls_ctx.set_default_verify_paths();
+    
+    burl::session s(ioc, tls_ctx);
     
     // User runs io_context from multiple threads
+    // Note: Caller is responsible for synchronization if needed
     std::vector<std::thread> threads;
     for (int i = 0; i < 4; ++i) {
         threads.emplace_back([&] { ioc.run(); });
@@ -538,10 +540,10 @@ void example_external_multithreaded()
 }
 
 //==============================================================
-// Example 23: All HTTP methods
+// Example 22: All HTTP methods
 //==============================================================
 
-burl::capy::io_task<> example_all_methods(burl::session& s)
+capy::io_task<> example_all_methods(burl::session& s)
 {
     urls::url_view url("https://httpbin.org/anything");
     
@@ -563,13 +565,32 @@ burl::capy::io_task<> example_all_methods(burl::session& s)
 }
 
 //==============================================================
-// Main - runs examples
+// Main - demonstrates session setup
 //==============================================================
 
 int main()
 {
     std::cout << "Boost.Burl Usage Examples\n";
     std::cout << "=========================\n\n";
+    
+    // Basic setup pattern
+    corosio::io_context ioc;
+    corosio::tls::context tls_ctx;
+    tls_ctx.set_default_verify_paths();
+    
+    burl::session s(ioc, tls_ctx);
+    
+    // Launch a task
+    capy::run_async(ioc.get_executor())([&]() -> capy::io_task<> {
+        auto [ec, r] = co_await s.get("https://example.com");
+        if (ec.failed()) {
+            std::cerr << "Error: " << ec.message() << "\n";
+        }
+        co_return {};
+    }());
+    
+    // Run the event loop
+    ioc.run();
     
     // This file demonstrates API usage patterns.
     // The actual implementations are stubs that return not_implemented.

@@ -33,8 +33,6 @@ struct streamed_request;
 
 struct request_options;
 struct verify_config;
-struct threads;
-struct multithreaded_t;
 
 //----------------------------------------------------------
 // Body tag types
