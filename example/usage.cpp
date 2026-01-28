@@ -34,7 +34,7 @@ capy::io_task<> example_simple_get(burl::session& s)
     // Simple GET request - body returned as std::string
     auto [ec, r] = co_await s.get("https://api.github.com/users/octocat");
     
-    if (ec.failed()) {
+    if (ec) {
         std::cerr << "Error: " << ec.message() << "\n";
         co_return ec;
     }
@@ -56,7 +56,7 @@ capy::io_task<> example_headers(burl::session& s)
 {
     auto [ec, r] = co_await s.get("https://httpbin.org/headers");
     
-    if (ec.failed())
+    if (ec)
         co_return ec;
     
     // Access headers directly via http::response
@@ -82,7 +82,7 @@ capy::io_task<> example_url_components(burl::session& s)
 {
     auto [ec, r] = co_await s.get("https://httpbin.org/get?foo=bar&baz=123");
     
-    if (ec.failed())
+    if (ec)
         co_return ec;
     
     // Access URL components via urls::url
@@ -114,7 +114,7 @@ capy::io_task<> example_url_building(burl::session& s)
     
     auto [ec, r] = co_await s.get(url);
     
-    if (ec.failed())
+    if (ec)
         co_return ec;
     
     std::cout << "Requested: " << url.buffer() << "\n";
@@ -138,7 +138,7 @@ capy::io_task<> example_post_json(burl::session& s)
     
     auto [ec, r] = co_await s.post("https://httpbin.org/post", opts);
     
-    if (ec.failed())
+    if (ec)
         co_return ec;
     
     std::cout << "POST response: " << r.status_int() << "\n";
@@ -158,7 +158,7 @@ capy::io_task<> example_json_response(burl::session& s)
         "https://api.github.com/users/octocat",
         burl::as_json);
     
-    if (ec.failed())
+    if (ec)
         co_return ec;
     
     if (r.ok()) {
@@ -192,7 +192,7 @@ capy::io_task<> example_custom_type(burl::session& s)
         "https://api.github.com/users/octocat",
         burl::as_type<GitHubUser>);
     
-    if (ec.failed())
+    if (ec)
         co_return ec;
     
     if (r.ok()) {
@@ -214,7 +214,7 @@ capy::io_task<> example_streaming(burl::session& s)
     auto [ec, r] = co_await s.get_streamed(
         "https://httpbin.org/bytes/10000");
     
-    if (ec.failed())
+    if (ec)
         co_return ec;
     
     std::cout << "Status: " << r.status_int() << "\n";
@@ -260,7 +260,7 @@ capy::io_task<> example_custom_headers(burl::session& s)
     
     auto [ec, r] = co_await s.get("https://httpbin.org/headers", opts);
     
-    if (ec.failed())
+    if (ec)
         co_return ec;
     
     std::cout << r.text() << "\n";
@@ -279,7 +279,7 @@ capy::io_task<> example_basic_auth(burl::session& s)
     
     auto [ec, r] = co_await s.get("https://httpbin.org/basic-auth/user/passwd");
     
-    if (ec.failed())
+    if (ec)
         co_return ec;
     
     std::cout << "Auth result: " << r.status_int() << "\n";
@@ -297,7 +297,7 @@ capy::io_task<> example_bearer_auth(burl::session& s)
     
     auto [ec, r] = co_await s.get("https://httpbin.org/bearer");
     
-    if (ec.failed())
+    if (ec)
         co_return ec;
     
     std::cout << "Bearer auth result: " << r.status_int() << "\n";
@@ -316,7 +316,7 @@ capy::io_task<> example_per_request_auth(burl::session& s)
     
     auto [ec, r] = co_await s.get("https://httpbin.org/basic-auth/user/pass", opts);
     
-    if (ec.failed())
+    if (ec)
         co_return ec;
     
     std::cout << "Result: " << r.status_int() << "\n";
@@ -335,7 +335,7 @@ capy::io_task<> example_timeout(burl::session& s)
     
     auto [ec, r] = co_await s.get("https://httpbin.org/delay/3", opts);
     
-    if (ec.failed()) {
+    if (ec) {
         if (ec == burl::make_error_code(burl::error::timeout))
             std::cout << "Request timed out!\n";
         else
@@ -357,7 +357,7 @@ capy::io_task<> example_redirects(burl::session& s)
     // Default: follows redirects automatically
     auto [ec, r] = co_await s.get("https://httpbin.org/redirect/3");
     
-    if (ec.failed())
+    if (ec)
         co_return ec;
     
     std::cout << "Final URL: " << r.url.buffer() << "\n";
@@ -381,7 +381,7 @@ capy::io_task<> example_no_redirects(burl::session& s)
     
     auto [ec, r] = co_await s.get("https://httpbin.org/redirect/1", opts);
     
-    if (ec.failed())
+    if (ec)
         co_return ec;
     
     // Should get 302 instead of following redirect
@@ -402,7 +402,7 @@ capy::io_task<> example_raise_for_status(burl::session& s)
 {
     auto [ec, r] = co_await s.get("https://httpbin.org/status/404");
     
-    if (ec.failed())
+    if (ec)
         co_return ec;
     
     try {
@@ -427,7 +427,7 @@ capy::io_task<> example_cookies(burl::session& s)
     // First request sets a cookie
     auto [ec1, r1] = co_await s.get("https://httpbin.org/cookies/set/session/abc123");
     
-    if (ec1.failed())
+    if (ec1)
         co_return ec1;
     
     // Check cookies in jar
@@ -439,7 +439,7 @@ capy::io_task<> example_cookies(burl::session& s)
     // Next request automatically sends cookies
     auto [ec2, r2] = co_await s.get("https://httpbin.org/cookies");
     
-    if (ec2.failed())
+    if (ec2)
         co_return ec2;
     
     std::cout << "Cookies response: " << r2.text() << "\n";
@@ -583,7 +583,7 @@ int main()
     // Launch a task
     capy::run_async(ioc.get_executor())([&]() -> capy::io_task<> {
         auto [ec, r] = co_await s.get("https://example.com");
-        if (ec.failed()) {
+        if (ec) {
             std::cerr << "Error: " << ec.message() << "\n";
         }
         co_return {};

@@ -122,7 +122,9 @@ void test_verify_configuration()
     
     s.set_verify(verify_config{
         .verify_peer = true,
-        .ca_file = "/etc/ssl/certs/ca-certificates.crt"
+        .ca_file = "/etc/ssl/certs/ca-certificates.crt",
+        .ca_path = {},
+        .hostname = {}
     });
 }
 

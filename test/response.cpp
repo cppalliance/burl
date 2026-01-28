@@ -11,6 +11,7 @@
 
 #include <boost/burl/response.hpp>
 
+#include <boost/json/value.hpp>
 #include <type_traits>
 
 namespace boost {

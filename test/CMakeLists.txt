@@ -12,14 +12,17 @@ if(NOT TARGET tests)
     set_property(TARGET tests PROPERTY FOLDER Dependencies)
 endif()
 
-file(GLOB_RECURSE PFILES CONFIGURE_DEPENDS *.cpp *.hpp)
-list(APPEND PFILES CMakeLists.txt)
+# Create a test executable for each .cpp file
+file(GLOB TEST_SOURCES CONFIGURE_DEPENDS *.cpp)
 
-source_group(TREE ${CMAKE_CURRENT_SOURCE_DIR} PREFIX "" FILES ${PFILES})
-
-add_executable(boost_burl_tests ${PFILES})
-target_link_libraries(boost_burl_tests PRIVATE Boost::burl)
-target_include_directories(boost_burl_tests PRIVATE . ../)
-
-add_test(NAME boost_burl_tests COMMAND boost_burl_tests)
-add_dependencies(tests boost_burl_tests)
+foreach(TEST_SOURCE ${TEST_SOURCES})
+    get_filename_component(TEST_NAME ${TEST_SOURCE} NAME_WE)
+    set(TEST_TARGET boost_burl_test_${TEST_NAME})
+    
+    add_executable(${TEST_TARGET} ${TEST_SOURCE})
+    target_link_libraries(${TEST_TARGET} PRIVATE Boost::burl)
+    target_include_directories(${TEST_TARGET} PRIVATE . ../)
+    
+    add_test(NAME burl_${TEST_NAME} COMMAND ${TEST_TARGET})
+    add_dependencies(tests ${TEST_TARGET})
+endforeach()

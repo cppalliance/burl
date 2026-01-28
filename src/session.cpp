@@ -13,7 +13,7 @@
 #include <boost/http/serializer.hpp>
 #include <boost/http/response_parser.hpp>
 #include <boost/corosio/socket.hpp>
-#include <boost/corosio/tls/stream.hpp>
+#include <boost/corosio/tls/openssl_stream.hpp>
 #include <boost/json/parse.hpp>
 
 #include <map>
@@ -78,7 +78,7 @@ struct session::impl
     struct connection
     {
         std::unique_ptr<corosio::socket> socket;
-        std::unique_ptr<corosio::tls::stream> tls;
+        std::unique_ptr<corosio::openssl_stream> tls;
 
         // Returns the appropriate stream for I/O
         corosio::io_stream&

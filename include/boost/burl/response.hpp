@@ -210,19 +210,8 @@ struct streamed_response
 
 //----------------------------------------------------------
 
-/** HTTP request with streaming body.
-
-    For large request bodies that should not be buffered in memory.
-    The body is written via a capy::any_buffer_sink.
-*/
-struct streamed_request
-{
-    /// HTTP request headers and method
-    http::request message;
-
-    /// Streaming body sink
-    capy::any_buffer_sink body;
-};
+// TODO: streamed_request for streaming uploads
+// Requires capy::any_buffer_sink which is not yet available
 
 } // namespace burl
 } // namespace boost

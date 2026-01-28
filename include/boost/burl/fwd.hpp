@@ -12,6 +12,14 @@
 
 #include <string>
 
+//----------------------------------------------------------
+// Library visibility macros
+//----------------------------------------------------------
+
+#ifndef BOOST_BURL_DECL
+#define BOOST_BURL_DECL inline
+#endif
+
 namespace boost {
 namespace burl {
 

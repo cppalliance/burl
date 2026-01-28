@@ -84,7 +84,10 @@ void test_cookie_matches()
         .value = "value",
         .domain = "example.com",
         .path = "/api",
-        .secure = true
+        .expires = {},
+        .secure = true,
+        .http_only = false,
+        .same_site = cookie::same_site_t::lax
     };
     
     urls::url_view url1("https://example.com/api/users");
@@ -117,7 +120,12 @@ void test_cookie_jar_set()
     cookie c{
         .name = "session",
         .value = "abc123",
-        .domain = "example.com"
+        .domain = "example.com",
+        .path = "/",
+        .expires = {},
+        .secure = false,
+        .http_only = false,
+        .same_site = cookie::same_site_t::lax
     };
     
     jar.set(c);

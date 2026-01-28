@@ -10,6 +10,7 @@
 // Unit tests to verify options.hpp compiles correctly
 
 #include <boost/burl/options.hpp>
+#include <boost/burl/auth.hpp>
 
 #include <type_traits>
 

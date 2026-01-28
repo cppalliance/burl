@@ -178,11 +178,6 @@ struct std::is_error_code_enum<boost::burl::error> : std::true_type {};
 
 //----------------------------------------------------------
 
-// Inline implementation placeholder
-#ifndef BOOST_BURL_DECL
-#define BOOST_BURL_DECL inline
-#endif
-
 namespace boost {
 namespace burl {
 

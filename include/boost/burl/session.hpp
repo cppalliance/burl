@@ -418,6 +418,8 @@ template<class T>
 capy::io_task<response<T>>
 session::get(urls::url_view url, as_type_t<T>, request_options opts)
 {
+    (void)url;
+    (void)opts;
     // TODO: Implementation steps:
     // 1. Call get(url, as_string, opts) to get string body
     // 2. Parse JSON from string body
@@ -431,6 +433,8 @@ template<class T>
 capy::io_task<response<T>>
 session::post(urls::url_view url, as_type_t<T>, request_options opts)
 {
+    (void)url;
+    (void)opts;
     // TODO: Implementation steps:
     // 1. Call post(url, as_string, opts) to get string body
     // 2. Parse JSON from string body
