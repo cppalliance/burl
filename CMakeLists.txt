@@ -131,7 +131,7 @@ endif ()
 # OpenSSL
 #
 #-------------------------------------------------
-find_package(OpenSSL REQUIRED)
+find_package(OpenSSL)
 
 #-------------------------------------------------
 #
