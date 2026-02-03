@@ -9,7 +9,7 @@
 
 #include <boost/burl/auth.hpp>
 #include <boost/http/field.hpp>
-#include <boost/http/message.hpp>
+#include <boost/http/message_base.hpp>
 
 // TODO: Include base64 encoding utilities
 // #include <boost/beast/core/detail/base64.hpp>

@@ -9,11 +9,11 @@
 
 #include <boost/burl/session.hpp>
 
-#include <boost/http/message.hpp>
+#include <boost/http/message_base.hpp>
 #include <boost/http/serializer.hpp>
 #include <boost/http/response_parser.hpp>
 #include <boost/corosio/socket.hpp>
-#include <boost/corosio/tls/openssl_stream.hpp>
+#include <boost/corosio/openssl_stream.hpp>
 #include <boost/json/parse.hpp>
 
 #include <map>
