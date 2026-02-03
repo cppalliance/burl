@@ -77,7 +77,7 @@ struct session::impl
     // A pooled connection
     struct connection
     {
-        std::unique_ptr<corosio::socket> socket;
+        std::unique_ptr<corosio::tcp_socket> socket;
         std::unique_ptr<corosio::openssl_stream> tls;
 
         // Returns the appropriate stream for I/O
