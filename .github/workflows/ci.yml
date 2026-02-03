@@ -114,6 +114,10 @@ jobs:
         run: |
           git clone --depth 1 -b develop https://github.com/cppalliance/corosio.git boost-source/libs/corosio
 
+      - name: Clone boostorg/filesystem
+        run: |
+          git clone --depth 1 -b develop https://github.com/boostorg/filesystem.git boost-source/libs/filesystem
+
       - name: Patch Boost
         id: patch
         run: |
@@ -149,5 +153,5 @@ jobs:
           cmake-version: '>=3.20'
           extra-args: |
             -D Boost_VERBOSE=ON
-            -D BOOST_INCLUDE_LIBRARIES=burl;capy;corosio;filesystem;http
+            -D BOOST_INCLUDE_LIBRARIES=burl;capy;corosio;http;filesystem
           ref-source-dir: boost-root/libs/burl
