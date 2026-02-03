@@ -53,8 +53,8 @@ namespace burl {
     @par Example
     @code
     corosio::io_context ioc;
-    corosio::tls::context tls_ctx;
-    
+    corosio::tls_context tls_ctx;
+
     // Configure TLS
     tls_ctx.set_default_verify_paths();
     
@@ -89,7 +89,7 @@ public:
     */
     session(
         corosio::io_context& ioc,
-        corosio::tls::context& tls_ctx);
+        corosio::tls_context& tls_ctx);
 
     /** Destructor.
 
@@ -127,19 +127,19 @@ public:
         @par Example
         @code
         corosio::io_context ioc;
-        corosio::tls::context tls_ctx;
+        corosio::tls_context tls_ctx;
         burl::session s(ioc, tls_ctx);
-        
+
         // Can still modify TLS settings via the reference
-        s.tls_context().set_verify_mode(corosio::tls::verify_mode::peer);
+        s.tls_context().set_verify_mode(corosio::tls_verify_mode::peer);
         @endcode
     */
-    corosio::tls::context&
+    corosio::tls_context&
     tls_context() noexcept;
 
     /** Get a reference to the TLS context (const).
     */
-    corosio::tls::context const&
+    corosio::tls_context const&
     tls_context() const noexcept;
 
     //------------------------------------------------------

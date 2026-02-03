@@ -36,7 +36,7 @@ static_assert(!std::is_copy_assignable_v<session>);
 void test_construction()
 {
     corosio::io_context ioc;
-    corosio::tls::context tls_ctx;
+    corosio::tls_context tls_ctx;
     
     session s(ioc, tls_ctx);
     (void)s;
@@ -49,23 +49,23 @@ void test_construction()
 void test_tls_context_access()
 {
     corosio::io_context ioc;
-    corosio::tls::context tls_ctx;
+    corosio::tls_context tls_ctx;
     session s(ioc, tls_ctx);
     
     // Non-const access
-    corosio::tls::context& ctx = s.tls_context();
+    corosio::tls_context& ctx = s.tls_context();
     (void)ctx;
     
     // Const access
     session const& cs = s;
-    corosio::tls::context const& cctx = cs.tls_context();
+    corosio::tls_context const& cctx = cs.tls_context();
     (void)cctx;
 }
 
 void test_io_context_access()
 {
     corosio::io_context ioc;
-    corosio::tls::context tls_ctx;
+    corosio::tls_context tls_ctx;
     session s(ioc, tls_ctx);
     
     corosio::io_context& ref = s.get_io_context();
@@ -75,7 +75,7 @@ void test_io_context_access()
 void test_headers_access()
 {
     corosio::io_context ioc;
-    corosio::tls::context tls_ctx;
+    corosio::tls_context tls_ctx;
     session s(ioc, tls_ctx);
     
     // Non-const access
@@ -91,7 +91,7 @@ void test_headers_access()
 void test_cookies_access()
 {
     corosio::io_context ioc;
-    corosio::tls::context tls_ctx;
+    corosio::tls_context tls_ctx;
     session s(ioc, tls_ctx);
     
     // Non-const access
@@ -107,7 +107,7 @@ void test_cookies_access()
 void test_auth_configuration()
 {
     corosio::io_context ioc;
-    corosio::tls::context tls_ctx;
+    corosio::tls_context tls_ctx;
     session s(ioc, tls_ctx);
     
     s.set_auth(std::make_shared<http_basic_auth>("user", "pass"));
@@ -117,7 +117,7 @@ void test_auth_configuration()
 void test_verify_configuration()
 {
     corosio::io_context ioc;
-    corosio::tls::context tls_ctx;
+    corosio::tls_context tls_ctx;
     session s(ioc, tls_ctx);
     
     s.set_verify(verify_config{
@@ -131,7 +131,7 @@ void test_verify_configuration()
 void test_redirects_configuration()
 {
     corosio::io_context ioc;
-    corosio::tls::context tls_ctx;
+    corosio::tls_context tls_ctx;
     session s(ioc, tls_ctx);
     
     s.set_max_redirects(10);
@@ -140,7 +140,7 @@ void test_redirects_configuration()
 void test_timeout_configuration()
 {
     corosio::io_context ioc;
-    corosio::tls::context tls_ctx;
+    corosio::tls_context tls_ctx;
     session s(ioc, tls_ctx);
     
     s.set_timeout(std::chrono::milliseconds{5000});
@@ -157,7 +157,7 @@ void test_timeout_configuration()
 void test_request_method_signatures()
 {
     corosio::io_context ioc;
-    corosio::tls::context tls_ctx;
+    corosio::tls_context tls_ctx;
     session s(ioc, tls_ctx);
     
     urls::url_view url("https://example.com");
@@ -180,7 +180,7 @@ void test_request_method_signatures()
 void test_request_with_options()
 {
     corosio::io_context ioc;
-    corosio::tls::context tls_ctx;
+    corosio::tls_context tls_ctx;
     session s(ioc, tls_ctx);
     
     urls::url_view url("https://example.com");
@@ -196,7 +196,7 @@ void test_request_with_options()
 void test_json_body_signatures()
 {
     corosio::io_context ioc;
-    corosio::tls::context tls_ctx;
+    corosio::tls_context tls_ctx;
     session s(ioc, tls_ctx);
     
     urls::url_view url("https://example.com/api");
@@ -211,7 +211,7 @@ void test_json_body_signatures()
 void test_custom_type_signatures()
 {
     corosio::io_context ioc;
-    corosio::tls::context tls_ctx;
+    corosio::tls_context tls_ctx;
     session s(ioc, tls_ctx);
     
     urls::url_view url("https://example.com/api");
@@ -228,7 +228,7 @@ void test_custom_type_signatures()
 void test_streaming_signatures()
 {
     corosio::io_context ioc;
-    corosio::tls::context tls_ctx;
+    corosio::tls_context tls_ctx;
     session s(ioc, tls_ctx);
     
     urls::url_view url("https://example.com/large-file");

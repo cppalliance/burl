@@ -12,7 +12,7 @@
 #include <boost/http/message_base.hpp>
 #include <boost/http/serializer.hpp>
 #include <boost/http/response_parser.hpp>
-#include <boost/corosio/socket.hpp>
+#include <boost/corosio/tcp_socket.hpp>
 #include <boost/corosio/openssl_stream.hpp>
 #include <boost/json/parse.hpp>
 
@@ -36,7 +36,7 @@ struct session::impl
     corosio::io_context& ioc_;
 
     // Reference to caller's TLS context
-    corosio::tls::context& tls_ctx_;
+    corosio::tls_context& tls_ctx_;
 
     //------------------------------------------------------
     // Configuration
@@ -96,7 +96,7 @@ struct session::impl
     // Constructor
     //------------------------------------------------------
 
-    impl(corosio::io_context& ioc, corosio::tls::context& tls_ctx)
+    impl(corosio::io_context& ioc, corosio::tls_context& tls_ctx)
         : ioc_(ioc)
         , tls_ctx_(tls_ctx)
     {
@@ -217,7 +217,7 @@ struct session::impl
 
 session::session(
     corosio::io_context& ioc,
-    corosio::tls::context& tls_ctx)
+    corosio::tls_context& tls_ctx)
     : impl_(std::make_unique<impl>(ioc, tls_ctx))
 {
 }
@@ -235,13 +235,13 @@ session::get_io_context() noexcept
     return impl_->ioc_;
 }
 
-corosio::tls::context&
+corosio::tls_context&
 session::tls_context() noexcept
 {
     return impl_->tls_ctx_;
 }
 
-corosio::tls::context const&
+corosio::tls_context const&
 session::tls_context() const noexcept
 {
     return impl_->tls_ctx_;

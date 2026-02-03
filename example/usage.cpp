@@ -454,18 +454,18 @@ capy::io_task<> example_cookies(burl::session& s)
 void example_tls_config()
 {
     corosio::io_context ioc;
-    corosio::tls::context tls_ctx;
+    corosio::tls_context tls_ctx;
     
     // Configure TLS before creating session
     tls_ctx.set_default_verify_paths();
-    tls_ctx.set_verify_mode(corosio::tls::verify_mode::peer);
+    tls_ctx.set_verify_mode(corosio::tls_verify_mode::peer);
     
     // Or load specific CA file
     // tls_ctx.load_verify_file("/etc/ssl/certs/ca-certificates.crt");
     
     // Client certificate authentication
-    // tls_ctx.use_certificate_file("client.crt", corosio::tls::file_format::pem);
-    // tls_ctx.use_private_key_file("client.key", corosio::tls::file_format::pem);
+    // tls_ctx.use_certificate_file("client.crt", corosio::tls_file_format::pem);
+    // tls_ctx.use_private_key_file("client.key", corosio::tls_file_format::pem);
     
     burl::session s(ioc, tls_ctx);
     
@@ -479,7 +479,7 @@ void example_tls_config()
 void example_default_headers()
 {
     corosio::io_context ioc;
-    corosio::tls::context tls_ctx;
+    corosio::tls_context tls_ctx;
     burl::session s(ioc, tls_ctx);
     
     // Set headers that apply to all requests
@@ -497,7 +497,7 @@ void example_default_headers()
 void example_basic_session()
 {
     corosio::io_context ioc;
-    corosio::tls::context tls_ctx;
+    corosio::tls_context tls_ctx;
     
     // Configure TLS
     tls_ctx.set_default_verify_paths();
@@ -522,7 +522,7 @@ void example_basic_session()
 void example_multithreaded()
 {
     corosio::io_context ioc;
-    corosio::tls::context tls_ctx;
+    corosio::tls_context tls_ctx;
     tls_ctx.set_default_verify_paths();
     
     burl::session s(ioc, tls_ctx);
@@ -575,7 +575,7 @@ int main()
     
     // Basic setup pattern
     corosio::io_context ioc;
-    corosio::tls::context tls_ctx;
+    corosio::tls_context tls_ctx;
     tls_ctx.set_default_verify_paths();
     
     burl::session s(ioc, tls_ctx);
