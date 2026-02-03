@@ -21,7 +21,7 @@
 #include <boost/capy/ex/run_async.hpp>
 #include <boost/capy/io_task.hpp>
 #include <boost/corosio/io_context.hpp>
-#include <boost/corosio/tls/openssl_stream.hpp>
+#include <boost/corosio/openssl_stream.hpp>
 #include <boost/http/fields.hpp>
 #include <boost/http/method.hpp>
 #include <boost/json/value.hpp>
