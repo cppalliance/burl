@@ -110,6 +110,10 @@ jobs:
         run: |
           git clone --depth 1 -b develop https://github.com/cppalliance/capy.git boost-source/libs/capy
 
+      - name: Clone cppalliance/corosio
+        run: |
+          git clone --depth 1 -b develop https://github.com/cppalliance/corosio.git boost-source/libs/corosio
+
       - name: Patch Boost
         id: patch
         run: |
