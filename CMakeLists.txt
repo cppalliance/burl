@@ -61,8 +61,7 @@ set(BOOST_BURL_DEPENDENCIES
     Boost::url)
 
 # OpenSSL dependencies (added after find_package)
-set(BOOST_BURL_OPENSSL_DEPENDENCIES
-    Boost::corosio_openssl)
+set(BOOST_BURL_OPENSSL_DEPENDENCIES)
 
 foreach (BOOST_BURL_DEPENDENCY ${BOOST_BURL_DEPENDENCIES})
     if (BOOST_BURL_DEPENDENCY MATCHES "^[ ]*Boost::([A-Za-z0-9_]+)[ ]*$")
@@ -163,6 +162,7 @@ endfunction()
 add_library(boost_burl ${BOOST_BURL_HEADERS} ${BOOST_BURL_SOURCES})
 add_library(Boost::burl ALIAS boost_burl)
 boost_burl_setup_properties(boost_burl)
+target_link_libraries(boost_burl PUBLIC OpenSSL::SSL OpenSSL::Crypto)
 
 #-------------------------------------------------
 #
