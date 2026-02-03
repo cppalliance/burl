@@ -10,6 +10,7 @@
 // Unit tests to verify auth.hpp compiles correctly
 
 #include <boost/burl/auth.hpp>
+#include <boost/http/request.hpp>
 
 #include <type_traits>
 

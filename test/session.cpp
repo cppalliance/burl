@@ -10,7 +10,6 @@
 // Unit tests to verify session.hpp compiles correctly
 
 #include <boost/burl/session.hpp>
-#include <boost/corosio/tls/context.hpp>
 
 #include <type_traits>
 
