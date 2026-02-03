@@ -118,6 +118,10 @@ jobs:
         run: |
           git clone --depth 1 -b develop https://github.com/boostorg/filesystem.git boost-source/libs/filesystem
 
+      - name: Clone boostorg/scope
+        run: |
+          git clone --depth 1 -b develop https://github.com/boostorg/scope.git boost-source/libs/scope
+
       - name: Patch Boost
         id: patch
         run: |
