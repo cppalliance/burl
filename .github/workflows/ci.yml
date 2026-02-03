@@ -91,7 +91,7 @@ jobs:
       - name: Install packages
         uses: alandefreitas/cpp-actions/package-install@v1.9.0
         with:
-          apt-get: build-essential
+          apt-get: build-essential libssl-dev
 
       - name: Clone Boost
         uses: alandefreitas/cpp-actions/boost-clone@v1.9.0
