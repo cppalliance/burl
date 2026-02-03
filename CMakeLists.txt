@@ -80,6 +80,13 @@ set(BOOST_EXCLUDE_LIBRARIES burl)
 
 #-------------------------------------------------
 #
+# OpenSSL
+#
+#-------------------------------------------------
+find_package(OpenSSL)
+
+#-------------------------------------------------
+#
 # Add Boost Subdirectory
 #
 #-------------------------------------------------
@@ -124,13 +131,7 @@ if (BOOST_BURL_IS_ROOT)
     unset(CMAKE_FOLDER)
 endif ()
 
-#-------------------------------------------------
-#
-# OpenSSL
-#
-#-------------------------------------------------
-find_package(OpenSSL)
-if (OpenSSL_FOUND)
+if (OpenSSL_FOUND AND TARGET Boost::corosio_openssl)
     list(APPEND BOOST_BURL_OPENSSL_DEPENDENCIES Boost::corosio_openssl)
 endif ()
 
