@@ -91,7 +91,7 @@ jobs:
       - name: Install packages
         uses: alandefreitas/cpp-actions/package-install@v1.9.0
         with:
-          apt-get: build-essential
+          apt-get: build-essential libssl-dev
 
       - name: Clone Boost
         uses: alandefreitas/cpp-actions/boost-clone@v1.9.0
@@ -101,6 +101,14 @@ jobs:
           boost-dir: boost-source
           scan-modules-dir: burl-root
           scan-modules-ignore: burl
+
+      - name: Clone cppalliance dependencies
+        run: |
+          set -xe
+          cd boost-source/libs
+          git clone --depth 1 -b develop https://github.com/cppalliance/capy.git
+          git clone --depth 1 -b develop https://github.com/cppalliance/corosio.git
+          git clone --depth 1 -b develop https://github.com/cppalliance/http.git
 
       - name: Patch Boost
         id: patch
