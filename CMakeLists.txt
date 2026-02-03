@@ -131,7 +131,7 @@ if (BOOST_BURL_IS_ROOT)
     unset(CMAKE_FOLDER)
 endif ()
 
-if (OpenSSL_FOUND AND TARGET Boost::corosio_openssl)
+if (OpenSSL_FOUND)
     list(APPEND BOOST_BURL_OPENSSL_DEPENDENCIES Boost::corosio_openssl)
 endif ()
 
