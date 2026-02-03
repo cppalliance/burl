@@ -130,6 +130,9 @@ endif ()
 #
 #-------------------------------------------------
 find_package(OpenSSL)
+if (OpenSSL_FOUND)
+    list(APPEND BOOST_BURL_OPENSSL_DEPENDENCIES Boost::corosio_openssl)
+endif ()
 
 #-------------------------------------------------
 #
