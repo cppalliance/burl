@@ -67,7 +67,7 @@ public:
     s.set_auth(std::make_shared<burl::http_basic_auth>("user", "pass"));
     @endcode
 */
-class http_basic_auth : public auth_base
+class BOOST_BURL_DECL http_basic_auth : public auth_base
 {
     std::string username_;
     std::string password_;
@@ -116,7 +116,7 @@ public:
     s.set_auth(std::make_shared<burl::http_digest_auth>("user", "pass"));
     @endcode
 */
-class http_digest_auth : public auth_base
+class BOOST_BURL_DECL http_digest_auth : public auth_base
 {
     std::string username_;
     std::string password_;
@@ -179,7 +179,7 @@ public:
     s.set_auth(std::make_shared<burl::http_bearer_auth>("your-token-here"));
     @endcode
 */
-class http_bearer_auth : public auth_base
+class BOOST_BURL_DECL http_bearer_auth : public auth_base
 {
     std::string token_;
 

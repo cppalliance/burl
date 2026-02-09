@@ -1,0 +1,55 @@
+#
+# Copyright (c) 2025 Vinnie Falco (vinnie dot falco at gmail dot com)
+#
+# Distributed under the Boost Software License, Version 1.0. (See accompanying
+# file LICENSE_1_0.txt or copy at http://www.boost.org/LICENSE_1_0.txt)
+#
+# Official repository: https://github.com/cppalliance/burl
+#
+
+import ac ;
+import config : requires ;
+
+using openssl ;
+
+constant c11-requires :
+    [ requires
+    cxx20_hdr_coroutine
+    ]
+    ;
+
+path-constant BURL_ROOT : .. ;
+
+project boost/burl
+    : common-requirements
+      $(c11-requires)
+      <link>shared:<define>BOOST_BURL_DYN_LINK=1
+      <link>static:<define>BOOST_BURL_STATIC_LINK=1
+    : source-location $(BURL_ROOT)
+    ;
+
+alias burl_sources : [ glob-tree-ex ./src : *.cpp ] ;
+
+explicit burl_sources ;
+
+lib boost_burl
+   : burl_sources
+   : requirements
+     <library>/boost//capy
+     <library>/boost//corosio
+     [ ac.check-library /boost/corosio//boost_corosio_openssl : <library>/boost/corosio//boost_corosio_openssl : ]
+     <library>/boost//http
+     <library>/boost//json
+     <library>/boost//url
+     <include>../
+     <define>BOOST_BURL_SOURCE
+   : usage-requirements
+     <library>/boost//capy
+     <library>/boost//corosio
+     [ ac.check-library /boost/corosio//boost_corosio_openssl : <library>/boost/corosio//boost_corosio_openssl : ]
+     <library>/boost//http
+     <library>/boost//json
+     <library>/boost//url
+   ;
+
+boost-install boost_burl ;

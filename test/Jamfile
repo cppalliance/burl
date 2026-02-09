@@ -7,9 +7,4 @@
 # Official repository: https://github.com/cppalliance/burl
 #
 
-if(NOT TARGET tests)
-    add_custom_target(tests)
-    set_property(TARGET tests PROPERTY FOLDER Dependencies)
-endif()
-
-add_subdirectory(unit)
+build-project unit ;

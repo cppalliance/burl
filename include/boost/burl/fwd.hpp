@@ -10,15 +10,8 @@
 #ifndef BOOST_BURL_FWD_HPP
 #define BOOST_BURL_FWD_HPP
 
+#include <boost/burl/detail/config.hpp>
 #include <string>
-
-//----------------------------------------------------------
-// Library visibility macros
-//----------------------------------------------------------
-
-#ifndef BOOST_BURL_DECL
-#define BOOST_BURL_DECL inline
-#endif
 
 namespace boost {
 namespace burl {
