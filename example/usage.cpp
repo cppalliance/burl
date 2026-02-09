@@ -12,7 +12,7 @@
 
 #include <boost/burl/session.hpp>
 #include <boost/capy/ex/run_async.hpp>
-#include <boost/corosio/tls/context.hpp>
+#include <boost/corosio/tls_context.hpp>
 
 #include <iostream>
 #include <thread>
@@ -36,7 +36,7 @@ capy::io_task<> example_simple_get(burl::session& s)
     
     if (ec) {
         std::cerr << "Error: " << ec.message() << "\n";
-        co_return ec;
+        co_return {};
     }
     
     if (r.ok()) {
@@ -57,7 +57,7 @@ capy::io_task<> example_headers(burl::session& s)
     auto [ec, r] = co_await s.get("https://httpbin.org/headers");
     
     if (ec)
-        co_return ec;
+        co_return {};
     
     // Access headers directly via http::response
     if (r.message.exists(http::field::content_type)) {
@@ -83,7 +83,7 @@ capy::io_task<> example_url_components(burl::session& s)
     auto [ec, r] = co_await s.get("https://httpbin.org/get?foo=bar&baz=123");
     
     if (ec)
-        co_return ec;
+        co_return {};
     
     // Access URL components via urls::url
     std::cout << "Final URL: " << r.url.buffer() << "\n";
@@ -115,7 +115,7 @@ capy::io_task<> example_url_building(burl::session& s)
     auto [ec, r] = co_await s.get(url);
     
     if (ec)
-        co_return ec;
+        co_return {};
     
     std::cout << "Requested: " << url.buffer() << "\n";
     std::cout << "Response: " << r.status_int() << "\n";
@@ -139,7 +139,7 @@ capy::io_task<> example_post_json(burl::session& s)
     auto [ec, r] = co_await s.post("https://httpbin.org/post", opts);
     
     if (ec)
-        co_return ec;
+        co_return {};
     
     std::cout << "POST response: " << r.status_int() << "\n";
     std::cout << r.text() << "\n";
@@ -159,7 +159,7 @@ capy::io_task<> example_json_response(burl::session& s)
         burl::as_json);
     
     if (ec)
-        co_return ec;
+        co_return {};
     
     if (r.ok()) {
         // r.body is json::value
@@ -193,7 +193,7 @@ capy::io_task<> example_custom_type(burl::session& s)
         burl::as_type<GitHubUser>);
     
     if (ec)
-        co_return ec;
+        co_return {};
     
     if (r.ok()) {
         // r.body is GitHubUser
@@ -215,7 +215,7 @@ capy::io_task<> example_streaming(burl::session& s)
         "https://httpbin.org/bytes/10000");
     
     if (ec)
-        co_return ec;
+        co_return {};
     
     std::cout << "Status: " << r.status_int() << "\n";
     
@@ -224,21 +224,23 @@ capy::io_task<> example_streaming(burl::session& s)
     capy::const_buffer arr[16];
     
     while (true) {
-        auto [err, count] = co_await r.body.pull(arr, 16);
-        
+        auto [err, buffers] = co_await r.body.pull(std::span{arr});
+
         if (err) {
             std::cerr << "Read error: " << err.message() << "\n";
             break;
         }
-        
-        if (count == 0)
+
+        if (buffers.empty())
             break;  // End of body
-        
+
         // Calculate bytes in this batch
-        for (std::size_t i = 0; i < count; ++i)
-            total += arr[i].size();
-        
-        r.body.consume(total);
+        std::size_t batch = 0;
+        for (auto const& buf : buffers)
+            batch += buf.size();
+        total += batch;
+
+        r.body.consume(batch);
     }
     
     std::cout << "Downloaded " << total << " bytes\n";
@@ -261,7 +263,7 @@ capy::io_task<> example_custom_headers(burl::session& s)
     auto [ec, r] = co_await s.get("https://httpbin.org/headers", opts);
     
     if (ec)
-        co_return ec;
+        co_return {};
     
     std::cout << r.text() << "\n";
     
@@ -280,7 +282,7 @@ capy::io_task<> example_basic_auth(burl::session& s)
     auto [ec, r] = co_await s.get("https://httpbin.org/basic-auth/user/passwd");
     
     if (ec)
-        co_return ec;
+        co_return {};
     
     std::cout << "Auth result: " << r.status_int() << "\n";
     
@@ -298,7 +300,7 @@ capy::io_task<> example_bearer_auth(burl::session& s)
     auto [ec, r] = co_await s.get("https://httpbin.org/bearer");
     
     if (ec)
-        co_return ec;
+        co_return {};
     
     std::cout << "Bearer auth result: " << r.status_int() << "\n";
     
@@ -317,7 +319,7 @@ capy::io_task<> example_per_request_auth(burl::session& s)
     auto [ec, r] = co_await s.get("https://httpbin.org/basic-auth/user/pass", opts);
     
     if (ec)
-        co_return ec;
+        co_return {};
     
     std::cout << "Result: " << r.status_int() << "\n";
     
@@ -340,7 +342,7 @@ capy::io_task<> example_timeout(burl::session& s)
             std::cout << "Request timed out!\n";
         else
             std::cout << "Error: " << ec.message() << "\n";
-        co_return ec;
+        co_return {};
     }
     
     std::cout << "Completed in " << r.elapsed.count() << "ms\n";
@@ -358,7 +360,7 @@ capy::io_task<> example_redirects(burl::session& s)
     auto [ec, r] = co_await s.get("https://httpbin.org/redirect/3");
     
     if (ec)
-        co_return ec;
+        co_return {};
     
     std::cout << "Final URL: " << r.url.buffer() << "\n";
     std::cout << "Redirects followed: " << r.history.size() << "\n";
@@ -382,7 +384,7 @@ capy::io_task<> example_no_redirects(burl::session& s)
     auto [ec, r] = co_await s.get("https://httpbin.org/redirect/1", opts);
     
     if (ec)
-        co_return ec;
+        co_return {};
     
     // Should get 302 instead of following redirect
     std::cout << "Status: " << r.status_int() << "\n";
@@ -403,7 +405,7 @@ capy::io_task<> example_raise_for_status(burl::session& s)
     auto [ec, r] = co_await s.get("https://httpbin.org/status/404");
     
     if (ec)
-        co_return ec;
+        co_return {};
     
     try {
         r.raise_for_status();
@@ -428,7 +430,7 @@ capy::io_task<> example_cookies(burl::session& s)
     auto [ec1, r1] = co_await s.get("https://httpbin.org/cookies/set/session/abc123");
     
     if (ec1)
-        co_return ec1;
+        co_return {};
     
     // Check cookies in jar
     std::cout << "Cookies in jar: " << s.cookies().size() << "\n";
@@ -440,7 +442,7 @@ capy::io_task<> example_cookies(burl::session& s)
     auto [ec2, r2] = co_await s.get("https://httpbin.org/cookies");
     
     if (ec2)
-        co_return ec2;
+        co_return {};
     
     std::cout << "Cookies response: " << r2.text() << "\n";
     
@@ -454,18 +456,18 @@ capy::io_task<> example_cookies(burl::session& s)
 void example_tls_config()
 {
     corosio::io_context ioc;
-    corosio::tls::context tls_ctx;
+    corosio::tls_context tls_ctx;
     
     // Configure TLS before creating session
     tls_ctx.set_default_verify_paths();
-    tls_ctx.set_verify_mode(corosio::tls::verify_mode::peer);
+    tls_ctx.set_verify_mode(corosio::tls_verify_mode::peer);
     
     // Or load specific CA file
     // tls_ctx.load_verify_file("/etc/ssl/certs/ca-certificates.crt");
     
     // Client certificate authentication
-    // tls_ctx.use_certificate_file("client.crt", corosio::tls::file_format::pem);
-    // tls_ctx.use_private_key_file("client.key", corosio::tls::file_format::pem);
+    // tls_ctx.use_certificate_file("client.crt", corosio::tls_file_format::pem);
+    // tls_ctx.use_private_key_file("client.key", corosio::tls_file_format::pem);
     
     burl::session s(ioc, tls_ctx);
     
@@ -479,7 +481,7 @@ void example_tls_config()
 void example_default_headers()
 {
     corosio::io_context ioc;
-    corosio::tls::context tls_ctx;
+    corosio::tls_context tls_ctx;
     burl::session s(ioc, tls_ctx);
     
     // Set headers that apply to all requests
@@ -497,7 +499,7 @@ void example_default_headers()
 void example_basic_session()
 {
     corosio::io_context ioc;
-    corosio::tls::context tls_ctx;
+    corosio::tls_context tls_ctx;
     
     // Configure TLS
     tls_ctx.set_default_verify_paths();
@@ -522,7 +524,7 @@ void example_basic_session()
 void example_multithreaded()
 {
     corosio::io_context ioc;
-    corosio::tls::context tls_ctx;
+    corosio::tls_context tls_ctx;
     tls_ctx.set_default_verify_paths();
     
     burl::session s(ioc, tls_ctx);
@@ -575,7 +577,7 @@ int main()
     
     // Basic setup pattern
     corosio::io_context ioc;
-    corosio::tls::context tls_ctx;
+    corosio::tls_context tls_ctx;
     tls_ctx.set_default_verify_paths();
     
     burl::session s(ioc, tls_ctx);

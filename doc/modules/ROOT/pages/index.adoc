@@ -1,0 +1,17 @@
+= Burl
+
+Burl is a high-level HTTP client library built on Capy and Http.
+
+== Requirements
+
+=== Assumed Knowledge
+
+* C++20 coroutines, concepts, and ranges
+* Basic concurrent programming
+
+=== Compiler Support
+
+* GCC 12+
+* Clang 17+
+* Apple-Clang (macOS 14+)
+* MSVC 14.34+

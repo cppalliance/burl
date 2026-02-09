@@ -69,16 +69,13 @@ enum class error
 
 /** Error category for burl errors.
 */
-class error_category : public std::error_category
+class BOOST_BURL_DECL error_category : public std::error_category
 {
 public:
     /** Return the name of the category.
     */
     char const*
-    name() const noexcept override
-    {
-        return "boost.burl";
-    }
+    name() const noexcept override;
 
     /** Return the message for an error code.
     */
@@ -116,7 +113,7 @@ make_error_code(error e) noexcept
     This exception is thrown by response::raise_for_status() when
     the HTTP status code indicates an error (>= 400).
 */
-class http_error : public std::exception
+class BOOST_BURL_DECL http_error : public std::exception
 {
     unsigned short status_code_;
     std::string reason_;
@@ -175,63 +172,5 @@ public:
 
 template<>
 struct std::is_error_code_enum<boost::burl::error> : std::true_type {};
-
-//----------------------------------------------------------
-
-namespace boost {
-namespace burl {
-
-BOOST_BURL_DECL
-std::string
-error_category::message(int ev) const
-{
-    switch(static_cast<error>(ev))
-    {
-    case error::success:            return "success";
-    case error::invalid_url:        return "invalid URL";
-    case error::invalid_scheme:     return "invalid URL scheme";
-    case error::resolve_failed:     return "DNS resolution failed";
-    case error::connection_failed:  return "connection failed";
-    case error::tls_handshake_failed: return "TLS handshake failed";
-    case error::timeout:            return "operation timed out";
-    case error::too_many_redirects: return "too many redirects";
-    case error::body_too_large:     return "response body too large";
-    case error::invalid_response:   return "invalid HTTP response";
-    case error::connection_closed:  return "connection closed";
-    case error::cancelled:          return "operation cancelled";
-    case error::not_implemented:    return "not implemented";
-    default:                        return "unknown error";
-    }
-}
-
-BOOST_BURL_DECL
-std::error_condition
-error_category::default_error_condition(int ev) const noexcept
-{
-    return std::error_condition(ev, *this);
-}
-
-BOOST_BURL_DECL
-std::error_category const&
-burl_category() noexcept
-{
-    static error_category const cat{};
-    return cat;
-}
-
-BOOST_BURL_DECL
-http_error::http_error(
-    unsigned short status_code,
-    std::string reason,
-    std::string url)
-    : status_code_(status_code)
-    , reason_(std::move(reason))
-    , url_(std::move(url))
-{
-    what_ = std::to_string(status_code_) + " " + reason_ + ": " + url_;
-}
-
-} // namespace burl
-} // namespace boost
 
 #endif

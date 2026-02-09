@@ -36,6 +36,7 @@ if (BOOST_BURL_IS_ROOT)
 endif ()
 option(BOOST_BURL_BUILD_TESTS "Build boost::burl tests" ${BUILD_TESTING})
 option(BOOST_BURL_BUILD_EXAMPLES "Build boost::burl examples" ${BOOST_BURL_IS_ROOT})
+option(BOOST_BURL_MRDOCS_BUILD "Build the target for MrDocs: see mrdocs.yml" OFF)
 
 # Check if environment variable BOOST_SRC_DIR is set
 if (NOT DEFINED BOOST_SRC_DIR AND DEFINED ENV{BOOST_SRC_DIR})
@@ -60,25 +61,26 @@ set(BOOST_BURL_DEPENDENCIES
     Boost::system
     Boost::url)
 
-# OpenSSL dependencies (added after find_package)
-set(BOOST_BURL_OPENSSL_DEPENDENCIES
-    Boost::corosio_openssl)
-
 foreach (BOOST_BURL_DEPENDENCY ${BOOST_BURL_DEPENDENCIES})
     if (BOOST_BURL_DEPENDENCY MATCHES "^[ ]*Boost::([A-Za-z0-9_]+)[ ]*$")
         list(APPEND BOOST_BURL_INCLUDE_LIBRARIES ${CMAKE_MATCH_1})
     endif ()
 endforeach ()
 # Conditional dependencies
-if (BOOST_BURL_BUILD_TESTS)
-    set(BOOST_BURL_UNIT_TEST_LIBRARIES)
+if (NOT BOOST_BURL_MRDOCS_BUILD)
+    if (BOOST_BURL_BUILD_TESTS)
+        set(BOOST_BURL_UNIT_TEST_LIBRARIES)
+    endif ()
+    if (BOOST_BURL_BUILD_EXAMPLES)
+        set(BOOST_BURL_EXAMPLE_LIBRARIES)
+    endif ()
 endif ()
-if (BOOST_BURL_BUILD_EXAMPLES)
-    set(BOOST_BURL_EXAMPLE_LIBRARIES)
-endif ()
-# Complete dependency list
-set(BOOST_INCLUDE_LIBRARIES ${BOOST_BURL_INCLUDE_LIBRARIES} ${BOOST_BURL_UNIT_TEST_LIBRARIES} ${BOOST_BURL_EXAMPLE_LIBRARIES})
-set(BOOST_EXCLUDE_LIBRARIES burl)
+# Complete dependency list (only set when burl is the root project)
+# When built as part of the superproject, these are set by the superproject
+if (BOOST_BURL_IS_ROOT)
+    set(BOOST_INCLUDE_LIBRARIES ${BOOST_BURL_INCLUDE_LIBRARIES} ${BOOST_BURL_UNIT_TEST_LIBRARIES} ${BOOST_BURL_EXAMPLE_LIBRARIES})
+    set(BOOST_EXCLUDE_LIBRARIES burl)
+endif()
 
 #-------------------------------------------------
 #
@@ -128,10 +130,13 @@ endif ()
 
 #-------------------------------------------------
 #
-# OpenSSL
+# OpenSSL (optional)
 #
 #-------------------------------------------------
-find_package(OpenSSL REQUIRED)
+
+# OpenSSL is optional for burl. When available, TLS support is enabled via
+# corosio_openssl. The code uses tls_stream (base class) to avoid requiring
+# openssl_stream symbols when OpenSSL is not available.
 
 #-------------------------------------------------
 #
@@ -140,17 +145,27 @@ find_package(OpenSSL REQUIRED)
 #-------------------------------------------------
 set_property(GLOBAL PROPERTY USE_FOLDERS ON)
 
-file(GLOB_RECURSE BOOST_BURL_HEADERS CONFIGURE_DEPENDS include/boost/*.hpp include/boost/*.natvis)
-file(GLOB_RECURSE BOOST_BURL_SOURCES CONFIGURE_DEPENDS src/*.cpp src/*.hpp)
+file(GLOB_RECURSE BOOST_BURL_HEADERS CONFIGURE_DEPENDS
+    "${CMAKE_CURRENT_SOURCE_DIR}/include/boost/burl/*.hpp"
+    "${CMAKE_CURRENT_SOURCE_DIR}/include/boost/burl.hpp")
+file(GLOB_RECURSE BOOST_BURL_SOURCES CONFIGURE_DEPENDS
+    "${CMAKE_CURRENT_SOURCE_DIR}/src/*.hpp"
+    "${CMAKE_CURRENT_SOURCE_DIR}/src/*.cpp")
 
-source_group(TREE ${CMAKE_CURRENT_SOURCE_DIR}/include/boost/burl PREFIX "include" FILES ${BOOST_BURL_HEADERS})
-source_group(TREE ${CMAKE_CURRENT_SOURCE_DIR}/src PREFIX "src" FILES ${BOOST_BURL_SOURCES})
+source_group("" FILES "include/boost/burl.hpp")
+source_group(TREE "${CMAKE_CURRENT_SOURCE_DIR}/include/boost/burl" PREFIX "include" FILES ${BOOST_BURL_HEADERS})
+source_group(TREE "${CMAKE_CURRENT_SOURCE_DIR}/src" PREFIX "src" FILES ${BOOST_BURL_SOURCES})
 
 function(boost_burl_setup_properties target)
     target_compile_features(${target} PUBLIC cxx_std_20)
     target_include_directories(${target} PUBLIC "${PROJECT_SOURCE_DIR}/include")
     target_include_directories(${target} PRIVATE "${PROJECT_SOURCE_DIR}")
-    target_link_libraries(${target} PUBLIC ${BOOST_BURL_DEPENDENCIES} ${BOOST_BURL_OPENSSL_DEPENDENCIES})
+    target_link_libraries(${target} PUBLIC ${BOOST_BURL_DEPENDENCIES})
+    # Link corosio_openssl for TLS support when available.
+    # In superproject builds, corosio is processed after burl (alphabetically),
+    # so the target may not exist at configure time. Use $<TARGET_NAME_IF_EXISTS:...>
+    # which evaluates at generation time when all targets exist.
+    target_link_libraries(${target} PUBLIC $<TARGET_NAME_IF_EXISTS:Boost::corosio_openssl>)
     target_compile_definitions(${target} PUBLIC BOOST_BURL_NO_LIB)
     target_compile_definitions(${target} PRIVATE BOOST_BURL_SOURCE)
     if (BUILD_SHARED_LIBS)
@@ -159,6 +174,15 @@ function(boost_burl_setup_properties target)
         target_compile_definitions(${target} PUBLIC BOOST_BURL_STATIC_LINK)
     endif ()
 endfunction()
+
+if (BOOST_BURL_MRDOCS_BUILD)
+    file(WRITE "${CMAKE_CURRENT_BINARY_DIR}/mrdocs.cpp" "#include <boost/burl.hpp>\n")
+    add_library(boost_burl_mrdocs "${CMAKE_CURRENT_BINARY_DIR}/mrdocs.cpp")
+    boost_burl_setup_properties(boost_burl_mrdocs)
+    target_compile_definitions(boost_burl_mrdocs PUBLIC BOOST_BURL_MRDOCS)
+    set_target_properties(boost_burl_mrdocs PROPERTIES EXPORT_COMPILE_COMMANDS ON)
+    return()
+endif ()
 
 add_library(boost_burl ${BOOST_BURL_HEADERS} ${BOOST_BURL_SOURCES})
 add_library(Boost::burl ALIAS boost_burl)

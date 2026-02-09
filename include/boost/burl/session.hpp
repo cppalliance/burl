@@ -21,7 +21,7 @@
 #include <boost/capy/ex/run_async.hpp>
 #include <boost/capy/io_task.hpp>
 #include <boost/corosio/io_context.hpp>
-#include <boost/corosio/tls/openssl_stream.hpp>
+#include <boost/corosio/tls_context.hpp>
 #include <boost/http/fields.hpp>
 #include <boost/http/method.hpp>
 #include <boost/json/value.hpp>
@@ -53,7 +53,7 @@ namespace burl {
     @par Example
     @code
     corosio::io_context ioc;
-    corosio::tls::context tls_ctx;
+    corosio::tls_context tls_ctx;
     
     // Configure TLS
     tls_ctx.set_default_verify_paths();
@@ -68,7 +68,7 @@ namespace burl {
     ioc.run();
     @endcode
 */
-class session
+class BOOST_BURL_DECL session
 {
     struct impl;
     std::unique_ptr<impl> impl_;
@@ -89,7 +89,7 @@ public:
     */
     session(
         corosio::io_context& ioc,
-        corosio::tls::context& tls_ctx);
+        corosio::tls_context& tls_ctx);
 
     /** Destructor.
 
@@ -127,19 +127,19 @@ public:
         @par Example
         @code
         corosio::io_context ioc;
-        corosio::tls::context tls_ctx;
+        corosio::tls_context tls_ctx;
         burl::session s(ioc, tls_ctx);
         
         // Can still modify TLS settings via the reference
         s.tls_context().set_verify_mode(corosio::tls::verify_mode::peer);
         @endcode
     */
-    corosio::tls::context&
+    corosio::tls_context&
     tls_context() noexcept;
 
     /** Get a reference to the TLS context (const).
     */
-    corosio::tls::context const&
+    corosio::tls_context const&
     tls_context() const noexcept;
 
     //------------------------------------------------------

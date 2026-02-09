@@ -12,8 +12,12 @@
 #include <boost/http/request.hpp>
 #include <boost/http/serializer.hpp>
 #include <boost/http/response_parser.hpp>
-#include <boost/corosio/socket.hpp>
-#include <boost/corosio/tls/openssl_stream.hpp>
+#include <boost/corosio/tcp_socket.hpp>
+#include <boost/corosio/tls_context.hpp>
+#include <boost/corosio/tls_stream.hpp>
+#if defined(BOOST_COROSIO_HAS_OPENSSL)
+#include <boost/corosio/openssl_stream.hpp>
+#endif
 #include <boost/json/parse.hpp>
 
 #include <map>
@@ -36,7 +40,7 @@ struct session::impl
     corosio::io_context& ioc_;
 
     // Reference to caller's TLS context
-    corosio::tls::context& tls_ctx_;
+    corosio::tls_context& tls_ctx_;
 
     //------------------------------------------------------
     // Configuration
@@ -77,8 +81,8 @@ struct session::impl
     // A pooled connection
     struct connection
     {
-        std::unique_ptr<corosio::socket> socket;
-        std::unique_ptr<corosio::openssl_stream> tls;
+        std::unique_ptr<corosio::tcp_socket> socket;
+        std::unique_ptr<corosio::tls_stream> tls;
 
         // Returns the appropriate stream for I/O
         corosio::io_stream&
@@ -96,7 +100,7 @@ struct session::impl
     // Constructor
     //------------------------------------------------------
 
-    impl(corosio::io_context& ioc, corosio::tls::context& tls_ctx)
+    impl(corosio::io_context& ioc, corosio::tls_context& tls_ctx)
         : ioc_(ioc)
         , tls_ctx_(tls_ctx)
     {
@@ -217,7 +221,7 @@ struct session::impl
 
 session::session(
     corosio::io_context& ioc,
-    corosio::tls::context& tls_ctx)
+    corosio::tls_context& tls_ctx)
     : impl_(std::make_unique<impl>(ioc, tls_ctx))
 {
 }
@@ -235,13 +239,13 @@ session::get_io_context() noexcept
     return impl_->ioc_;
 }
 
-corosio::tls::context&
+corosio::tls_context&
 session::tls_context() noexcept
 {
     return impl_->tls_ctx_;
 }
 
-corosio::tls::context const&
+corosio::tls_context const&
 session::tls_context() const noexcept
 {
     return impl_->tls_ctx_;
@@ -306,7 +310,9 @@ session::request(http::method method, urls::url_view url, request_options opts)
     // 1. Validate URL (has host, valid scheme)
     // 2. Call impl_->do_request(method, url, opts)
     // 3. Handle errors appropriately
-    
+    (void)method;
+    (void)url;
+    (void)opts;
     co_return {make_error_code(error::not_implemented), {}};
 }
 
@@ -374,7 +380,8 @@ session::get(urls::url_view url, as_json_t, request_options opts)
     // 2. Parse response body as JSON
     // 3. Construct response<json::value> with parsed body
     // 4. Copy headers, URL, elapsed, history from string response
-    
+    (void)url;
+    (void)opts;
     co_return {make_error_code(error::not_implemented), {}};
 }
 
@@ -385,7 +392,8 @@ session::post(urls::url_view url, as_json_t, request_options opts)
     // 1. Call post(url, opts) to get string response
     // 2. Parse response body as JSON
     // 3. Construct response<json::value> with parsed body
-    
+    (void)url;
+    (void)opts;
     co_return {make_error_code(error::not_implemented), {}};
 }
 
@@ -403,7 +411,8 @@ session::get_streamed(urls::url_view url, request_options opts)
     // 4. Create buffer_source that reads body chunks on demand
     // 5. Return streamed_response with source attached
     // 6. Connection released when source is destroyed
-    
+    (void)url;
+    (void)opts;
     co_return {make_error_code(error::not_implemented), {}};
 }
 
@@ -411,7 +420,8 @@ capy::io_task<streamed_response>
 session::post_streamed(urls::url_view url, request_options opts)
 {
     // TODO: Same as get_streamed but with POST method
-    
+    (void)url;
+    (void)opts;
     co_return {make_error_code(error::not_implemented), {}};
 }
 

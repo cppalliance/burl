@@ -60,6 +60,7 @@ struct cookie
 
         @return true if the cookie has expired
     */
+    BOOST_BURL_DECL
     bool
     is_expired() const noexcept;
 
@@ -68,6 +69,7 @@ struct cookie
         @param url The URL to check against
         @return true if this cookie should be sent to the URL
     */
+    BOOST_BURL_DECL
     bool
     matches(urls::url_view url) const;
 };
@@ -99,7 +101,7 @@ struct cookie
     auto cookies = jar.get_cookies(url);
     @endcode
 */
-class cookie_jar
+class BOOST_BURL_DECL cookie_jar
 {
     std::vector<cookie> cookies_;
 
