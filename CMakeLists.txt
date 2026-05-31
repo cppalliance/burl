@@ -72,7 +72,7 @@ if (NOT BOOST_BURL_MRDOCS_BUILD)
         set(BOOST_BURL_UNIT_TEST_LIBRARIES)
     endif ()
     if (BOOST_BURL_BUILD_EXAMPLES)
-        set(BOOST_BURL_EXAMPLE_LIBRARIES)
+        set(BOOST_BURL_EXAMPLE_LIBRARIES hash2)
     endif ()
 endif ()
 # Complete dependency list (only set when burl is the root project)
@@ -187,6 +187,13 @@ endif ()
 add_library(boost_burl ${BOOST_BURL_HEADERS} ${BOOST_BURL_SOURCES})
 add_library(Boost::burl ALIAS boost_burl)
 boost_burl_setup_properties(boost_burl)
+
+list(APPEND CMAKE_MODULE_PATH "${CMAKE_CURRENT_SOURCE_DIR}/cmake")
+find_package(Libpsl)
+if (Libpsl_FOUND)
+    target_link_libraries(boost_burl PRIVATE Libpsl::Libpsl)
+    target_compile_definitions(boost_burl PRIVATE BURL_HAS_LIBPSL)
+endif ()
 
 #-------------------------------------------------
 #
