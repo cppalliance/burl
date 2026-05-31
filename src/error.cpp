@@ -1,5 +1,5 @@
 //
-// Copyright (c) 2025 Vinnie Falco (vinnie dot falco at gmail dot com)
+// Copyright (c) 2026 Mohammad Nejati
 //
 // Distributed under the Boost Software License, Version 1.0. (See accompanying
 // file LICENSE_1_0.txt or copy at http://www.boost.org/LICENSE_1_0.txt)
@@ -9,8 +9,12 @@
 
 #include <boost/burl/error.hpp>
 
-namespace boost {
-namespace burl {
+#include <boost/http/status.hpp>
+
+namespace boost
+{
+namespace burl
+{
 
 char const*
 error_category::name() const noexcept
@@ -21,30 +25,69 @@ error_category::name() const noexcept
 std::string
 error_category::message(int ev) const
 {
+    if(ev >= 400 && ev < 600)
+    {
+        auto status = static_cast<http::status>(ev);
+        return "HTTP " + std::to_string(ev) + " " +
+            std::string(http::to_string(status));
+    }
+
     switch(static_cast<error>(ev))
     {
-    case error::success:            return "success";
-    case error::invalid_url:        return "invalid URL";
-    case error::invalid_scheme:     return "invalid URL scheme";
-    case error::resolve_failed:     return "DNS resolution failed";
-    case error::connection_failed:  return "connection failed";
-    case error::tls_handshake_failed: return "TLS handshake failed";
-    case error::timeout:            return "operation timed out";
-    case error::too_many_redirects: return "too many redirects";
-    case error::body_too_large:     return "response body too large";
-    case error::invalid_response:   return "invalid HTTP response";
-    case error::connection_closed:  return "connection closed";
-    case error::cancelled:          return "operation cancelled";
-    case error::not_implemented:    return "not implemented";
-    default:                        return "unknown error";
+    case error::invalid_url_scheme:
+        return "invalid URL scheme";
+    case error::too_many_redirects:
+        return "too many redirects";
+    case error::bad_redirect_response:
+        return "bad redirect response";
+    case error::file_changed:
+        return "file size changed during read";
+    case error::unsupported_proxy_scheme:
+        return "unsupported proxy scheme";
+    case error::proxy_connect_failed:
+        return "proxy could not connect to the target";
+    case error::proxy_auth_failed:
+        return "proxy authentication failed";
+    case error::proxy_unsupported_version:
+        return "unsupported proxy protocol version";
+    default:
+        return "unknown error";
     }
 }
 
 std::error_condition
 error_category::default_error_condition(int ev) const noexcept
 {
+    if(ev >= 400 && ev < 500)
+        return condition::client_error;
+    if(ev >= 500 && ev < 600)
+        return condition::server_error;
     return std::error_condition(ev, *this);
 }
+
+//----------------------------------------------------------
+
+char const*
+condition_category::name() const noexcept
+{
+    return "boost.burl.condition";
+}
+
+std::string
+condition_category::message(int ev) const
+{
+    switch(static_cast<condition>(ev))
+    {
+    case condition::client_error:
+        return "HTTP client error";
+    case condition::server_error:
+        return "HTTP server error";
+    default:
+        return "unknown condition";
+    }
+}
+
+//----------------------------------------------------------
 
 std::error_category const&
 burl_category() noexcept
@@ -53,15 +96,11 @@ burl_category() noexcept
     return cat;
 }
 
-http_error::http_error(
-    unsigned short status_code,
-    std::string reason,
-    std::string url)
-    : status_code_(status_code)
-    , reason_(std::move(reason))
-    , url_(std::move(url))
+std::error_category const&
+burl_condition_category() noexcept
 {
-    what_ = std::to_string(status_code_) + " " + reason_ + ": " + url_;
+    static condition_category const cat{};
+    return cat;
 }
 
 } // namespace burl
