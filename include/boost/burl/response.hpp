@@ -223,7 +223,7 @@ public:
         Otherwise returns an empty optional, such as
         for chunked messages.
     */
-    std::optional<std::size_t>
+    std::optional<std::uint64_t>
     content_length() const noexcept
     {
         if(parser_.get().payload() == http::payload::size)
