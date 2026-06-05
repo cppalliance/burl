@@ -362,7 +362,7 @@ inplace_response_body(corosio::tls_context tls_ctx)
 
     // Use the internal inplace buffer for reading the whole body
     // the most efficient method if we know the body always fits.
-    std::cout << co_await r.read_body() << '\n';
+    std::cout << co_await r.as_view() << '\n';
 }
 
 //==============================================================

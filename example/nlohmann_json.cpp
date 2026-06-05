@@ -64,7 +64,7 @@ capy::io_task<nlohmann::json>
 tag_invoke(burl::body_to_tag<nlohmann::json>, burl::response& resp)
 {
     // try inplace buffer first
-    auto [ec, sv] = co_await resp.try_read_body();
+    auto [ec, sv] = co_await resp.try_as_view();
     if(!ec)
         co_return { {}, nlohmann::json::parse(sv, nullptr, false) };
 

@@ -73,7 +73,7 @@ struct body_from_tag
     capy::io_task<my_type>
     tag_invoke(burl::body_to_tag<my_type>, burl::response& resp)
     {
-        auto [ec, sv] = co_await resp.try_read_body();
+        auto [ec, sv] = co_await resp.try_as_view();
         if(ec)
             co_return { ec, {} };
         co_return { {}, my_type{ sv } };
