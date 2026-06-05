@@ -9,80 +9,63 @@ High-Level HTTP Client for Modern C++
 
 ## Overview
 
-Boost.Burl is a high-level HTTP/HTTPS client library for C++20, built on
-coroutines. A `burl::client` owns the configuration, a connection pool,
-a set of default headers, and a cookie jar, all shared by the requests
-made through it. Each request is configured with a small chained builder
-and `co_await`ed:
+Boost.Burl is a Python Requests-inspired HTTP client library for C++20. It
+provides a simple, high-level API for making HTTP/HTTPS requests using
+coroutines:
 
 ```cpp
 burl::client c(co_await capy::this_coro::executor, tls_ctx);
 
-auto body = co_await c.get("https://example.com")
-    .as<std::string>();
-
-std::cout << body << '\n';
+std::cout << 
+    co_await c.get("https://boost.org").as<std::string>() << '\n';
 ```
 
-No callbacks. No completion handlers. Just coroutines.
+One line to make a request.
 
 ## Features
 
-- **Builder API** — Configure each request by chaining off a verb function
-  (`get`, `post`, `put`, `patch`, `delete_`, `head`), then finish with
-  `as<T>()`, `send()`, or `build()`.
-- **Coroutine-native** — Every operation returns an awaitable.
-- **Body conversions** — Send and receive `std::string`, `boost::json::value`,
-  URL-encoded forms, multipart forms, and files (`std::filesystem::path`);
-  extensible to user types through `tag_invoke`.
-- **Automatic HTTPS** — TLS handled transparently via Boost.Corosio.
-- **Content codings** — Transparent `gzip`, `deflate`, and `br` decoding when
-  the corresponding decode service is installed.
-- **Cookie jar** — Optional automatic cookie storage and matching, persistable
-  in Netscape format.
-- **Authentication** — Per-client or per-request Basic and Bearer auth.
-- **Redirect handling** — Follows 301/302/303/307/308 automatically, with
-  configurable limits and origin-aware credential stripping.
-- **Connection pooling** — Connections to the same origin are reused.
-- **Proxies** — HTTP and SOCKS5 proxy support.
-- **Timeouts** — Connect, per-I/O, and whole-operation timeouts, overridable
-  per request.
-- **Streaming** — Read response bodies incrementally instead of buffering.
+- **Builder API** — `get`, `head`, `post`, `put`, `patch`, `delete_`, chained
+  into `as<T>()` (throws), `try_as<T>()` (error code), `send()` (headers
+  first, body unread), or `build()` (execute later).
+- **Body conversions, both directions** — `std::string`, `boost::json::value`,
+  URL-encoded and multipart forms, files;
+  user-defined types pluggable through `tag_invoke`.
+- **Connection pooling** — keep-alive connections reused per origin, with
+  idle timeouts and per-host caps.
+- **Automatic redirects** — 301/302/303/307/308 with standards-compliant
+  method changes, `Referer` handling, and credential stripping on
+  cross-origin hops.
+- **Content codings** — transparent `gzip`, `deflate`, and `br` decoding
+  when the corresponding decode service is installed.
+- **Cookies** — RFC 6265 jar with optional public-suffix validation
+  (libpsl), persistable in Netscape format.
+- **Authentication** — Basic and Bearer, per client or per request.
+- **Proxies** — `http`, `socks5`, with credentials.
+- **Timeouts** — connect, per-I/O, and whole-operation, overridable per
+  request.
+- **Streaming and in-place reads** — pull the body incrementally, or read it
+  without extra allocations from the parser's internal buffer.
 
 ## Quick Start
-
-The verb functions return a `request_builder`. Chaining ends with one of:
-
-- `as<T>()` — send and convert the body to `T`, throwing on failure.
-- `send()` — send and yield `(error_code, response)` with the body unread.
-- `build()` — produce a `burl::request` to execute later with `client::execute`.
-
-All examples below run inside a coroutine and assume a constructed client.
 
 ### Simple GET request
 
 ```cpp
-#include <boost/burl.hpp>
+burl::client c(co_await capy::this_coro::executor, tls_ctx);
 
-capy::task<>
-fetch(corosio::tls_context tls_ctx)
-{
-    burl::client c(co_await capy::this_coro::executor, tls_ctx);
+// Body as a string
+auto text = co_await c.get("https://example.com")
+    .as<std::string>();
 
-    // Body as a string
-    auto text = co_await c.get("https://example.com")
-        .as<std::string>();
-
-    // Body parsed as JSON
-    auto json = co_await c.get("https://postman-echo.com/get")
-        .as<json::value>();
-}
+// Body parsed as JSON
+auto json = co_await c.get("https://postman-echo.com/get")
+    .as<json::value>();
 ```
 
 ### Inspect status and headers
 
-`send()` yields the response without reading the body, so the status line and
-headers can be examined before the body is consumed.
+`send()` yields `(error_code, response)` with the body unread, so the status
+line and headers can be examined before the body is consumed:
 
 ```cpp
 auto [ec, r] = co_await c.get("https://example.com").send();
@@ -98,27 +81,32 @@ std::cout << "body:    " << co_await r.as<std::string>() << '\n';
 ### Treat 4xx/5xx as errors
 
 ```cpp
-// as() throws a std::system_error for error statuses
+burl::client c(co_await capy::this_coro::executor, tls_ctx);
+
+// error_for_status() treats 4XX and 5XX status codes as errors
+
 try
 {
-    co_await c.get("https://example.com/not-found")
+    auto r1 = co_await c.get("https://example.com/not-found")
         .error_for_status()
         .as<std::string>();
 }
-catch(std::system_error const& e)
+catch(std::system_error const&e)
 {
-    std::cerr << e.code().message() << '\n'; // "HTTP 404 Not Found"
+    // HTTP 404 Not Found
+    std::cerr << e.what() << '\n';
 }
 
-// send() reports the status as an error code instead of throwing
-auto [ec, r] = co_await c.get("https://example.com/not-found")
+// Or inspect the error code instead of throwing
+auto [ec, r2] = co_await c.get("https://example.com/not-found")
     .error_for_status()
-    .send();
-if(ec == burl::condition::client_error)
-    std::cerr << ec.message() << '\n';
+    .try_as<std::string>();
 
-// Or raise after the fact
-r.raise_for_status(); // throws on 4xx and 5xx
+if(ec == burl::condition::client_error)
+{
+    // HTTP 404 Not Found
+    std::cerr << ec.message() << '\n';
+}
 ```
 
 ### Query parameters and headers
@@ -138,8 +126,8 @@ auto r = co_await c.get("https://postman-echo.com/get")
 ### Authentication
 
 ```cpp
-c.basic_auth("user", "pass");  // default, sent with every request
-// or c.bearer_auth("TOKEN");
+// default, sent with every request
+c.basic_auth("user", "pass");
 
 auto r = co_await c.get("https://postman-echo.com/basic-auth")
     .basic_auth("postman", "password") // per-request, overrides the default
@@ -148,9 +136,6 @@ auto r = co_await c.get("https://postman-echo.com/basic-auth")
 ```
 
 ### Request bodies
-
-Pass any supported value to `.body()`; the `Content-Type` and length are
-derived from it automatically.
 
 ```cpp
 // JSON
@@ -203,7 +188,7 @@ for(;;)
 ```
 
 For a complete, runnable tour of the API — including in-place body reads,
-proxies, cookie persistence, and deferred execution — see
+proxies, cookie persistence, and deferred execution, see
 [example/usage.cpp](example/usage.cpp).
 
 ## The Beast2 Family
@@ -241,29 +226,21 @@ Burl builds on:
 ### With CMake
 
 ```bash
-mkdir build && cd build
-cmake -DBOOST_SRC_DIR=/path/to/boost ..
+git clone -b develop https://github.com/boostorg/boost
+cd boost
+git submodule update --init --depth 1
+
+cd libs
+git clone -b develop https://github.com/cppalliance/capy
+git clone -b develop https://github.com/cppalliance/corosio
+git clone -b develop https://github.com/cppalliance/http
+git clone -b develop https://github.com/cppalliance/burl
+
+cd burl && mkdir build && cd build
+cmake ..            # or -DBOOST_SRC_DIR=/path/to/boost from elsewhere
 cmake --build .
+ctest               # run the tests
 ```
-
-### Running tests
-
-```bash
-ctest
-```
-
-## Design Philosophy
-
-1. **Client-centric** — A `burl::client` carries the shared configuration,
-   connection pool, default headers, and cookie jar.
-2. **Builder per request** — Requests are configured with a chained
-   `request_builder` and finished with `as`, `send`, or `build`.
-3. **Direct Boost type exposure** — Uses `http::fields`, `urls::url`, and
-   `json::value` directly rather than wrapping them.
-4. **Extensible conversions** — Request and response body types are pluggable
-   through `tag_invoke` (`body_from_tag` / `body_to_tag`).
-5. **Bring your own executor** — Works with any Capy executor and a
-   user-provided `corosio::tls_context`.
 
 ---
 
