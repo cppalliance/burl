@@ -183,8 +183,8 @@ public:
             Bodies up to this size fit in the
             internal buffer of the parser and can be
             read without additional allocations
-            using @ref response::try_read_body and
-            @ref response::read_body. Reading a
+            using @ref response::try_as_view and
+            @ref response::as_view. Reading a
             larger body in place fails with
             `http::error::in_place_overflow`.
         */
@@ -197,8 +197,8 @@ public:
             establishment through receipt of the
             response headers. The remaining time
             also applies to reading the body with
-            @ref response::try_read_body and
-            @ref response::read_body. Can be
+            @ref response::try_as_view and
+            @ref response::as_view. Can be
             overridden per request with
             @ref request_builder::timeout.
         */

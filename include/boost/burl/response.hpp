@@ -252,26 +252,26 @@ public:
 
         @par Example
         @code
-        auto [ec, body] = co_await r.try_read_body();
+        auto [ec, body] = co_await r.try_as_view();
         @endcode
 
         @return An awaitable yielding
         `(error_code,std::string_view)`.
 
-        @see @ref read_body.
+        @see @ref as_view.
     */
     BOOST_BURL_DECL
     capy::io_task<std::string_view>
-    try_read_body() &;
+    try_as_view() &;
 
     /** Asynchronously read the entire body in place.
 
-        Equivalent to @ref try_read_body, except
+        Equivalent to @ref try_as_view, except
         that an exception is thrown upon failure.
 
         @par Example
         @code
-        std::cout << co_await r.read_body() << '\n';
+        std::cout << co_await r.as_view() << '\n';
         @endcode
 
         @throw system_error
@@ -282,7 +282,7 @@ public:
     */
     BOOST_BURL_DECL
     capy::task<std::string_view>
-    read_body() &;
+    as_view() &;
 
     /** Asynchronously convert the body.
 

@@ -67,7 +67,7 @@ response::~response()
 }
 
 capy::io_task<std::string_view>
-response::try_read_body() &
+response::try_as_view() &
 {
     if(parser_.is_complete())
         co_return { {}, parser_.body() };
@@ -90,9 +90,9 @@ response::try_read_body() &
 }
 
 capy::task<std::string_view>
-response::read_body() &
+response::as_view() &
 {
-    auto [ec, body] = co_await try_read_body();
+    auto [ec, body] = co_await try_as_view();
 
     if(ec)
         throw system::system_error(ec);
