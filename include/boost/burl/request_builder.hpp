@@ -365,17 +365,25 @@ public:
     */
     template<class T, class... Args>
     capy::task<T>
-    as(Args... args) &&
+    as(Args&&... args) &&
     {
-        auto [ec, r] = co_await std::move(*this).send();
+        return as_impl<T>(std::move(*this), std::forward<Args>(args)...);
+    }
+
+private:
+    template<class T, class... Args>
+    static capy::task<T>
+    as_impl(request_builder rb, Args... args)
+    {
+        auto [ec, resp] = co_await std::move(rb).send();
         if(ec)
             throw std::system_error(ec);
 
-        auto [bec, b] = co_await r.template try_as<T>(std::move(args)...);
+        auto [bec, body] = co_await resp.template try_as<T>(std::move(args)...);
         if(bec)
             throw std::system_error(bec);
 
-        co_return std::move(b);
+        co_return std::move(body);
     }
 };
 
