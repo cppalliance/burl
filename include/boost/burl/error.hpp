@@ -24,9 +24,12 @@ namespace burl
 */
 enum class error
 {
-    /** The URL contains an invalid or unsupported scheme.
+    /** The URL uses an unsupported scheme.
+
+        The client only supports `http` and `https`
+        target URLs.
     */
-    invalid_url_scheme,
+    unsupported_url_scheme = 1,
 
     /** The redirect limit was reached.
 

@@ -344,7 +344,7 @@ connection_pool::connect(urls::url_view url) const
 {
     auto target_port = effective_port(url);
     if(target_port.empty())
-        co_return { error::invalid_url_scheme, {} };
+        co_return { error::unsupported_url_scheme, {} };
 
     corosio::tcp_socket socket(exec_);
 

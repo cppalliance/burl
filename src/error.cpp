@@ -34,8 +34,8 @@ error_category::message(int ev) const
 
     switch(static_cast<error>(ev))
     {
-    case error::invalid_url_scheme:
-        return "invalid URL scheme";
+    case error::unsupported_url_scheme:
+        return "unsupported URL scheme";
     case error::too_many_redirects:
         return "too many redirects";
     case error::bad_redirect_response:
