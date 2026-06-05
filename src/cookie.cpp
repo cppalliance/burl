@@ -292,22 +292,26 @@ parse_cookie(core::string_view sv)
 void
 cookie_jar::add(const urls::url_view& url, cookie c)
 {
+    auto r_domain = url.host();
+    for(auto& ch : r_domain)
+        ch = grammar::to_lower(ch);
+
     if(c.domain.has_value())
     {
-        auto& domain = c.domain.value();
-        if(domain.starts_with('.'))
-            domain.erase(0, 1);
-        for(auto& ch : domain)
+        auto& c_domain = c.domain.value();
+        if(c_domain.starts_with('.'))
+            c_domain.erase(0, 1);
+        for(auto& ch : c_domain)
             ch = grammar::to_lower(ch);
 
         // RFC 6265 5.3: the request host must domain-match the Domain
         // attribute, otherwise the cookie must be rejected.
-        if(!domain_match(url.host(), domain, true))
+        if(!domain_match(r_domain, c_domain, true))
             return;
 
 #ifdef BOOST_BURL_HAS_LIBPSL
         // Reject cookies set for a public suffix (e.g. "com", "co.uk").
-        if(psl_is_public_suffix(psl_builtin(), domain.c_str()))
+        if(psl_is_public_suffix(psl_builtin(), c_domain.c_str()))
             return;
 #endif
 
@@ -315,7 +319,7 @@ cookie_jar::add(const urls::url_view& url, cookie c)
     }
     else
     {
-        c.domain.emplace(url.host());
+        c.domain.emplace(std::move(r_domain));
     }
 
     if(!c.path.has_value())
@@ -356,7 +360,10 @@ cookie_jar::add(const urls::url_view& url, cookie c)
 std::string
 cookie_jar::cookie_header(const urls::url_view& url)
 {
-    const auto r_domain    = url.host();
+    auto r_domain = url.host();
+    for(auto& ch : r_domain)
+        ch = grammar::to_lower(ch);
+
     const auto r_path      = url.encoded_path();
     const auto r_is_secure = url.scheme_id() == urls::scheme::https;
     const auto now         = ch::system_clock::now();
