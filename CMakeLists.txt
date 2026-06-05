@@ -192,7 +192,7 @@ list(APPEND CMAKE_MODULE_PATH "${CMAKE_CURRENT_SOURCE_DIR}/cmake")
 find_package(Libpsl)
 if (Libpsl_FOUND)
     target_link_libraries(boost_burl PRIVATE Libpsl::Libpsl)
-    target_compile_definitions(boost_burl PRIVATE BURL_HAS_LIBPSL)
+    target_compile_definitions(boost_burl PRIVATE BOOST_BURL_HAS_LIBPSL)
 endif ()
 
 #-------------------------------------------------
