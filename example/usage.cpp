@@ -170,7 +170,28 @@ authenticate(corosio::tls_context tls_ctx)
 }
 
 //==============================================================
-// Example 7: POST a JSON body
+// Example 7: POST a string body
+//==============================================================
+
+capy::task<>
+post_string(corosio::tls_context tls_ctx)
+{
+    burl::client c(co_await capy::this_coro::executor, tls_ctx);
+
+    auto r = co_await c.post("https://postman-echo.com/post")
+        // A string body defaults to Content-Type: text/plain; charset=utf-8
+        .body("<note>hi</note>")
+        // Override the Content-Type:
+        .header(http::field::content_type, "application/xml")
+        .error_for_status()
+        .as<json::value>();
+
+    std::cout << r.as_object().at("headers") << '\n';
+    std::cout << r.as_object().at("data") << '\n';
+}
+
+//==============================================================
+// Example 8: POST a JSON body
 //==============================================================
 
 capy::task<>
@@ -196,7 +217,7 @@ post_json(corosio::tls_context tls_ctx)
 }
 
 //==============================================================
-// Example 8: POST a URL-encoded form
+// Example 9: POST a URL-encoded form
 //==============================================================
 
 capy::task<>
@@ -227,7 +248,7 @@ post_urlencoded_form(corosio::tls_context tls_ctx)
 }
 
 //==============================================================
-// Example 9: POST a multipart form
+// Example 10: POST a multipart form
 //==============================================================
 
 capy::task<>
@@ -261,7 +282,7 @@ post_multipart_form(corosio::tls_context tls_ctx)
 }
 
 //==============================================================
-// Example 10: Upload and download a file
+// Example 11: Upload and download a file
 //==============================================================
 
 capy::task<>
@@ -273,6 +294,8 @@ upload_and_download_file(corosio::tls_context tls_ctx)
 
     fs::path r = co_await c.put("https://postman-echo.com/put")
         .body<fs::path>("./crash_report.log") // Load the request body from a file
+        // Override the auto-deduced Content-Type:
+        // .header(http::field::content_type, "application/octet-stream")
         .error_for_status()
         .as<fs::path>("./resp.txt"); // Save the response body to a file
 
@@ -280,7 +303,7 @@ upload_and_download_file(corosio::tls_context tls_ctx)
 }
 
 //==============================================================
-// Example 11: Stream a response body
+// Example 12: Stream a response body
 //==============================================================
 
 capy::task<>
@@ -318,7 +341,7 @@ stream_response(corosio::tls_context tls_ctx)
 }
 
 //==============================================================
-// Example 12: Read a response body in place
+// Example 13: Read a response body in place
 //==============================================================
 
 capy::task<>
@@ -343,7 +366,7 @@ inplace_response_body(corosio::tls_context tls_ctx)
 }
 
 //==============================================================
-// Example 13: Set timeouts
+// Example 14: Set timeouts
 //==============================================================
 
 capy::task<>
@@ -373,7 +396,7 @@ set_timeouts(corosio::tls_context tls_ctx)
 }
 
 //==============================================================
-// Example 14: Follow redirects
+// Example 15: Follow redirects
 //==============================================================
 
 capy::task<>
@@ -397,7 +420,7 @@ follow_redirects(corosio::tls_context tls_ctx)
 }
 
 //==============================================================
-// Example 15: Enable cookies
+// Example 16: Enable cookies
 //==============================================================
 
 capy::task<>
@@ -419,7 +442,7 @@ enable_cookies(corosio::tls_context tls_ctx)
 }
 
 //==============================================================
-// Example 16: Reuse connections with the pool
+// Example 17: Reuse connections with the pool
 //==============================================================
 
 capy::task<>
@@ -440,7 +463,7 @@ connection_pool(corosio::tls_context tls_ctx)
 }
 
 //==============================================================
-// Example 17: Use a proxy
+// Example 18: Use a proxy
 //==============================================================
 
 capy::task<>
@@ -460,7 +483,7 @@ use_proxy(corosio::tls_context tls_ctx)
 }
 
 //==============================================================
-// Example 18: Build a request and execute it later
+// Example 19: Build a request and execute it later
 //==============================================================
 
 capy::task<>
@@ -493,6 +516,7 @@ main(int argc, char* argv[])
         &add_query_params,
         &set_headers,
         &authenticate,
+        &post_string,
         &post_json,
         &post_urlencoded_form,
         &post_multipart_form,
