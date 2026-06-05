@@ -374,6 +374,7 @@ client::execute_impl(
         {
             auto referer = url;
             referer.remove_userinfo();
+            referer.remove_fragment();
             headers.set(field::referer, referer);
         }
 
@@ -387,6 +388,7 @@ client::execute_impl(
         {
             headers.set_method(http::method::get);
             headers.erase(field::content_length);
+            headers.erase(field::transfer_encoding);
             headers.erase(field::content_encoding);
             headers.erase(field::content_type);
             headers.erase(field::expect);
