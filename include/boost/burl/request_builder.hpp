@@ -344,6 +344,37 @@ public:
 
         @par Example
         @code
+        auto [ec, body] = co_await c.get("https://example.com")
+            .try_as<std::string>();
+        @endcode
+
+        @tparam T The type to convert the body to.
+
+        @param args Additional arguments forwarded
+        to the conversion.
+
+        @return An awaitable yielding
+        `(error_code,T)`.
+
+        @see
+            @ref body_to_tag,
+            @ref response::try_as.
+    */
+    template<class T, class... Args>
+    capy::io_task<T>
+    try_as(Args&&... args) &&
+    {
+        return try_as_impl<T>(std::move(*this), std::forward<Args>(args)...);
+    }
+
+    /** Asynchronously send the request and convert the body.
+
+        Sends the request and converts the response
+        body to `T` by calling `tag_invoke` with
+        @ref body_to_tag.
+
+        @par Example
+        @code
         auto r = co_await c.get("https://example.com")
             .as<std::string>();
         @endcode
@@ -384,6 +415,17 @@ private:
             throw std::system_error(bec);
 
         co_return std::move(body);
+    }
+
+    template<class T, class... Args>
+    static capy::io_task<T>
+    try_as_impl(request_builder rb, Args... args)
+    {
+        auto [ec, resp] = co_await std::move(rb).send();
+        if(ec)
+            co_return { ec, {} };
+
+        co_return co_await resp.template try_as<T>(std::move(args)...);
     }
 };
 
