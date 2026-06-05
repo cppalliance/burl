@@ -36,16 +36,16 @@ namespace urls    = boost::urls;
 capy::task<>
 basic_get(corosio::tls_context tls_ctx)
 {
-    burl::client c(co_await capy::this_coro::executor, tls_ctx);
+    burl::client client(co_await capy::this_coro::executor, tls_ctx);
 
     // Response body as a string
-    auto r1 = co_await c.get("https://example.com")
+    auto r1 = co_await client.get("https://example.com")
         .as<std::string>();
 
     std::cout << r1 << '\n';
 
     // Response body as JSON
-    auto r2 = co_await c.get("https://postman-echo.com/get")
+    auto r2 = co_await client.get("https://postman-echo.com/get")
         .as<json::value>();
 
     std::cout << r2 << '\n';
@@ -58,19 +58,19 @@ basic_get(corosio::tls_context tls_ctx)
 capy::task<>
 inspect_response(corosio::tls_context tls_ctx)
 {
-    burl::client c(co_await capy::this_coro::executor, tls_ctx);
+    burl::client client(co_await capy::this_coro::executor, tls_ctx);
 
     // send() yields the response without reading the body, so the status
     // and headers can be inspected before the body is consumed.
-    auto [ec, r] = co_await c.get("https://example.com").send();
+    auto [ec, r] = co_await client.get("https://example.com").send();
 
     if(ec)
         throw std::system_error(ec);
 
-    std::cout << "status: " << r.status_int() << '\n';
-    std::cout << "reason: " << r.reason() << '\n';
+    std::cout << "status:  " << r.status_int() << '\n';
+    std::cout << "reason:  " << r.reason() << '\n';
     std::cout << "headers: " << r.headers() << '\n';
-    std::cout << "body: " << co_await r.as<std::string>() << '\n';
+    std::cout << "body:    " << co_await r.as<std::string>() << '\n';
 }
 
 //==============================================================
@@ -80,31 +80,29 @@ inspect_response(corosio::tls_context tls_ctx)
 capy::task<>
 handle_error_status(corosio::tls_context tls_ctx)
 {
-    burl::client c(co_await capy::this_coro::executor, tls_ctx);
-
-    // client::error_for_status() treats 4XX and 5XX status codes as errors
+    burl::client client(co_await capy::this_coro::executor, tls_ctx);
 
     try
     {
-        auto r1 = co_await c.get("https://example.com/not-found")
-            .error_for_status()
+        auto r1 = co_await client.get("https://example.com/not-found")
+            .error_for_status() // Treats 4XX and 5XX status codes as errors
             .as<std::string>();
     }
     catch(std::system_error const&e)
     {
         // HTTP 404 Not Found
-        std::cerr << "e1: " << e.what() << '\n';
+        std::cerr << e.what() << '\n';
     }
 
     // Or inspect the error code instead of throwing
-    auto [ec2, r2] = co_await c.get("https://example.com/not-found")
+    auto [ec, r2] = co_await client.get("https://example.com/not-found")
         .error_for_status()
         .try_as<std::string>();
 
-    if(ec2 == burl::condition::client_error)
+    if(ec == burl::condition::client_error)
     {
         // HTTP 404 Not Found
-        std::cerr << "e2: " << ec2.message() << '\n';
+        std::cerr << ec.message() << '\n';
     }
 }
 
@@ -115,9 +113,9 @@ handle_error_status(corosio::tls_context tls_ctx)
 capy::task<>
 add_query_params(corosio::tls_context tls_ctx)
 {
-    burl::client c(co_await capy::this_coro::executor, tls_ctx);
+    burl::client client(co_await capy::this_coro::executor, tls_ctx);
 
-    auto r = co_await c.get("https://postman-echo.com/get")
+    auto r = co_await client.get("https://postman-echo.com/get")
         .query("category", "shoes")
         .query("color", "blue")
         .as<json::value>();
@@ -132,13 +130,13 @@ add_query_params(corosio::tls_context tls_ctx)
 capy::task<>
 set_headers(corosio::tls_context tls_ctx)
 {
-    burl::client c(co_await capy::this_coro::executor, tls_ctx);
+    burl::client client(co_await capy::this_coro::executor, tls_ctx);
 
     // Default headers on the client, sent with every request
-    c.headers().set(http::field::user_agent, "BoostBurl/1.0");
+    client.headers().set(http::field::user_agent, "BoostBurl/1.0");
 
     // Per-request headers
-    auto r = co_await c.get("https://postman-echo.com/get")
+    auto r = co_await client.get("https://postman-echo.com/get")
         .header(http::field::accept_language, "da, en-gb;q=0.8, en;q=0.7")
         .header("X-Trace-Id", "abc123")
         .as<json::value>();
@@ -153,14 +151,14 @@ set_headers(corosio::tls_context tls_ctx)
 capy::task<>
 authenticate(corosio::tls_context tls_ctx)
 {
-    burl::client c(co_await capy::this_coro::executor, tls_ctx);
+    burl::client client(co_await capy::this_coro::executor, tls_ctx);
 
     // Default auth, sent with every request
-    c.basic_auth("user", "pass");
-    // or c.bearer_auth("TOKEN");
+    client.basic_auth("user", "pass");
+    // or client.bearer_auth("TOKEN");
 
-    auto r = co_await c.get("https://postman-echo.com/basic-auth")
-        .basic_auth("postman", "password") // per-request auth overrides the default
+    auto r = co_await client.get("https://postman-echo.com/basic-auth")
+        .basic_auth("postman", "password") // per-request override
         // or .bearer_auth("TOKEN")
         .error_for_status()
         .as<json::value>();
@@ -175,9 +173,9 @@ authenticate(corosio::tls_context tls_ctx)
 capy::task<>
 post_string(corosio::tls_context tls_ctx)
 {
-    burl::client c(co_await capy::this_coro::executor, tls_ctx);
+    burl::client client(co_await capy::this_coro::executor, tls_ctx);
 
-    auto r = co_await c.post("https://postman-echo.com/post")
+    auto r = co_await client.post("https://postman-echo.com/post")
         // A string body defaults to Content-Type: text/plain; charset=utf-8
         .body("<note>hi</note>")
         // Override the Content-Type:
@@ -196,10 +194,10 @@ post_string(corosio::tls_context tls_ctx)
 capy::task<>
 post_json(corosio::tls_context tls_ctx)
 {
-    burl::client c(co_await capy::this_coro::executor, tls_ctx);
+    burl::client client(co_await capy::this_coro::executor, tls_ctx);
 
     json::value body({ "key", "value" });
-    auto r1 = co_await c.post("https://postman-echo.com/post")
+    auto r1 = co_await client.post("https://postman-echo.com/post")
         .body(body)
         .error_for_status()
         .as<json::value>();
@@ -207,7 +205,7 @@ post_json(corosio::tls_context tls_ctx)
     std::cout << r1.as_object().at("json") << '\n';
 
     // Or inline
-    auto r2 = co_await c.post("https://postman-echo.com/post")
+    auto r2 = co_await client.post("https://postman-echo.com/post")
         .body<json::value>({ "key", "value" })
         .error_for_status()
         .as<json::value>();
@@ -222,13 +220,13 @@ post_json(corosio::tls_context tls_ctx)
 capy::task<>
 post_urlencoded_form(corosio::tls_context tls_ctx)
 {
-    burl::client c(co_await capy::this_coro::executor, tls_ctx);
+    burl::client client(co_await capy::this_coro::executor, tls_ctx);
 
     burl::urlencoded_form form;
     form.append("user", "John");
     form.append("lang", "En");
 
-    auto r1 = co_await c.post("https://postman-echo.com/post")
+    auto r1 = co_await client.post("https://postman-echo.com/post")
         .body(form)
         .error_for_status()
         .as<json::value>();
@@ -236,7 +234,7 @@ post_urlencoded_form(corosio::tls_context tls_ctx)
     std::cout << r1.as_object().at("form") << '\n';
 
     // Or inline
-    auto r2 = co_await c.post("https://postman-echo.com/post")
+    auto r2 = co_await client.post("https://postman-echo.com/post")
         .body(burl::urlencoded_form()
             .append("user", "John")
             .append("lang", "En"))
@@ -253,14 +251,14 @@ post_urlencoded_form(corosio::tls_context tls_ctx)
 capy::task<>
 post_multipart_form(corosio::tls_context tls_ctx)
 {
-    burl::client c(co_await capy::this_coro::executor, tls_ctx);
+    burl::client client(co_await capy::this_coro::executor, tls_ctx);
 
     burl::multipart_form form;
     // filename and MIME type are deduced from the path (or can be passed in)
     form.file("attachment", "./crash_report.log");
     form.text("priority", "high");
 
-    auto r1 = co_await c.post("https://postman-echo.com/post")
+    auto r1 = co_await client.post("https://postman-echo.com/post")
         .body(form)
         .error_for_status()
         .as<json::value>();
@@ -269,7 +267,7 @@ post_multipart_form(corosio::tls_context tls_ctx)
     std::cout << r1.as_object().at("form") << '\n';
 
     // Or inline
-    auto r2 = co_await c.post("https://postman-echo.com/post")
+    auto r2 = co_await client.post("https://postman-echo.com/post")
         .body(burl::multipart_form()
             .file("attachment", "./crash_report.log")
             .text("priority", "high"))
@@ -289,9 +287,9 @@ upload_and_download_file(corosio::tls_context tls_ctx)
 {
     namespace fs = std::filesystem;
 
-    burl::client c(co_await capy::this_coro::executor, tls_ctx);
+    burl::client client(co_await capy::this_coro::executor, tls_ctx);
 
-    fs::path r = co_await c.put("https://postman-echo.com/put")
+    fs::path r = co_await client.put("https://postman-echo.com/put")
         .body<fs::path>("./crash_report.log") // Load the request body from a file
         // Override the auto-deduced Content-Type:
         // .header(http::field::content_type, "application/octet-stream")
@@ -308,11 +306,10 @@ upload_and_download_file(corosio::tls_context tls_ctx)
 capy::task<>
 stream_response(corosio::tls_context tls_ctx)
 {
-    burl::client c(co_await capy::this_coro::executor, tls_ctx);
+    burl::client client(co_await capy::this_coro::executor, tls_ctx);
 
-    auto [ec, r] = co_await c
-        .get("https://archives.boost.io/release/1.91.0/source/"
-            "boost_1_91_0.tar.bz2")
+    auto [ec, r] = co_await client.get("https://archives.boost.io/"
+        "release/1.91.0/source/boost_1_91_0.tar.bz2")
         .error_for_status()
         .send();
 
@@ -349,10 +346,9 @@ inplace_response_body(corosio::tls_context tls_ctx)
     burl::client::config cfg;
     cfg.response_inplace_buffer = 1024 * 1024;
 
-    burl::client c(co_await capy::this_coro::executor, tls_ctx, cfg);
+    burl::client client(co_await capy::this_coro::executor, tls_ctx, cfg);
 
-    auto [ec, r] = co_await c
-        .get("https://www.boost.org")
+    auto [ec, r] = co_await client.get("https://www.boost.org")
         .error_for_status()
         .send();
 
@@ -384,11 +380,10 @@ set_timeouts(corosio::tls_context tls_ctx)
     // Timeout for the whole operation, including retrieving the response
     cfg.timeout = std::chrono::seconds(60);
 
-    burl::client c(co_await capy::this_coro::executor, tls_ctx, cfg);
+    burl::client client(co_await capy::this_coro::executor, tls_ctx, cfg);
 
-    auto r = co_await c.get("https://example.com")
-        // A per-request timeout overrides the client config
-        .timeout(std::chrono::seconds(3))
+    auto r = co_await client.get("https://example.com")
+        .timeout(std::chrono::seconds(3)) // per-request override
         .as<std::string>();
 
     std::cout << r;
@@ -407,9 +402,9 @@ follow_redirects(corosio::tls_context tls_ctx)
     cfg.followlocation = true;
     cfg.maxredirs = 10;
 
-    burl::client c(co_await capy::this_coro::executor, tls_ctx, cfg);
+    burl::client client(co_await capy::this_coro::executor, tls_ctx, cfg);
 
-    auto [ec, r] = co_await c.get("http://boost.org").send();
+    auto [ec, r] = co_await client.get("http://boost.org").send();
 
     if(ec)
         throw std::system_error(ec);
@@ -430,14 +425,14 @@ enable_cookies(corosio::tls_context tls_ctx)
     // Cookies (disabled by default)
     cfg.cookies = true;
 
-    burl::client c(co_await capy::this_coro::executor, tls_ctx, cfg);
+    burl::client client(co_await capy::this_coro::executor, tls_ctx, cfg);
 
-    auto r = co_await c.get("https://postman-echo.com/cookies/set?foo=bar")
+    auto r = co_await client.get("https://postman-echo.com/cookies/set?foo=bar")
         .error_for_status()
         .as<std::string>();
 
     // Print the stored cookies in Netscape format
-    std::cout << c.cookie_jar();
+    std::cout << client.cookie_jar();
 }
 
 //==============================================================
@@ -451,13 +446,13 @@ connection_pool(corosio::tls_context tls_ctx)
     cfg.pool.idle_timeout = std::chrono::seconds(60);
     cfg.pool.max_idle_per_host = 10;
 
-    burl::client c(co_await capy::this_coro::executor, tls_ctx, cfg);
+    burl::client client(co_await capy::this_coro::executor, tls_ctx, cfg);
 
-    auto r1 = co_await c.get("https://www.boost.org")
+    auto r1 = co_await client.get("https://www.boost.org")
         .as<std::string>();
 
     // Reuses the connection established by the first request
-    auto r2 = co_await c.get("https://www.boost.org")
+    auto r2 = co_await client.get("https://www.boost.org")
         .as<std::string>();
 }
 
@@ -472,10 +467,10 @@ use_proxy(corosio::tls_context tls_ctx)
     // SOCKS5 and HTTP proxies are supported
     cfg.pool.proxy = urls::url("socks5h://user:pass@localhost:8080");
 
-    burl::client c(co_await capy::this_coro::executor, tls_ctx, cfg);
+    burl::client client(co_await capy::this_coro::executor, tls_ctx, cfg);
 
     // Sent through the proxy
-    auto r = co_await c.get("https://example.com")
+    auto r = co_await client.get("https://example.com")
         .as<std::string>();
 
     std::cout << r;
@@ -488,16 +483,16 @@ use_proxy(corosio::tls_context tls_ctx)
 capy::task<>
 build_and_execute(corosio::tls_context tls_ctx)
 {
-    burl::client c(co_await capy::this_coro::executor, tls_ctx);
+    burl::client client(co_await capy::this_coro::executor, tls_ctx);
 
     // build() produces a request that can be stored and executed later
-    burl::request req = c.post("https://postman-echo.com/post")
+    burl::request req = client.post("https://postman-echo.com/post")
         .header("X-Debug", "1")
         .body("payload")
         .error_for_status()
         .build();
 
-    auto [ec, r] = co_await c.execute(std::move(req));
+    auto [ec, r] = co_await client.execute(std::move(req));
     if(ec)
         throw std::system_error(ec);
 
