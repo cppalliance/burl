@@ -10,7 +10,6 @@
 #include <boost/burl.hpp>
 #include <boost/capy.hpp>
 #include <boost/corosio.hpp>
-#include <boost/static_assert/detail/backward.hpp> // TODO
 
 #include <nlohmann/json.hpp>
 

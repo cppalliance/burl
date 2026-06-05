@@ -82,31 +82,30 @@ handle_error_status(corosio::tls_context tls_ctx)
 {
     burl::client c(co_await capy::this_coro::executor, tls_ctx);
 
+    // client::error_for_status() treats 4XX and 5XX status codes as errors
+
     try
     {
-        // Throws (HTTP 404 Not Found)
         auto r1 = co_await c.get("https://example.com/not-found")
             .error_for_status()
             .as<std::string>();
     }
     catch(std::system_error const&e)
     {
-        std::cerr << "r1: " << e.code().message() << '\n';
+        // HTTP 404 Not Found
+        std::cerr << "e1: " << e.what() << '\n';
     }
 
     // Or inspect the error code instead of throwing
-    auto [ec, r2] = co_await c.get("https://example.com/not-found")
-        .error_for_status() // treat 4XX and 5XX status codes as errors
-        .send();
+    auto [ec2, r2] = co_await c.get("https://example.com/not-found")
+        .error_for_status()
+        .try_as<std::string>();
 
-    if(ec == burl::condition::client_error)
+    if(ec2 == burl::condition::client_error)
     {
         // HTTP 404 Not Found
-        std::cerr << "r2: " << ec.message() << '\n';
+        std::cerr << "e2: " << ec2.message() << '\n';
     }
-
-    // Alternatively, raise after the fact
-    r2.raise_for_status(); // throws on 4XX and 5XX status codes
 }
 
 //==============================================================
