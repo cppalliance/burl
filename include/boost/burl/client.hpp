@@ -26,6 +26,7 @@
 #include <chrono>
 #include <cstddef>
 #include <cstdint>
+#include <limits>
 #include <optional>
 #include <string_view>
 
@@ -62,25 +63,25 @@ class client
 {
 public:
     /** Configuration settings for a client.
-    */
+     */
     struct config
     {
         using clock = std::chrono::steady_clock;
 
         /** Enable automatic cookie handling.
 
-            When enabled, cookies received in
-            `Set-Cookie` headers are stored in the
-            cookie jar, and matching cookies are
-            sent in the `Cookie` header of
-            subsequent requests.
+           When enabled, cookies received in
+           `Set-Cookie` headers are stored in the
+           cookie jar, and matching cookies are
+           sent in the `Cookie` header of
+           subsequent requests.
 
-            @see @ref client::cookie_jar.
-        */
+           @see @ref client::cookie_jar.
+       */
         bool cookies = false;
 
         /** The HTTP version used for requests.
-        */
+         */
         http::version version = http::version::http_1_1;
 
         /** Follow redirect responses automatically.
@@ -90,7 +91,7 @@ public:
             followed transparently, up to
             @ref maxredirs times.
         */
-        bool followlocation     = true;
+        bool followlocation = true;
 
         /** Maximum number of redirects to follow.
 
@@ -100,16 +101,16 @@ public:
         std::uint32_t maxredirs = 10;
 
         /** Keep the request method on 301 responses.
-        */
-        bool post301            = false;
+         */
+        bool post301 = false;
 
         /** Keep the request method on 302 responses.
-        */
-        bool post302            = false;
+         */
+        bool post302 = false;
 
         /** Keep the request method on 303 responses.
-        */
-        bool post303            = false;
+         */
+        bool post303 = false;
 
         /** Send credentials on cross-origin redirects.
 
@@ -121,14 +122,14 @@ public:
             than the original request. Enable to
             keep sending them.
         */
-        bool unrestricted_auth  = false;
+        bool unrestricted_auth = false;
 
         /** Set the `Referer` header when following redirects.
 
             The header is set to the URL being left,
             with any userinfo component removed.
         */
-        bool autoreferer        = true;
+        bool autoreferer = true;
 
         /** Advertise and decode the Brotli content coding.
 
@@ -141,7 +142,7 @@ public:
             carries an explicit `Accept-Encoding`
             header.
         */
-        bool brotli  = true;
+        bool brotli = true;
 
         /** Advertise and decode the deflate content coding.
 
@@ -167,7 +168,7 @@ public:
             carries an explicit `Accept-Encoding`
             header.
         */
-        bool gzip    = true;
+        bool gzip = true;
 
         /** Maximum allowed size of a response body.
 
@@ -176,7 +177,8 @@ public:
             `http::error::body_too_large`. The
             default is unlimited.
         */
-        std::uint64_t response_body_limit   = -1;
+        std::uint64_t response_body_limit =
+            (std::numeric_limits<std::uint64_t>::max)();
 
         /** Size of the in-place response buffer.
 
