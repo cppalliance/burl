@@ -14,6 +14,8 @@
 
 #include <iomanip>
 #include <sstream>
+#include <system_error>
+#include <utility>
 
 #ifdef BOOST_BURL_HAS_LIBPSL
 #include <libpsl.h>
@@ -449,7 +451,10 @@ operator>>(std::istream& is, cookie_jar& cj)
         if(line.starts_with('#') && !line.starts_with("#HttpOnly_"))
             continue;
 
-        cj.cookies_.push_back(parse_netscape_cookie(line).value());
+        auto rs = parse_netscape_cookie(line);
+        if(rs.has_error())
+            throw std::system_error(rs.error());
+        cj.cookies_.push_back(std::move(*rs));
     }
     return is;
 }
