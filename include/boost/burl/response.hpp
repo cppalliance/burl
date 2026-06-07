@@ -71,19 +71,20 @@ namespace burl
 class response
 {
     friend class client;
+    using clock = std::chrono::steady_clock;
 
     urls::url url_;
     connection_pool::pooled_connection conn_;
     connection_pool* pool_ = nullptr;
     http::response_parser parser_;
-    std::optional<std::chrono::steady_clock::time_point> deadline_;
+    std::optional<clock::time_point> deadline_;
 
     response(
         urls::url url,
         connection_pool::pooled_connection conn,
         connection_pool* pool,
         http::response_parser parser,
-        std::optional<std::chrono::steady_clock::time_point> deadline);
+        std::optional<clock::time_point> deadline);
 
 public:
     /** Constructor.
@@ -289,6 +290,9 @@ public:
         Reads the body and converts it to `T` by
         calling `tag_invoke` with @ref body_to_tag.
 
+        The remaining time of the request timeout,
+        when one was set, applies to this operation.
+
         @par Example
         @code
         auto [ec, v] = co_await r.try_as<json::value>();
@@ -313,6 +317,19 @@ public:
     capy::io_task<T>
     try_as(Args&&... args) &
     {
+        if(deadline_)
+        {
+            auto dur = *deadline_ - clock::now();
+            if(dur <= clock::duration::zero())
+                return []() -> capy::io_task<T>
+                {
+                    co_return { capy::error::timeout, {} };
+                }();
+            return capy::timeout(
+                tag_invoke(
+                    body_to_tag<T>{}, *this, std::forward<Args>(args)...),
+                dur);
+        }
         return tag_invoke(body_to_tag<T>{}, *this, std::forward<Args>(args)...);
     }
 

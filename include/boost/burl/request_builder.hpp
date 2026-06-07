@@ -342,6 +342,9 @@ public:
         body to `T` by calling `tag_invoke` with
         @ref body_to_tag.
 
+        The remaining time of the request timeout,
+        when one was set, applies to this operation.
+
         @par Example
         @code
         auto [ec, body] = co_await c.get("https://example.com")
