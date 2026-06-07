@@ -106,6 +106,10 @@ capy::io_task<std::string>
 tag_invoke(body_to_tag<std::string>, response& resp)
 {
     std::string ret;
+
+    if(auto cl = resp.content_length())
+        ret.reserve(*cl);
+
     auto source = resp.as_read_source();
     auto [ec, n] =
         co_await capy::read(source, capy::string_dynamic_buffer(&ret));
