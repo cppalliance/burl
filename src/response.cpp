@@ -95,7 +95,7 @@ response::as_view() &
     auto [ec, body] = co_await try_as_view();
 
     if(ec)
-        throw system::system_error(ec);
+        throw std::system_error(ec);
 
     co_return std::move(body);
 }

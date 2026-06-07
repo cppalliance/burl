@@ -282,7 +282,7 @@ public:
         @par Exception Safety
         Exceptions thrown on invalid input.
 
-        @throw system_error
+        @throw std::system_error
         The input contains a malformed line.
 
         @param is The input stream to read from.

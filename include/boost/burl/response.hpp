@@ -274,7 +274,7 @@ public:
         std::cout << co_await r.as_view() << '\n';
         @endcode
 
-        @throw system_error
+        @throw std::system_error
         The operation failed.
 
         @return An awaitable yielding a view of the
@@ -326,7 +326,7 @@ public:
         auto v = co_await r.as<json::value>();
         @endcode
 
-        @throw system::system_error
+        @throw std::system_error
         The operation failed.
 
         @tparam T The type to convert the body to.
@@ -348,7 +348,7 @@ public:
         auto [ec, body] = co_await try_as<T>(std::move(args)...);
 
         if(ec)
-            throw system::system_error(ec);
+            throw std::system_error(ec);
 
         co_return std::move(body);
     }
