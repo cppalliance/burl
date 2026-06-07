@@ -26,7 +26,7 @@ response::response(
     connection_pool::pooled_connection conn,
     connection_pool* pool,
     http::response_parser parser,
-    std::optional<std::chrono::steady_clock::time_point> deadline)
+    std::optional<clock::time_point> deadline)
     : url_(std::move(url))
     , conn_(std::move(conn))
     , pool_(pool)
@@ -74,11 +74,11 @@ response::try_as_view() &
 
     if(deadline_)
     {
-        auto remaining = *deadline_ - std::chrono::steady_clock::now();
-        if(remaining <= std::chrono::steady_clock::duration::zero())
+        auto dur = *deadline_ - clock::now();
+        if(dur <= clock::duration::zero())
             co_return { capy::error::timeout, {} };
 
-        auto [rec] = co_await capy::timeout(parser_.read(conn_), remaining);
+        auto [rec] = co_await capy::timeout(parser_.read(conn_), dur);
         if(rec)
             co_return { rec, {} };
     }
