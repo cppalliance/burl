@@ -41,9 +41,17 @@ urlencoded_form::append(std::string_view name, std::string_view value)
 
     if(!body_.empty())
         body_ += '&';
-    body_ += urls::encode(name, urls::unreserved_chars, opt);
+    urls::encode(
+        name,
+        urls::unreserved_chars,
+        opt,
+        urls::string_token::append_to(body_));
     body_ += '=';
-    body_ += urls::encode(value, urls::unreserved_chars, opt);
+    urls::encode(
+        value,
+        urls::unreserved_chars,
+        opt,
+        urls::string_token::append_to(body_));
     return *this;
 }
 
@@ -72,9 +80,9 @@ public:
     capy::io_task<>
     write(capy::any_buffer_sink& sink) const
     {
-        if(auto [ec, n] =
-               co_await sink.write(capy::make_buffer(std::string_view(body_)));
-           ec)
+        auto [ec, n] =
+            co_await sink.write(capy::make_buffer(std::string_view(body_)));
+        if(ec)
             co_return { ec };
         co_return {};
     }
