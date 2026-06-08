@@ -119,5 +119,59 @@ tag_invoke(body_to_tag<json::value>, response& resp)
     }
 }
 
+any_request_body
+tag_invoke(body_from_tag<json::object>, json::object value)
+{
+    return json_body{ std::move(value) };
+}
+
+capy::io_task<json::object>
+tag_invoke(body_to_tag<json::object>, response& resp)
+{
+    auto [ec, jv] = co_await tag_invoke(body_to_tag<json::value>{}, resp);
+    if(ec)
+        co_return { ec, {} };
+    auto r = jv.try_as_object();
+    if(r.has_error())
+        co_return { r.error(), {} };
+    co_return { {}, std::move(*r) };
+}
+
+any_request_body
+tag_invoke(body_from_tag<json::array>, json::array value)
+{
+    return json_body{ std::move(value) };
+}
+
+capy::io_task<json::array>
+tag_invoke(body_to_tag<json::array>, response& resp)
+{
+    auto [ec, jv] = co_await tag_invoke(body_to_tag<json::value>{}, resp);
+    if(ec)
+        co_return { ec, {} };
+    auto r = jv.try_as_array();
+    if(r.has_error())
+        co_return { r.error(), {} };
+    co_return { {}, std::move(*r) };
+}
+
+any_request_body
+tag_invoke(body_from_tag<json::string>, json::string value)
+{
+    return json_body{ std::move(value) };
+}
+
+capy::io_task<json::string>
+tag_invoke(body_to_tag<json::string>, response& resp)
+{
+    auto [ec, jv] = co_await tag_invoke(body_to_tag<json::value>{}, resp);
+    if(ec)
+        co_return { ec, {} };
+    auto r = jv.try_as_string();
+    if(r.has_error())
+        co_return { r.error(), {} };
+    co_return { {}, std::move(*r) };
+}
+
 } // namespace burl
 } // namespace boost

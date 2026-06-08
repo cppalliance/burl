@@ -118,9 +118,9 @@ add_query_params(corosio::tls_context tls_ctx)
     auto r = co_await client.get("https://postman-echo.com/get")
         .query("category", "shoes")
         .query("color", "blue")
-        .as<json::value>();
+        .as<json::object>();
 
-    std::cout << r.as_object().at("args") << '\n';
+    std::cout << r << '\n';
 }
 
 //==============================================================
@@ -139,9 +139,9 @@ set_headers(corosio::tls_context tls_ctx)
     auto r = co_await client.get("https://postman-echo.com/get")
         .header(http::field::accept_language, "da, en-gb;q=0.8, en;q=0.7")
         .header("X-Trace-Id", "abc123")
-        .as<json::value>();
+        .as<json::object>();
 
-    std::cout << r.as_object().at("headers") << '\n';
+    std::cout << r << '\n';
 }
 
 //==============================================================
@@ -161,9 +161,9 @@ authenticate(corosio::tls_context tls_ctx)
         .basic_auth("postman", "password") // per-request override
         // or .bearer_auth("TOKEN")
         .error_for_status()
-        .as<json::value>();
+        .as<json::object>();
 
-    std::cout << r.as_object().at("authenticated") << '\n';
+    std::cout << r << '\n';
 }
 
 //==============================================================
@@ -181,10 +181,9 @@ post_string(corosio::tls_context tls_ctx)
         // Override the Content-Type:
         .header(http::field::content_type, "application/xml")
         .error_for_status()
-        .as<json::value>();
+        .as<json::object>();
 
-    std::cout << r.as_object().at("headers") << '\n';
-    std::cout << r.as_object().at("data") << '\n';
+    std::cout << r << '\n';
 }
 
 //==============================================================
@@ -196,21 +195,21 @@ post_json(corosio::tls_context tls_ctx)
 {
     burl::client client(co_await capy::this_coro::executor, tls_ctx);
 
-    json::value body({ "key", "value" });
+    json::object body({ { "user", "John" }, { "lang", "En" } });
     auto r1 = co_await client.post("https://postman-echo.com/post")
         .body(body)
         .error_for_status()
-        .as<json::value>();
+        .as<json::object>();
 
-    std::cout << r1.as_object().at("json") << '\n';
+    std::cout << r1 << '\n';
 
     // Or inline
     auto r2 = co_await client.post("https://postman-echo.com/post")
-        .body<json::value>({ "key", "value" })
+        .body<json::array>({ 1, 2, 3 })
         .error_for_status()
-        .as<json::value>();
+        .as<json::object>();
 
-    std::cout << r2.as_object().at("json") << '\n';
+    std::cout << r2 << '\n';
 }
 
 //==============================================================
@@ -229,9 +228,9 @@ post_urlencoded_form(corosio::tls_context tls_ctx)
     auto r1 = co_await client.post("https://postman-echo.com/post")
         .body(form)
         .error_for_status()
-        .as<json::value>();
+        .as<json::object>();
 
-    std::cout << r1.as_object().at("form") << '\n';
+    std::cout << r1 << '\n';
 
     // Or inline
     auto r2 = co_await client.post("https://postman-echo.com/post")
@@ -239,9 +238,9 @@ post_urlencoded_form(corosio::tls_context tls_ctx)
             .append("user", "John")
             .append("lang", "En"))
         .error_for_status()
-        .as<json::value>();
+        .as<json::object>();
 
-    std::cout << r2.as_object().at("form") << '\n';
+    std::cout << r2 << '\n';
 }
 
 //==============================================================
@@ -261,10 +260,9 @@ post_multipart_form(corosio::tls_context tls_ctx)
     auto r1 = co_await client.post("https://postman-echo.com/post")
         .body(form)
         .error_for_status()
-        .as<json::value>();
+        .as<json::object>();
 
-    std::cout << r1.as_object().at("files") << '\n';
-    std::cout << r1.as_object().at("form") << '\n';
+    std::cout << r1 << '\n';
 
     // Or inline
     auto r2 = co_await client.post("https://postman-echo.com/post")
@@ -272,10 +270,9 @@ post_multipart_form(corosio::tls_context tls_ctx)
             .file("attachment", "./crash_report.log")
             .text("priority", "high"))
         .error_for_status()
-        .as<json::value>();
+        .as<json::object>();
 
-    std::cout << r2.as_object().at("files") << '\n';
-    std::cout << r2.as_object().at("form") << '\n';
+    std::cout << r2 << '\n';
 }
 
 //==============================================================
