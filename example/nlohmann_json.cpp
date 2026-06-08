@@ -83,16 +83,23 @@ tag_invoke(burl::body_to_tag<nlohmann::json>, burl::response& resp)
 capy::task<>
 async_main(corosio::tls_context tls_ctx)
 {
-    burl::client c(co_await capy::this_coro::executor, tls_ctx);
+    burl::client client(co_await capy::this_coro::executor, tls_ctx);
 
-    nlohmann::json body = { { "hello", "burl" } };
-
-    auto r = co_await c.post("https://postman-echo.com/post")
+    nlohmann::json body({ { "user", "John" }, { "lang", "En" } });
+    auto r1 = co_await client.post("https://postman-echo.com/post")
         .body(body)
         .error_for_status()
         .as<nlohmann::json>();
 
-    std::cout << r << '\n';
+    std::cout << r1.dump(4) << '\n';
+
+    // Or inline
+    auto r2 = co_await client.post("https://postman-echo.com/post")
+        .body<nlohmann::json>({ 1, 2, 3 })
+        .error_for_status()
+        .as<nlohmann::json>();
+
+    std::cout << r2.dump(4) << '\n';
 }
 
 int
