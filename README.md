@@ -120,8 +120,8 @@ auto r = co_await client.get(url)
 ```cpp
 // JSON
 auto r1 = co_await client.post(url)
-    .body<json::value>({ "key", "value" })
-    .as<json::value>();
+    .body<json::object>({{ "key", "value" }})
+    .as<json::object>();
 
 // URL-encoded form
 auto r2 = co_await client.post(url)
