@@ -554,11 +554,6 @@ main(int argc, char* argv[])
             {
                 std::rethrow_exception(ep);
             }
-            catch(std::system_error const& e)
-            {
-                std::cerr << "Error category: " << e.code().category().name() << '\n';
-                std::cerr << "Error Message:  " << e.code().message() << '\n';
-            }
             catch(std::exception const& e)
             {
                 std::cerr << "Error: " << e.what() << '\n';
