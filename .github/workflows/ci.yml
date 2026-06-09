@@ -270,36 +270,17 @@ jobs:
             build-essential libssl-dev zlib1g-dev libbrotli-dev
             ${{ matrix.x86 && 'libssl-dev:i386 zlib1g-dev:i386 libbrotli-dev:i386' || '' }}
 
-      - name: Clone HTTP
-        uses: actions/checkout@v4
-        with:
-          repository: cppalliance/http
-          ref: ${{ (github.ref_name == 'master' && github.ref_name) || 'develop' }}
-          path: http-root
-
-      - name: Clone Capy
-        uses: actions/checkout@v4
-        with:
-          repository: cppalliance/capy
-          ref: ${{ (github.ref_name == 'master' && github.ref_name) || 'develop' }}
-          path: capy-root
-
-      - name: Clone Corosio
-        uses: actions/checkout@v4
-        with:
-          repository: cppalliance/corosio
-          ref: ${{ (github.ref_name == 'master' && github.ref_name) || 'develop' }}
-          path: corosio-root
-
       - name: Clone Boost
         uses: alandefreitas/cpp-actions/boost-clone@v1.9.4
         id: boost-clone
         with:
           branch: ${{ (github.ref_name == 'master' && github.ref_name) || 'develop' }}
           boost-dir: boost-source
-          modules-exclude-paths: ''
           scan-modules-dir: burl-root
-          scan-modules-ignore: burl,http,capy,corosio
+          patches: >
+            https://github.com/cppalliance/capy
+            https://github.com/cppalliance/corosio
+            https://github.com/cppalliance/http
 
       - name: Install Packages (Windows)
         uses: alandefreitas/cpp-actions/package-install@v1.9.4
@@ -362,9 +343,6 @@ jobs:
 
           # Remove module from boost-source
           rm -r "boost-source/libs/$module" || true
-          rm -r "boost-source/libs/http" || true
-          rm -r "boost-source/libs/capy" || true
-          rm -r "boost-source/libs/corosio" || true
 
           # Copy cached boost-source to an isolated boost-root
           cp -r boost-source boost-root
@@ -378,10 +356,11 @@ jobs:
           # Patch boost-root with workspace module
           cp -r "$workspace_root"/burl-root "libs/$module"
 
-          # Patch boost-root with dependencies
-          cp -r "$workspace_root"/http-root "libs/http"
-          cp -r "$workspace_root"/capy-root "libs/capy"
-          cp -r "$workspace_root"/corosio-root "libs/corosio"
+          # TEMP: guard capy's unconditional test_suite add_subdirectory so a
+          # dependent sorted before capy (e.g. burl) can't create the
+          # boost_capy_test_suite targets first and trigger a duplicate-target
+          # error. Confirms the fix; remove once merged into cppalliance/capy.
+          sed -i 's|^add_subdirectory(extra/test_suite)$|if(NOT TARGET boost_capy_test_suite)\n    add_subdirectory(extra/test_suite)\nendif()|' libs/capy/CMakeLists.txt
 
       - name: Boost B2 Workflow
         uses: alandefreitas/cpp-actions/b2-workflow@v1.9.4
@@ -589,36 +568,17 @@ jobs:
         with:
           path: burl-root
 
-      - name: Clone HTTP
-        uses: actions/checkout@v4
-        with:
-          repository: cppalliance/http
-          ref: ${{ (github.ref_name == 'master' && github.ref_name) || 'develop' }}
-          path: http-root
-
-      - name: Clone Capy
-        uses: actions/checkout@v4
-        with:
-          repository: cppalliance/capy
-          ref: ${{ (github.ref_name == 'master' && github.ref_name) || 'develop' }}
-          path: capy-root
-
-      - name: Clone Corosio
-        uses: actions/checkout@v4
-        with:
-          repository: cppalliance/corosio
-          ref: ${{ (github.ref_name == 'master' && github.ref_name) || 'develop' }}
-          path: corosio-root
-
       - name: Clone Boost
         uses: alandefreitas/cpp-actions/boost-clone@v1.9.4
         id: boost-clone
         with:
           branch: ${{ (github.ref_name == 'master' && github.ref_name) || 'develop' }}
           boost-dir: boost-source
-          modules-exclude-paths: ''
           scan-modules-dir: burl-root
-          scan-modules-ignore: burl,http,capy,corosio
+          patches: >
+            https://github.com/cppalliance/capy
+            https://github.com/cppalliance/corosio
+            https://github.com/cppalliance/http
 
       - name: Patch Boost
         id: patch
@@ -639,9 +599,6 @@ jobs:
 
           # Remove module from boost-source
           rm -r "boost-source/libs/$module" || true
-          rm -r "boost-source/libs/http" || true
-          rm -r "boost-source/libs/capy" || true
-          rm -r "boost-source/libs/corosio" || true
 
           # Copy cached boost-source to an isolated boost-root
           cp -r boost-source boost-root
@@ -655,10 +612,11 @@ jobs:
           # Patch boost-root with workspace module
           cp -r "$workspace_root"/burl-root "libs/$module"
 
-          # Patch boost-root with dependencies
-          cp -r "$workspace_root"/http-root "libs/http"
-          cp -r "$workspace_root"/capy-root "libs/capy"
-          cp -r "$workspace_root"/corosio-root "libs/corosio"
+          # TEMP: guard capy's unconditional test_suite add_subdirectory so a
+          # dependent sorted before capy (e.g. burl) can't create the
+          # boost_capy_test_suite targets first and trigger a duplicate-target
+          # error. Confirms the fix; remove once merged into cppalliance/capy.
+          sed -i 's|^add_subdirectory(extra/test_suite)$|if(NOT TARGET boost_capy_test_suite)\n    add_subdirectory(extra/test_suite)\nendif()|' libs/capy/CMakeLists.txt
 
       - uses: actions/setup-node@v4
         with:

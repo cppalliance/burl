@@ -11,6 +11,8 @@ import ac ;
 import config : requires ;
 
 using openssl ;
+using zlib ;
+using zstd ;
 
 constant c11-requires :
     [ requires
@@ -38,6 +40,8 @@ lib boost_burl
      <library>/boost//capy
      <library>/boost//corosio
      [ ac.check-library /boost/corosio//boost_corosio_openssl : <library>/boost/corosio//boost_corosio_openssl : ]
+     [ ac.check-library /zlib//zlib : <library>/zlib//zlib : ]
+     [ ac.check-library /zstd//zstd : <library>/zstd//zstd : ]
      <library>/boost//http
      <library>/boost//json
      <library>/boost//url
@@ -47,6 +51,8 @@ lib boost_burl
      <library>/boost//capy
      <library>/boost//corosio
      [ ac.check-library /boost/corosio//boost_corosio_openssl : <library>/boost/corosio//boost_corosio_openssl : ]
+     [ ac.check-library /zlib//zlib : <library>/zlib//zlib : ]
+     [ ac.check-library /zstd//zstd : <library>/zstd//zstd : ]
      <library>/boost//http
      <library>/boost//json
      <library>/boost//url
