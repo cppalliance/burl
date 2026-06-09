@@ -291,6 +291,16 @@ parse_cookie(core::string_view sv)
     return rs;
 }
 
+bool
+cookie_jar::public_suffix_supported() noexcept
+{
+#ifdef BOOST_BURL_HAS_LIBPSL
+    return true;
+#else
+    return false;
+#endif
+}
+
 void
 cookie_jar::add(const urls::url_view& url, cookie c)
 {
@@ -315,6 +325,14 @@ cookie_jar::add(const urls::url_view& url, cookie c)
         // Reject cookies set for a public suffix (e.g. "com", "co.uk").
         if(psl_is_public_suffix(psl_builtin(), c_domain.c_str()))
             return;
+#else
+        // apply a weak heuristic to at least reject cookies set on bare TLDs
+        if(c_domain != "localhost")
+        {
+            const auto pos = c_domain.find('.');
+            if(pos == std::string::npos || c_domain.size() - pos <= 1)
+                return;
+        }
 #endif
 
         c.tailmatch = true;
