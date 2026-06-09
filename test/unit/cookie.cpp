@@ -164,6 +164,42 @@ struct cookie_test
     }
 
     void
+    testJarPublicSuffix()
+    {
+        // A cookie set on a registrable domain is accepted regardless of
+        // whether public suffix checking is supported.
+        {
+            cookie_jar jar;
+            urls::url url("https://www.example.com/");
+            jar.add(url, parse_cookie("a=1; Domain=example.com").value());
+            BOOST_TEST_EQ(jar.cookie_header(url), "a=1");
+        }
+
+        // A cookie set on a bare top-level domain is always rejected: libpsl
+        // knows "com" is a public suffix, and the weak fallback rejects it for
+        // having no dot.
+        {
+            cookie_jar jar;
+            urls::url url("https://example.com/");
+            jar.add(url, parse_cookie("a=1; Domain=com").value());
+            BOOST_TEST_EQ(jar.cookie_header(url), "");
+        }
+
+        // A cookie set on a multi-label public suffix (e.g. "co.uk") is only
+        // rejected when public suffix checking is supported. The weak fallback
+        // accepts it because it contains a non-trailing dot.
+        {
+            cookie_jar jar;
+            urls::url url("https://example.co.uk/");
+            jar.add(url, parse_cookie("a=1; Domain=co.uk").value());
+            if(cookie_jar::public_suffix_supported())
+                BOOST_TEST_EQ(jar.cookie_header(url), "");
+            else
+                BOOST_TEST_EQ(jar.cookie_header(url), "a=1");
+        }
+    }
+
+    void
     testJarReplace()
     {
         cookie_jar jar;
@@ -219,6 +255,7 @@ struct cookie_test
         testJarAddAndHeader();
         testJarSecure();
         testJarDomainMismatch();
+        testJarPublicSuffix();
         testJarReplace();
         testJarClear();
         testNetscapeRoundTrip();

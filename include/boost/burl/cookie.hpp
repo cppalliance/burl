@@ -191,6 +191,24 @@ class cookie_jar
     std::list<cookie> cookies_;
 
 public:
+    /** Return whether public suffix checking is supported.
+
+        When supported, @ref add rejects cookies set
+        for a public suffix (e.g. `"com"`, `"co.uk"`)
+        using the Public Suffix List. Otherwise a weak
+        fallback is used that only rejects cookies set
+        on bare top-level domains.
+
+        This is a compile-time property of the library
+        determined by whether it was built with libpsl.
+
+        @return `true` if public suffix checking is
+        supported.
+    */
+    BOOST_BURL_DECL
+    static bool
+    public_suffix_supported() noexcept;
+
     /** Add a cookie received from a URL.
 
         This function performs the storage checks of
