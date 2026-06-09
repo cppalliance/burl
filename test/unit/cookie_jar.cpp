@@ -400,6 +400,21 @@ struct cookie_jar_test
             jar.cookie_header(urls::url("http://www.example.com/")), "a=1");
         BOOST_TEST_EQ(
             jar.cookie_header(urls::url("http://example.com/")), "a=1");
+
+        // The leading dot marks tailmatch even when the flag column is FALSE,
+        // and is stripped so it survives an export round-trip.
+        cookie_jar dotted;
+        BOOST_TEST(
+            dotted.from_netscape(
+                "# Netscape HTTP Cookie File\n\n"
+                ".example.com\tFALSE\t/\tFALSE\t0\tb\t2\n").has_value());
+        BOOST_TEST_EQ(
+            dotted.cookie_header(urls::url("http://sub.example.com/")), "b=2");
+
+        cookie_jar in;
+        BOOST_TEST(in.from_netscape(dotted.to_netscape()).has_value());
+        BOOST_TEST_EQ(
+            in.cookie_header(urls::url("http://sub.example.com/")), "b=2");
     }
 
     void

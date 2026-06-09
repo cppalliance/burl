@@ -156,7 +156,12 @@ parse_netscape_cookie(core::string_view sv)
     auto rs      = cookie{};
     rs.http_only = std::get<0>(*parse_rs).has_value();
     rs.domain    = std::get<1>(*parse_rs);
-    rs.tailmatch = std::get<2>(*parse_rs).index();
+    // curl convention: a leading dot also marks the cookie tailmatch; strip it
+    auto& dom              = rs.domain.value();
+    const bool leading_dot = dom.starts_with('.');
+    if(leading_dot)
+        dom.erase(0, 1);
+    rs.tailmatch = std::get<2>(*parse_rs).index() || leading_dot;
     rs.path      = std::get<3>(*parse_rs);
     rs.secure    = std::get<4>(*parse_rs).index();
     rs.expires   = epoch_to_expiry(std::get<5>(*parse_rs));
