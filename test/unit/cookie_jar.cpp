@@ -143,6 +143,13 @@ struct cookie_jar_test
         // RFC 6265 5.1.4: a no-path request defaults to "/", not matching /app.
         BOOST_TEST_EQ(
             jar.cookie_header(urls::url("https://example.com")), "");
+
+        // RFC 6265 5.1.4: the defaulted "/" does match a root cookie.
+        cookie_jar root;
+        root.add(
+            urls::url("https://example.com/"), parse_cookie("a=1").value());
+        BOOST_TEST_EQ(
+            root.cookie_header(urls::url("https://example.com")), "a=1");
     }
 
     void
