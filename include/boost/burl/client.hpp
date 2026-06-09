@@ -11,7 +11,7 @@
 #define BOOST_BURL_CLIENT_HPP
 
 #include <boost/burl/connection_pool.hpp>
-#include <boost/burl/cookie.hpp>
+#include <boost/burl/cookie_jar.hpp>
 #include <boost/burl/detail/config.hpp>
 #include <boost/burl/request.hpp>
 #include <boost/burl/response.hpp>
