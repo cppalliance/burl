@@ -429,7 +429,7 @@ enable_cookies(corosio::tls_context tls_ctx)
         .as<std::string>();
 
     // Print the stored cookies in Netscape format
-    std::cout << client.cookie_jar();
+    std::cout << client.cookie_jar().to_netscape();
 }
 
 //==============================================================

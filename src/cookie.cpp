@@ -12,10 +12,11 @@
 #include <boost/url/grammar.hpp>
 #include <boost/url/grammar/all_chars.hpp>
 
+#include <algorithm>
 #include <iomanip>
 #include <sstream>
-#include <system_error>
 #include <utility>
+#include <vector>
 
 #ifdef BOOST_BURL_HAS_LIBPSL
 #include <libpsl.h>
@@ -72,23 +73,32 @@ constexpr auto attr_chars =
     urls::grammar::all_chars - urls::grammar::lut_chars("\x1F\x7f;");
 
 bool
+ci_starts_with(
+    core::string_view s,
+    core::string_view prefix) noexcept
+{
+    return s.size() >= prefix.size() &&
+           grammar::ci_is_equal(s.substr(0, prefix.size()), prefix);
+}
+
+bool
 domain_match(
-    core::string_view r_domain,
-    core::string_view c_domain,
+    core::string_view host,
+    core::string_view domain,
     bool tailmatch) noexcept
 {
     if(!tailmatch)
-        return r_domain == c_domain;
+        return host == domain;
 
-    if(c_domain.starts_with('.'))
-        c_domain.remove_prefix(1);
+    if(domain.starts_with('.'))
+        domain.remove_prefix(1);
 
-    if(r_domain.ends_with(c_domain))
+    if(host.ends_with(domain))
     {
-        if(r_domain.size() == c_domain.size())
+        if(host.size() == domain.size())
             return true;
 
-        return r_domain[r_domain.size() - c_domain.size() - 1] == '.';
+        return host[host.size() - domain.size() - 1] == '.';
     }
 
     return false;
@@ -97,8 +107,9 @@ domain_match(
 bool
 path_match(core::string_view r_path, core::string_view c_path) noexcept
 {
+    // RFC 6265 5.1.4: an empty request path defaults to "/"
     if(r_path.empty())
-        return true;
+        r_path = "/";
 
     if(r_path.starts_with(c_path))
     {
@@ -108,10 +119,35 @@ path_match(core::string_view r_path, core::string_view c_path) noexcept
         if(c_path.ends_with('/'))
             return true;
 
-        return r_path[r_path.size() - c_path.size()] == '/';
+        return r_path[c_path.size()] == '/';
     }
 
     return false;
+}
+
+bool
+is_secure_context(const urls::url_view& url)
+{
+    if(url.scheme_id() == urls::scheme::https)
+        return true;
+
+    // localhost and loopback are trustworthy without TLS (matches curl)
+    const auto host = url.host_address();
+    return
+        grammar::ci_is_equal(host, "localhost") ||
+        host == "127.0.0.1" ||
+        host == "::1";
+}
+
+void
+normalize_host(std::string& host)
+{
+    // a trailing dot denotes the same host (CVE-2022-27779)
+    if(host.ends_with('.'))
+        host.pop_back();
+
+    for(auto& ch : host)
+        ch = grammar::to_lower(ch);
 }
 
 ch::system_clock::time_point
@@ -152,7 +188,7 @@ parse_netscape_cookie(core::string_view sv)
         grammar::squelch(grammar::delim_rule('\t')),
         grammar::token_rule(field_chars),
         grammar::squelch(grammar::delim_rule('\t')),
-        grammar::token_rule(field_chars));
+        grammar::optional_rule(grammar::token_rule(field_chars)));
 
     const auto parse_rs = grammar::parse(sv, netscape_parser);
 
@@ -176,7 +212,9 @@ parse_netscape_cookie(core::string_view sv)
     rs.secure    = std::get<4>(*parse_rs).index();
     rs.expires   = epoch_to_expiry(std::get<5>(*parse_rs));
     rs.name      = std::get<6>(*parse_rs);
-    rs.value     = std::get<7>(*parse_rs);
+    // an empty value field denotes a value-less cookie (e.g. "name=")
+    if(auto& value = std::get<7>(*parse_rs))
+        rs.value = *value;
     return rs;
 }
 } // namespace
@@ -206,7 +244,7 @@ parse_cookie(core::string_view sv)
     auto rs  = cookie{};
     rs.name  = std::get<0>(parse_rs.value());
     if(auto& value = std::get<1>(parse_rs.value()))
-        rs.value = std::string{ *value };
+        rs.value = *value;
 
     for(auto&& attr : std::get<2>(parse_rs.value()))
     {
@@ -269,14 +307,14 @@ parse_cookie(core::string_view sv)
     }
 
     // "__Secure-" prefix requirements
-    if(core::string_view{ rs.name }.starts_with("__Secure-"))
+    if(ci_starts_with(rs.name, "__Secure-"))
     {
         if(!rs.secure)
             return grammar::error::invalid;
     }
 
     // "__Host-" prefix requirements
-    if(core::string_view{ rs.name }.starts_with("__Host-"))
+    if(ci_starts_with(rs.name, "__Host-"))
     {
         if(!rs.secure)
             return grammar::error::invalid;
@@ -304,21 +342,21 @@ cookie_jar::public_suffix_supported() noexcept
 void
 cookie_jar::add(const urls::url_view& url, cookie c)
 {
-    auto r_domain = url.host();
-    for(auto& ch : r_domain)
-        ch = grammar::to_lower(ch);
+    auto r_host = url.host_address();
+    normalize_host(r_host);
 
     if(c.domain.has_value())
     {
         auto& c_domain = c.domain.value();
+        normalize_host(c_domain);
+
+        // RFC 6265 5.2.3: a leading dot in the Domain attribute is ignored
         if(c_domain.starts_with('.'))
             c_domain.erase(0, 1);
-        for(auto& ch : c_domain)
-            ch = grammar::to_lower(ch);
 
         // RFC 6265 5.3: the request host must domain-match the Domain
         // attribute, otherwise the cookie must be rejected.
-        if(!domain_match(r_domain, c_domain, true))
+        if(!domain_match(r_host, c_domain, true))
             return;
 
 #ifdef BOOST_BURL_HAS_LIBPSL
@@ -339,7 +377,7 @@ cookie_jar::add(const urls::url_view& url, cookie c)
     }
     else
     {
-        c.domain.emplace(std::move(r_domain));
+        c.domain.emplace(std::move(r_host));
     }
 
     if(!c.path.has_value())
@@ -356,39 +394,58 @@ cookie_jar::add(const urls::url_view& url, cookie c)
             c.path->push_back('/');
     }
 
-    if(c.secure && url.scheme_id() != urls::scheme::https)
-        return;
+    if(!is_secure_context(url))
+    {
+        if(c.secure)
+            return;
 
-    cookies_.erase(
-        std::remove_if(
-            cookies_.begin(),
-            cookies_.end(),
-            [&](const cookie& o)
-            {
-                return c.name == o.name && c.path == o.path &&
-                    c.domain == o.domain;
-            }),
-        cookies_.end());
+        // RFC 6265bis: an insecure response must not overwrite a Secure cookie.
+        for(const auto& o : cookies_)
+        {
+            if(o.secure && c.name == o.name &&
+               (domain_match(c.domain.value(), o.domain.value(), true) ||
+                domain_match(o.domain.value(), c.domain.value(), true)) &&
+               path_match(c.path.value(), o.path.value()))
+                return;
+        }
+    }
+
+    auto it = std::find_if(
+        cookies_.begin(),
+        cookies_.end(),
+        [&](const cookie& o)
+        {
+            return c.name == o.name && c.path == o.path &&
+                c.domain == o.domain;
+        });
 
     // Check expiry date last to allow servers to remove cookies
-    if(c.expires.has_value() && c.expires.value() < ch::system_clock::now())
+    if(c.expires.has_value() && c.expires.value() <= ch::system_clock::now())
+    {
+        if(it != cookies_.end())
+            cookies_.erase(it);
         return;
+    }
 
-    cookies_.push_back(std::move(c));
+    // RFC 6265bis 5.3: replacing keeps the old cookie's position so creation
+    // order (used for header ordering) is retained.
+    if(it != cookies_.end())
+        *it = std::move(c);
+    else
+        cookies_.push_back(std::move(c));
 }
 
 std::string
 cookie_jar::cookie_header(const urls::url_view& url)
 {
-    auto r_domain = url.host();
-    for(auto& ch : r_domain)
-        ch = grammar::to_lower(ch);
+    auto r_host = url.host_address();
+    normalize_host(r_host);
 
     const auto r_path      = url.encoded_path();
-    const auto r_is_secure = url.scheme_id() == urls::scheme::https;
+    const auto r_is_secure = is_secure_context(url);
     const auto now         = ch::system_clock::now();
 
-    auto rs = std::string{};
+    auto matched = std::vector<const cookie*>{};
     for(auto it = cookies_.begin(); it != cookies_.end();)
     {
         if(it->expires.has_value() && it->expires <= now)
@@ -397,19 +454,31 @@ cookie_jar::cookie_header(const urls::url_view& url)
             continue;
         }
 
-        if(domain_match(r_domain, it->domain.value(), it->tailmatch) &&
+        if(domain_match(r_host, it->domain.value(), it->tailmatch) &&
            path_match(r_path, it->path.value()) &&
            (it->secure ? r_is_secure : true))
-        {
-            if(!rs.empty())
-                rs.append("; ");
-            rs.append(it->name);
-            rs.push_back('=');
-            if(it->value.has_value())
-                rs.append(*it->value);
-        }
+            matched.push_back(&*it);
 
         ++it;
+    }
+
+    // RFC 6265 5.4: longer paths first; stable_sort keeps creation order as
+    // the tiebreaker.
+    std::stable_sort(
+        matched.begin(),
+        matched.end(),
+        [](const cookie* a, const cookie* b)
+        { return a->path->size() > b->path->size(); });
+
+    auto rs = std::string{};
+    for(const auto* c : matched)
+    {
+        if(!rs.empty())
+            rs.append("; ");
+        rs.append(c->name);
+        rs.push_back('=');
+        if(c->value.has_value())
+            rs.append(*c->value);
     }
     return rs;
 }
@@ -423,45 +492,57 @@ cookie_jar::clear()
 void
 cookie_jar::clear_session_cookies()
 {
-    cookies_.erase(
-        std::remove_if(
-            cookies_.begin(),
-            cookies_.end(),
-            [](const cookie& c) { return !c.expires.has_value(); }),
-        cookies_.end());
+    cookies_.remove_if(
+        [](const cookie& c) { return !c.expires.has_value(); });
 }
 
-std::ostream&
-operator<<(std::ostream& os, const cookie_jar& cj)
+std::string
+cookie_jar::to_netscape() const
 {
-    os << "# Netscape HTTP Cookie File\n\n";
+    auto rs = std::string{ "# Netscape HTTP Cookie File\n\n" };
 
-    for(const auto& c : cj.cookies_)
+    for(const auto& c : cookies_)
     {
-        os << (c.http_only ? "#HttpOnly_" : "");
-        os << c.domain.value() << '\t';
-        os << (c.tailmatch ? "TRUE" : "FALSE") << '\t';
-        os << c.path.value() << '\t';
-        os << (c.secure ? "TRUE" : "FALSE") << '\t';
-        if(c.expires)
-            os << ch::duration_cast<ch::seconds>(
-                      c.expires.value().time_since_epoch())
-                      .count();
-        else
-            os << '0';
-        os << '\t';
-        os << c.name << '\t';
-        os << c.value.value_or("");
-        os << '\n';
+        if(c.http_only)
+            rs += "#HttpOnly_";
+        rs += c.domain.value();
+        rs += '\t';
+        rs += c.tailmatch ? "TRUE" : "FALSE";
+        rs += '\t';
+        rs += c.path.value();
+        rs += '\t';
+        rs += c.secure ? "TRUE" : "FALSE";
+        rs += '\t';
+        rs += c.expires
+                ? std::to_string(
+                    ch::duration_cast<ch::seconds>(
+                        c.expires.value().time_since_epoch()).count())
+                : "0";
+        rs += '\t';
+        rs += c.name;
+        rs += '\t';
+        rs += c.value.value_or("");
+        rs += '\n';
     }
-    return os;
+
+    return rs;
 }
 
-std::istream&
-operator>>(std::istream& is, cookie_jar& cj)
+system::result<void>
+cookie_jar::from_netscape(std::string_view sv)
 {
-    for(std::string line; getline(is, line);)
+    while(!sv.empty())
     {
+        const auto nl = sv.find('\n');
+        auto line = sv.substr(0, nl);
+        sv = nl == std::string_view::npos
+            ? std::string_view{}
+            : sv.substr(nl + 1);
+
+        // tolerate CRLF line endings
+        if(line.ends_with('\r'))
+            line.remove_suffix(1);
+
         if(line.empty())
             continue;
 
@@ -469,12 +550,12 @@ operator>>(std::istream& is, cookie_jar& cj)
         if(line.starts_with('#') && !line.starts_with("#HttpOnly_"))
             continue;
 
-        auto rs = parse_netscape_cookie(line);
-        if(rs.has_error())
-            throw std::system_error(rs.error());
-        cj.cookies_.push_back(std::move(*rs));
+        auto rc = parse_netscape_cookie(line);
+        if(rc.has_error())
+            return rc.error();
+        cookies_.push_back(std::move(*rc));
     }
-    return is;
+    return {};
 }
 
 } // namespace burl

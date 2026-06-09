@@ -15,9 +15,9 @@
 #include <boost/url/url_view.hpp>
 
 #include <chrono>
-#include <iosfwd>
 #include <list>
 #include <optional>
+#include <string>
 
 namespace boost
 {
@@ -99,7 +99,8 @@ struct cookie
     /** Whether the `Secure` attribute is present.
 
         Secure cookies are only stored for, and sent
-        over, `https` connections.
+        over, secure contexts: `https`, or `localhost`
+        and loopback addresses.
     */
     bool secure = false;
 
@@ -164,9 +165,10 @@ parse_cookie(core::string_view sv);
     @ref client::config::cookies enabled maintains
     its cookie jar automatically.
 
-    The stream operators read and write cookies in
-    the Netscape cookie file format, allowing the
-    jar to be persisted between sessions.
+    The @ref to_netscape and @ref from_netscape
+    members serialize cookies in the Netscape cookie
+    file format, allowing the jar to be persisted
+    between sessions.
 
     @par Example
     @code
@@ -178,7 +180,7 @@ parse_cookie(core::string_view sv);
     auto r = co_await c.get("https://example.com/login").send();
 
     // Print the stored cookies in Netscape format
-    std::cout << c.cookie_jar();
+    std::cout << c.cookie_jar().to_netscape();
     @endcode
 
     @see
@@ -225,8 +227,15 @@ public:
         @li When the cookie carries no `Path`
             attribute, the default path is computed
             from the URL.
-        @li Secure cookies received over a scheme
-            other than `https` are ignored.
+        @li Secure cookies received outside a secure
+            context are ignored. As well as `https`,
+            `localhost` and loopback addresses are
+            treated as secure contexts.
+        @li A cookie received outside a secure context
+            is ignored when it would evict or overwrite
+            an existing `Secure` cookie of the same
+            name whose domain and path overlap ("Leave
+            Secure Cookies Alone").
 
         An existing cookie with the same name,
         domain, and path is replaced. A cookie which
@@ -248,7 +257,8 @@ public:
         Stored cookies are matched against the URL
         by domain, path, and the `Secure` attribute,
         and returned as `name=value` pairs separated
-        by `"; "`. Expired cookies encountered
+        by `"; "`, ordered with longer paths first
+        (RFC 6265 5.4). Expired cookies encountered
         during matching are removed from the jar.
 
         @param url The URL of the request.
@@ -275,43 +285,29 @@ public:
     void
     clear_session_cookies();
 
-    /** Write a cookie jar to an output stream.
+    /** Return the jar in the Netscape cookie file format.
 
-        The cookies are written in the Netscape
-        cookie file format.
-
-        @param os The output stream to write to.
-
-        @param cj The cookie jar to write.
-
-        @return A reference to the output stream.
+        @return The serialized cookies.
     */
     BOOST_BURL_DECL
-    friend std::ostream&
-    operator<<(std::ostream& os, const cookie_jar& cj);
+    std::string
+    to_netscape() const;
 
-    /** Read cookies from an input stream.
+    /** Add cookies from the Netscape cookie file format.
 
-        The cookies are read in the Netscape cookie
-        file format and added to the jar. Empty
-        lines and comment lines are skipped, except
-        those carrying the `#HttpOnly_` prefix.
+        The cookies are read from `sv` and added to
+        the jar. Empty lines and comment lines are
+        skipped, except those carrying the
+        `#HttpOnly_` prefix.
 
-        @par Exception Safety
-        Exceptions thrown on invalid input.
+        @param sv The serialized cookies to parse.
 
-        @throw std::system_error
-        The input contains a malformed line.
-
-        @param is The input stream to read from.
-
-        @param cj The cookie jar to add to.
-
-        @return A reference to the input stream.
+        @return Nothing on success, otherwise an
+        error if the input contains a malformed line.
     */
     BOOST_BURL_DECL
-    friend std::istream&
-    operator>>(std::istream& is, cookie_jar& cj);
+    system::result<void>
+    from_netscape(std::string_view sv);
 };
 
 } // namespace burl
