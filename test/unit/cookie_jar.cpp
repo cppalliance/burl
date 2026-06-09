@@ -306,6 +306,65 @@ struct cookie_jar_test
     }
 
     void
+    testIPHost()
+    {
+        // A host-only cookie on an IPv4 literal is sent back to the same
+        // address.
+        {
+            cookie_jar jar;
+            urls::url url("http://192.168.0.1/");
+            jar.add(url, parse_cookie("a=1").value());
+            BOOST_TEST_EQ(jar.cookie_header(url), "a=1");
+        }
+
+        // RFC 6265 5.1.3: suffix matching does not apply to IP hosts, so a
+        // cookie set on one address is not sent to a different address that
+        // shares a textual suffix.
+        {
+            cookie_jar jar;
+            jar.add(
+                urls::url("http://1.2.3.4/"), parse_cookie("a=1").value());
+            BOOST_TEST_EQ(
+                jar.cookie_header(urls::url("http://9.9.3.4/")), "");
+        }
+
+        // A Domain attribute that is a textual suffix of the IP host must be
+        // rejected rather than accepted as a tailmatch cookie.
+        {
+            cookie_jar jar;
+            urls::url url("http://1.2.3.4/");
+            jar.add(url, parse_cookie("a=1; Domain=3.4").value());
+            BOOST_TEST_EQ(jar.cookie_header(url), "");
+            // and it must never leak to a sibling address.
+            BOOST_TEST_EQ(
+                jar.cookie_header(urls::url("http://9.9.3.4/")), "");
+        }
+
+        // A Domain attribute equal to the IP host is accepted but treated as
+        // host-only: sent to that exact address, never to a suffix sibling.
+        {
+            cookie_jar jar;
+            urls::url url("http://1.2.3.4/");
+            jar.add(url, parse_cookie("a=1; Domain=1.2.3.4").value());
+            BOOST_TEST_EQ(jar.cookie_header(url), "a=1");
+            BOOST_TEST_EQ(
+                jar.cookie_header(urls::url("http://9.1.2.3.4/")), "");
+        }
+
+        // Defense in depth: a Netscape file that keys a tailmatch cookie to an
+        // IP suffix must not match a longer IP address.
+        {
+            cookie_jar jar;
+            BOOST_TEST(
+                jar.from_netscape(
+                    "# Netscape HTTP Cookie File\n\n"
+                    "0.1\tTRUE\t/\tFALSE\t0\ta\t1\n").has_value());
+            BOOST_TEST_EQ(
+                jar.cookie_header(urls::url("http://127.0.0.1/")), "");
+        }
+    }
+
+    void
     testNetscapeValueless()
     {
         // A value-less cookie exports with an empty value field and must
@@ -450,6 +509,7 @@ struct cookie_jar_test
         testLocalhostSecure();
         testTrailingDot();
         testIPv6();
+        testIPHost();
         testNetscapeValueless();
         testNetscapeLeadingDot();
         testLeaveSecureAlone();
