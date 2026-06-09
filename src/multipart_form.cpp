@@ -41,9 +41,11 @@ multipart_form::text(
 {
     auto size = value.size();
     parts_.push_back(
-        part{ .header = make_header(name, {}, content_type),
-              .text   = std::move(value),
-              .size   = size });
+        part{ .header  = make_header(name, {}, content_type),
+              .is_file = false,
+              .text    = std::move(value),
+              .path    = {},
+              .size    = size });
     return *this;
 }
 
@@ -72,6 +74,7 @@ multipart_form::file(
     parts_.push_back(
         part{ .header  = make_header(name, filename, content_type),
               .is_file = true,
+              .text    = {},
               .path    = std::move(path),
               .size    = size });
     return *this;
