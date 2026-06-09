@@ -78,7 +78,7 @@ public:
     */
     request_builder(client& client, http::method method, urls::url url)
         : client_(client)
-        , request_{ method, std::move(url), {}, {} }
+        , request_{ method, std::move(url), {}, {}, {} }
     {
     }
 
