@@ -403,6 +403,31 @@ struct cookie_jar_test
     }
 
     void
+    testPublicSuffixHostOnly()
+    {
+        // RFC 6265 5.3 step 5: a public-suffix Domain equal to the host is
+        // accepted as host-only (a bare label is a public suffix either way).
+        {
+            cookie_jar jar;
+            urls::url url("http://intranet/");
+            jar.add(url, parse_cookie("a=1; Domain=intranet").value());
+            BOOST_TEST_EQ(jar.cookie_header(url), "a=1");
+
+            // host-only: it must not leak to a subdomain.
+            BOOST_TEST_EQ(
+                jar.cookie_header(urls::url("http://host.intranet/")), "");
+        }
+
+        // A public-suffix Domain that differs from the host is still rejected.
+        {
+            cookie_jar jar;
+            urls::url url("https://example.com/");
+            jar.add(url, parse_cookie("a=1; Domain=com").value());
+            BOOST_TEST_EQ(jar.cookie_header(url), "");
+        }
+    }
+
+    void
     testLeaveSecureAlone()
     {
         // RFC 6265bis: a cookie received over http must not evict or
@@ -510,6 +535,7 @@ struct cookie_jar_test
         testSecure();
         testDomainMismatch();
         testPublicSuffix();
+        testPublicSuffixHostOnly();
         testReplace();
         testPathMatch();
         testOrdering();
