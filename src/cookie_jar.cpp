@@ -205,16 +205,12 @@ cookie_jar::add(const urls::url_view& url, cookie c)
 
     if(!c.path.has_value())
     {
-        c.path.emplace();
-        auto segs = url.encoded_segments();
-        auto end  = std::prev(segs.end(), !segs.empty());
-        for(auto it = segs.begin(); it != end; ++it)
-        {
-            c.path->push_back('/');
-            c.path->append(it->begin(), it->end());
-        }
-        if(c.path->empty())
-            c.path->push_back('/');
+        core::string_view p = url.encoded_path();
+        auto pos = p.rfind('/');
+        if(pos == 0 || pos == core::string_view::npos)
+            c.path = "/";
+        else
+            c.path = { p.substr(0, pos) };
     }
 
     if(!is_secure_context(url))
