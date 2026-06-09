@@ -81,12 +81,18 @@ is_secure_context(const urls::url_view& url)
     if(url.scheme_id() == urls::scheme::https)
         return true;
 
-    // localhost and loopback are trustworthy without TLS (matches curl)
-    const auto host = url.host_address();
-    return
-        grammar::ci_is_equal(host, "localhost") ||
-        host == "127.0.0.1" ||
-        host == "::1";
+    // localhost and the loopback ranges are trustworthy without TLS
+    switch(url.host_type())
+    {
+    case urls::host_type::name:
+        return grammar::ci_is_equal(url.host_address(), "localhost");
+    case urls::host_type::ipv4:
+        return url.host_ipv4_address().is_loopback();
+    case urls::host_type::ipv6:
+        return url.host_ipv6_address().is_loopback();
+    default:
+        return false;
+    }
 }
 
 void
@@ -98,6 +104,14 @@ normalize_host(std::string& host)
 
     for(auto& ch : host)
         ch = grammar::to_lower(ch);
+}
+
+std::string
+canonical_host(const urls::url_view& url)
+{
+    auto ret = url.host_address();
+    normalize_host(ret);
+    return ret;
 }
 
 bool
@@ -186,9 +200,8 @@ cookie_jar::public_suffix_supported() noexcept
 void
 cookie_jar::add(const urls::url_view& url, cookie c)
 {
-    const bool host_is_name = url.host_type() == urls::host_type::name;
-    auto r_host = url.host_address();
-    normalize_host(r_host);
+    const auto r_host_is_name = url.host_type() == urls::host_type::name;
+    const auto r_host         = canonical_host(url);
 
     if(c.domain.has_value())
     {
@@ -207,13 +220,13 @@ cookie_jar::add(const urls::url_view& url, cookie c)
                 return;
             c.tailmatch = false;
         }
-        else if(!domain_match(r_host, c_domain, host_is_name))
+        else if(!domain_match(r_host, c_domain, r_host_is_name))
         {
             return;
         }
         else
         {
-            c.tailmatch = host_is_name;
+            c.tailmatch = r_host_is_name;
         }
     }
     else
@@ -275,13 +288,11 @@ cookie_jar::add(const urls::url_view& url, cookie c)
 std::string
 cookie_jar::cookie_header(const urls::url_view& url)
 {
-    const bool host_is_name = url.host_type() == urls::host_type::name;
-    auto r_host = url.host_address();
-    normalize_host(r_host);
-
-    const auto r_path      = url.encoded_path();
-    const auto r_is_secure = is_secure_context(url);
-    const auto now         = ch::system_clock::now();
+    const auto r_host_is_name = url.host_type() == urls::host_type::name;
+    const auto r_host         = canonical_host(url);
+    const auto r_path         = url.encoded_path();
+    const auto r_is_secure    = is_secure_context(url);
+    const auto now            = ch::system_clock::now();
 
     auto matched = std::vector<const cookie*>{};
     for(auto it = cookies_.begin(); it != cookies_.end();)
@@ -296,7 +307,7 @@ cookie_jar::cookie_header(const urls::url_view& url)
         bool const domain_ok = domain_match(
             r_host,
             it->domain.value(),
-            it->tailmatch && host_is_name);
+            it->tailmatch && r_host_is_name);
 
         if(domain_ok && path_ok && (!it->secure || r_is_secure))
             matched.push_back(&*it);
@@ -355,11 +366,16 @@ cookie_jar::to_netscape() const
         rs += '\t';
         rs += c.secure ? "TRUE" : "FALSE";
         rs += '\t';
-        rs += c.expires
-                ? std::to_string(
-                    ch::duration_cast<ch::seconds>(
-                        c.expires.value().time_since_epoch()).count())
-                : "0";
+        if(c.expires)
+        {
+            rs += std::to_string(
+                ch::duration_cast<ch::seconds>(
+                    c.expires->time_since_epoch()).count());
+        }
+        else
+        {
+            rs += '0';
+        }
         rs += '\t';
         rs += c.name;
         rs += '\t';

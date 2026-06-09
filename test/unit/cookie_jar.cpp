@@ -215,6 +215,12 @@ struct cookie_jar_test
         }
         {
             cookie_jar jar;
+            urls::url url("http://127.0.0.255/");
+            jar.add(url, parse_cookie("s=1; Secure").value());
+            BOOST_TEST_EQ(jar.cookie_header(url), "s=1");
+        }
+        {
+            cookie_jar jar;
             urls::url url("http://[::1]/");
             jar.add(url, parse_cookie("s=1; Secure").value());
             BOOST_TEST_EQ(jar.cookie_header(url), "s=1");
