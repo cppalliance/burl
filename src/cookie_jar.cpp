@@ -166,6 +166,7 @@ cookie_jar::public_suffix_supported() noexcept
 void
 cookie_jar::add(const urls::url_view& url, cookie c)
 {
+    const bool host_is_name = url.host_type() == urls::host_type::name;
     auto r_host = url.host_address();
     normalize_host(r_host);
 
@@ -178,9 +179,7 @@ cookie_jar::add(const urls::url_view& url, cookie c)
         if(c_domain.starts_with('.'))
             c_domain.erase(0, 1);
 
-        // RFC 6265 5.3: the request host must domain-match the Domain
-        // attribute, otherwise the cookie must be rejected.
-        if(!domain_match(r_host, c_domain, true))
+        if(!domain_match(r_host, c_domain, host_is_name))
             return;
 
 #ifdef BOOST_BURL_HAS_LIBPSL
@@ -197,7 +196,7 @@ cookie_jar::add(const urls::url_view& url, cookie c)
         }
 #endif
 
-        c.tailmatch = true;
+        c.tailmatch = host_is_name;
     }
     else
     {
@@ -262,6 +261,7 @@ cookie_jar::add(const urls::url_view& url, cookie c)
 std::string
 cookie_jar::cookie_header(const urls::url_view& url)
 {
+    const bool host_is_name = url.host_type() == urls::host_type::name;
     auto r_host = url.host_address();
     normalize_host(r_host);
 
@@ -278,9 +278,13 @@ cookie_jar::cookie_header(const urls::url_view& url)
             continue;
         }
 
-        if(domain_match(r_host, it->domain.value(), it->tailmatch) &&
-           path_match(r_path, it->path.value()) &&
-           (it->secure ? r_is_secure : true))
+        bool const path_ok = path_match(r_path, it->path.value());
+        bool const domain_ok = domain_match(
+            r_host,
+            it->domain.value(),
+            it->tailmatch && host_is_name);
+
+        if(domain_ok && path_ok && (!it->secure || r_is_secure))
             matched.push_back(&*it);
 
         ++it;
