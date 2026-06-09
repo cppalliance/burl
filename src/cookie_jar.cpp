@@ -100,6 +100,21 @@ normalize_host(std::string& host)
         ch = grammar::to_lower(ch);
 }
 
+bool
+is_public_suffix(const std::string& domain) noexcept
+{
+#ifdef BOOST_BURL_HAS_LIBPSL
+    return psl_is_public_suffix(psl_builtin(), domain.c_str());
+#else
+    // weak heuristic:
+    // treat bare TLDs (single-label domains) as public suffixes
+    if(domain == "localhost")
+        return false;
+    const auto pos = domain.find('.');
+    return pos == std::string::npos || domain.size() - pos <= 1;
+#endif
+}
+
 system::result<cookie>
 parse_netscape_cookie(core::string_view sv)
 {
@@ -179,24 +194,22 @@ cookie_jar::add(const urls::url_view& url, cookie c)
         if(c_domain.starts_with('.'))
             c_domain.erase(0, 1);
 
-        if(!domain_match(r_host, c_domain, host_is_name))
-            return;
-
-#ifdef BOOST_BURL_HAS_LIBPSL
-        // Reject cookies set for a public suffix (e.g. "com", "co.uk").
-        if(psl_is_public_suffix(psl_builtin(), c_domain.c_str()))
-            return;
-#else
-        // apply a weak heuristic to at least reject cookies set on bare TLDs
-        if(c_domain != "localhost")
+        if(is_public_suffix(c_domain))
         {
-            const auto pos = c_domain.find('.');
-            if(pos == std::string::npos || c_domain.size() - pos <= 1)
+            // RFC 6265 5.3 step 5: a public-suffix Domain is rejected, unless
+            // it equals the request host, which makes the cookie host-only.
+            if(c_domain != r_host)
                 return;
+            c.tailmatch = false;
         }
-#endif
-
-        c.tailmatch = host_is_name;
+        else if(!domain_match(r_host, c_domain, host_is_name))
+        {
+            return;
+        }
+        else
+        {
+            c.tailmatch = host_is_name;
+        }
     }
     else
     {
