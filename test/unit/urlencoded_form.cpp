@@ -20,8 +20,11 @@
 
 #include "test_suite.hpp"
 
+#include <map>
+#include <string>
 #include <string_view>
 #include <utility>
+#include <vector>
 
 namespace boost
 {
@@ -89,6 +92,31 @@ struct urlencoded_form_test
     }
 
     void
+    testRange()
+    {
+        std::map<std::string, std::string> map
+            {
+                { "lang", "En" },
+                { "user", "John" }
+            };
+        check(map, "lang=En&user=John");
+
+        std::vector<std::pair<std::string, std::string>> vec
+            {
+                { "user", "John" },
+                { "lang", "En" }
+            };
+        check(urlencoded_form(vec), "user=John&lang=En");
+
+        // Range append returns *this for chaining.
+        urlencoded_form form;
+        auto& ref = form.append(vec);
+        BOOST_TEST_EQ(&ref, &form);
+        form.append(map);
+        check(std::move(form), "user=John&lang=En&lang=En&user=John");
+    }
+
+    void
     testEncoding()
     {
         // Spaces are encoded as '+'.
@@ -115,6 +143,7 @@ struct urlencoded_form_test
         testEmpty();
         testAppend();
         testInitializerList();
+        testRange();
         testEncoding();
     }
 };
