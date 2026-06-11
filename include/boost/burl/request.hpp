@@ -64,6 +64,16 @@ struct request
             @see @ref request_builder::timeout.
         */
         std::optional<clock::duration> timeout;
+
+        /** Follow redirect responses automatically.
+
+            When set, overrides
+            @ref client::config::followlocation for
+            this request.
+
+            @see @ref request_builder::followlocation.
+        */
+        std::optional<bool> followlocation;
     };
 
     /** The request method.
