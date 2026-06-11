@@ -14,7 +14,9 @@
 #include <boost/burl/conversion.hpp>
 #include <boost/burl/detail/config.hpp>
 
+#include <concepts>
 #include <initializer_list>
+#include <ranges>
 #include <string>
 #include <string_view>
 #include <utility>
@@ -88,6 +90,38 @@ public:
         std::initializer_list<
             std::pair<std::string_view, std::string_view>> fields);
 
+    /** Constructor.
+
+        Constructs a form containing the name and
+        value pairs from the passed range.
+
+        @par Example
+        @code
+        std::map<std::string, std::string> fields = {
+            { "user", "John" },
+            { "lang", "En" } };
+
+        auto r = co_await c.post("https://example.com/post")
+            .body<burl::urlencoded_form>(fields)
+            .send();
+        @endcode
+
+        @par Exception Safety
+        Calls to allocate may throw.
+
+        @param fields The range of name and value
+        pairs to append.
+    */
+    template<class Range>
+        requires std::ranges::input_range<Range> &&
+            std::convertible_to<
+                std::ranges::range_reference_t<Range>,
+                std::pair<std::string_view, std::string_view>>
+    urlencoded_form(Range&& fields)
+    {
+        append(std::forward<Range>(fields));
+    }
+
     /** Append a field to the form.
 
         The name and value are percent-encoded,
@@ -106,6 +140,33 @@ public:
     BOOST_BURL_DECL
     urlencoded_form&
     append(std::string_view name, std::string_view value);
+
+    /** Append fields to the form.
+
+        Appends the name and value pairs from the
+        passed range.
+
+        @par Exception Safety
+        Calls to allocate may throw.
+
+        @param fields The range of name and value
+        pairs to append.
+
+        @return A reference to this object, for
+        chaining.
+    */
+    template<class Range>
+        requires std::ranges::input_range<Range> &&
+            std::convertible_to<
+                std::ranges::range_reference_t<Range>,
+                std::pair<std::string_view, std::string_view>>
+    urlencoded_form&
+    append(Range&& fields)
+    {
+        for(std::pair<std::string_view, std::string_view> field : fields)
+            append(field.first, field.second);
+        return *this;
+    }
 
 private:
     friend BOOST_BURL_DECL any_request_body
