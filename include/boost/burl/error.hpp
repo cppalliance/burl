@@ -68,14 +68,14 @@ enum class error
 
 /** Error conditions corresponding to sets of error codes.
 
-    HTTP response status codes treated as errors,
-    such as those produced by
-    @ref request_builder::error_for_status, map to
-    these conditions.
+    A response with a status code of 400 or above
+    yields an error code whose value is the status
+    code and whose category is @ref burl_category.
+    These codes map to these conditions.
 
     @par Example
     @code
-    auto [ec, r] = co_await c.get(url).error_for_status().send();
+    auto [ec, r] = co_await c.get(url).send();
     if(ec == burl::condition::client_error)
         std::cerr << ec.message() << '\n'; // e.g. HTTP 404 Not Found
     @endcode

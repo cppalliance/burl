@@ -88,7 +88,6 @@ async_main(corosio::tls_context tls_ctx)
     nlohmann::json body({ { "user", "John" }, { "lang", "En" } });
     auto r1 = co_await client.post("https://postman-echo.com/post")
         .body(body)
-        .error_for_status()
         .as<nlohmann::json>();
 
     std::cout << r1.dump(4) << '\n';
@@ -96,7 +95,6 @@ async_main(corosio::tls_context tls_ctx)
     // Or inline
     auto r2 = co_await client.post("https://postman-echo.com/post")
         .body<nlohmann::json>({ 1, 2, 3 })
-        .error_for_status()
         .as<nlohmann::json>();
 
     std::cout << r2.dump(4) << '\n';

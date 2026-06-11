@@ -182,8 +182,6 @@ public:
 
         @throw std::system_error
         The status code is 400 or above.
-
-        @see @ref request_builder::error_for_status.
     */
     void
     raise_for_status() const

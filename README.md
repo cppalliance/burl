@@ -63,14 +63,13 @@ std::cout << "headers: " << r.headers() << '\n';
 std::cout << "body:    " << co_await r.as<std::string>() << '\n';
 ```
 
-### Treat 4xx/5xx as errors
+### 4xx/5xx status codes are errors
 
 ```cpp
 try
 {
-    // Treat 4XX and 5XX status codes as errors
-    auto r1 = co_await client.get(url)
-        .error_for_status().as<std::string>();
+    // A 4XX or 5XX status code yields an error
+    auto r1 = co_await client.get(url).as<std::string>();
 }
 catch(std::system_error const&e)
 {
@@ -79,13 +78,12 @@ catch(std::system_error const&e)
 }
 
 // Or inspect the error code instead of throwing
-auto [ec, r2] = co_await client.get(url)
-    .error_for_status().try_as<std::string>();
+auto [ec, r2] = co_await client.get(url).try_as<std::string>();
 
 if(ec == burl::condition::client_error)
 {
     // HTTP 404 Not Found
-    std::cerr << eclient.message() << '\n';
+    std::cerr << ec.message() << '\n';
 }
 ```
 
@@ -111,7 +109,6 @@ client.basic_auth("user", "pass");
 
 auto r = co_await client.get(url)
     .basic_auth("postman", "password") // per-request override
-    .error_for_status()
     .as<json::value>();
 ```
 
@@ -146,7 +143,7 @@ auto r4 = co_await client.put(url)
 ### Stream a large response
 
 ```cpp
-auto [ec, r] = co_await client.get(url).error_for_status().send();
+auto [ec, r] = co_await client.get(url).send();
 if(ec)
     throw std::system_error(ec);
 

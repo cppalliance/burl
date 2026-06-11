@@ -356,12 +356,6 @@ jobs:
           # Patch boost-root with workspace module
           cp -r "$workspace_root"/burl-root "libs/$module"
 
-          # TEMP: guard capy's unconditional test_suite add_subdirectory so a
-          # dependent sorted before capy (e.g. burl) can't create the
-          # boost_capy_test_suite targets first and trigger a duplicate-target
-          # error. Confirms the fix; remove once merged into cppalliance/capy.
-          sed -i 's|^add_subdirectory(extra/test_suite)$|if(NOT TARGET boost_capy_test_suite)\n    add_subdirectory(extra/test_suite)\nendif()|' libs/capy/CMakeLists.txt
-
       - name: Boost B2 Workflow
         uses: alandefreitas/cpp-actions/b2-workflow@v1.9.4
         if: ${{ !matrix.coverage }}
@@ -611,12 +605,6 @@ jobs:
 
           # Patch boost-root with workspace module
           cp -r "$workspace_root"/burl-root "libs/$module"
-
-          # TEMP: guard capy's unconditional test_suite add_subdirectory so a
-          # dependent sorted before capy (e.g. burl) can't create the
-          # boost_capy_test_suite targets first and trigger a duplicate-target
-          # error. Confirms the fix; remove once merged into cppalliance/capy.
-          sed -i 's|^add_subdirectory(extra/test_suite)$|if(NOT TARGET boost_capy_test_suite)\n    add_subdirectory(extra/test_suite)\nendif()|' libs/capy/CMakeLists.txt
 
       - uses: actions/setup-node@v4
         with:

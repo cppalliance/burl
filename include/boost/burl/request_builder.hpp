@@ -180,41 +180,6 @@ public:
     request_builder&&
     bearer_auth(std::string_view token) &&;
 
-    /** Treat 4xx and 5xx status codes as errors.
-
-        When enabled, a response with a status code
-        of 400 or above causes @ref send to yield an
-        error code whose value is the status code
-        and whose category is @ref burl_category,
-        alongside the response. Such codes compare
-        equal to @ref condition::client_error or
-        @ref condition::server_error. @ref as throws
-        instead.
-
-        @par Example
-        @code
-        auto [ec, r] = co_await c.get("https://example.com/not-found")
-            .error_for_status()
-            .send();
-
-        if(ec == burl::condition::client_error)
-            std::cerr << ec.message() << '\n'; // HTTP 404 Not Found
-        @endcode
-
-        @param enable `true` to treat 4xx and 5xx
-        status codes as errors.
-
-        @return The builder, for chaining.
-
-        @see @ref response::raise_for_status.
-    */
-    request_builder&&
-    error_for_status(bool enable = true) &&
-    {
-        request_.options.error_for_status = enable;
-        return std::move(*this);
-    }
-
     /** Set a timeout for the entire operation.
 
         Overrides @ref client::config::timeout for
@@ -324,6 +289,11 @@ public:
         passing the built request to
         @ref client::execute.
 
+        A status code of 400 or above yields an error
+        code equal to @ref condition::client_error or
+        @ref condition::server_error. The @ref response
+        is still returned, so the body can be retrieved.
+
         @par Example
         @code
         auto [ec, r] = co_await c.get("https://example.com").send();
@@ -342,13 +312,25 @@ public:
         body to `T` by calling `tag_invoke` with
         @ref body_to_tag.
 
-        The remaining time of the request timeout,
-        when one was set, applies to this operation.
+        A status code of 400 or above yields an error
+        code equal to @ref condition::client_error or
+        @ref condition::server_error. The body is
+        still read and converted, but conversion errors
+        are masked by the status error.
+
+        To examine the status code before consuming the
+        body, use @ref send instead.
 
         @par Example
         @code
         auto [ec, body] = co_await c.get("https://example.com")
             .try_as<std::string>();
+
+        if(ec == burl::condition::client_error)
+        {
+            std::cerr << ec.message() << '\n'; // e.g. HTTP 404 Not Found
+            std::cerr << body << '\n';
+        }
         @endcode
 
         @tparam T The type to convert the body to.
@@ -376,6 +358,10 @@ public:
         body to `T` by calling `tag_invoke` with
         @ref body_to_tag.
 
+        A status code of 400 or above throws without
+        reading the body. Use @ref try_as to inspect
+        an error response.
+
         @par Example
         @code
         auto r = co_await c.get("https://example.com")
@@ -383,7 +369,7 @@ public:
         @endcode
 
         @throw std::system_error
-        The request or the conversion failed.
+        The request, status code, or conversion failed.
 
         @tparam T The type to convert the body to.
 
@@ -424,11 +410,13 @@ private:
     static capy::io_task<T>
     try_as_impl(request_builder rb, Args... args)
     {
-        auto [ec, resp] = co_await std::move(rb).send();
-        if(ec)
-            co_return { ec, {} };
+        auto [ec1, resp] = co_await std::move(rb).send();
+        if(ec1 && ec1 != condition::client_error && ec1 != condition::server_error)
+            co_return { ec1, {} };
 
-        co_return co_await resp.template try_as<T>(std::move(args)...);
+        // On a status error keep ec1; otherwise surface the conversion error.
+        auto [ec2, body] = co_await resp.template try_as<T>(std::move(args)...);
+        co_return { ec1 ? ec1 : ec2, std::move(body) };
     }
 };
 

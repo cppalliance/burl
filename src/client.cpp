@@ -350,7 +350,7 @@ client::execute_impl(
         {
             auto ec = std::error_code{};
             auto status_int = parser.get().status_int();
-            if(request.options.error_for_status && status_int >= 400)
+            if(status_int >= 400)
                 ec = std::error_code(status_int, burl_category());
 
             co_return {
