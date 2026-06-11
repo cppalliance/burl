@@ -81,6 +81,21 @@ struct multipart_form_test
         check_body(body, expected);
     }
 
+    static void
+    check_io(any_request_body const& body, std::string_view expected)
+    {
+        auto cl = body.content_length();
+        BOOST_TEST(cl.has_value());
+        BOOST_TEST_EQ(cl.value(), expected.size());
+
+        capy::test::buffer_sink bs;
+        capy::any_buffer_sink sink(&bs);
+
+        auto ec = drive_body(body, sink);
+        BOOST_TEST(!ec);
+        BOOST_TEST_EQ(bs.data(), expected);
+    }
+
     void
     testEmpty()
     {
@@ -186,61 +201,87 @@ struct multipart_form_test
             part(boundary, "doc", contents, "report.txt", "text/plain")
             + "--" + boundary + "--\r\n";
 
-        auto cl = body.content_length();
-        BOOST_TEST(cl.has_value());
-        BOOST_TEST_EQ(cl.value(), expected.size());
-
-        capy::test::buffer_sink bs;
-        capy::any_buffer_sink sink(&bs);
-
-        auto ec = drive_body(body, sink);
-        BOOST_TEST(!ec);
-        BOOST_TEST_EQ(bs.data(), expected);
+        check_io(body, expected);
     }
 
     void
-    check_deduced(std::string_view extension, std::string_view expected_ct)
+    testFilePartDeduced()
     {
-        std::string contents = "a\nb\nc\n";
-        temp_file tmp(contents, extension);
+        auto check_one = [&](std::string_view extension,
+                             std::string_view expected_ct) {
+            std::string contents = "a\nb\nc\n";
+            temp_file tmp(contents, extension);
 
+            multipart_form form;
+            form.file("doc", tmp.path);
+
+            auto body =
+                tag_invoke(body_from_tag<multipart_form>{}, std::move(form));
+
+            auto boundary = boundary_of(body);
+            auto expected =
+                part(
+                    boundary,
+                    "doc",
+                    contents,
+                    tmp.path.filename().string(),
+                    expected_ct) +
+                "--" + boundary + "--\r\n";
+
+            check_io(body, expected);
+        };
+
+        check_one(".txt", "text/plain; charset=UTF-8");
+        check_one(".png", "image/png");
+
+        // fall back to octet-stream.
+        check_one(".zzz", "application/octet-stream");
+        check_one("", "application/octet-stream");
+    }
+
+    void
+    testBytesPart()
+    {
         multipart_form form;
-        form.file("doc", tmp.path);
+
+        // bytes() returns *this for chaining
+        auto& ref =
+            form.bytes("report", "x,y\n1,2\n", "report.csv", "text/csv");
+        BOOST_TEST_EQ(&ref, &form);
 
         auto body =
             tag_invoke(body_from_tag<multipart_form>{}, std::move(form));
 
         auto boundary = boundary_of(body);
         auto expected =
-            part(
-                boundary,
-                "doc",
-                contents,
-                tmp.path.filename().string(),
-                expected_ct) +
+            part(boundary, "report", "x,y\n1,2\n", "report.csv", "text/csv") +
             "--" + boundary + "--\r\n";
 
-        auto cl = body.content_length();
-        BOOST_TEST(cl.has_value());
-        BOOST_TEST_EQ(cl.value(), expected.size());
-
-        capy::test::buffer_sink bs;
-        capy::any_buffer_sink sink(&bs);
-
-        auto ec = drive_body(body, sink);
-        BOOST_TEST(!ec);
-        BOOST_TEST_EQ(bs.data(), expected);
+        check(body, expected);
     }
 
     void
-    testFilePartDeduced()
+    testBytesDeduced()
     {
-        check_deduced(".txt", "text/plain; charset=UTF-8");
-        check_deduced(".png", "image/png");
+        auto check_one = [&](std::string_view filename,
+                             std::string_view expected_ct) {
+            multipart_form form;
+            form.bytes("doc", "a\nb\nc\n", filename);
 
-        // fall back to octet-stream.
-        check_deduced(".zzz", "application/octet-stream");
-        check_deduced("", "application/octet-stream");
+            auto body =
+                tag_invoke(body_from_tag<multipart_form>{}, std::move(form));
+
+            auto boundary = boundary_of(body);
+            auto expected =
+                part(boundary, "doc", "a\nb\nc\n", filename, expected_ct) +
+                "--" + boundary + "--\r\n";
+
+            check(body, expected);
+        };
+
+        check_one("notes.txt", "text/plain; charset=UTF-8");
+        check_one("img.png", "image/png");
+        check_one("data.zzz", "application/octet-stream");
     }
 
     void
@@ -263,16 +304,7 @@ struct multipart_form_test
             part(boundary, "attachment", contents, "crash.log", "text/plain") +
             "--" + boundary + "--\r\n";
 
-        auto cl = body.content_length();
-        BOOST_TEST(cl.has_value());
-        BOOST_TEST_EQ(cl.value(), expected.size());
-
-        capy::test::buffer_sink bs;
-        capy::any_buffer_sink sink(&bs);
-
-        auto ec = drive_body(body, sink);
-        BOOST_TEST(!ec);
-        BOOST_TEST_EQ(bs.data(), expected);
+        check_io(body, expected);
     }
 
     void
@@ -285,6 +317,8 @@ struct multipart_form_test
         testEmptyValue();
         testFilePart();
         testFilePartDeduced();
+        testBytesPart();
+        testBytesDeduced();
         testMixedParts();
     }
 };

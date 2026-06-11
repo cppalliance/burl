@@ -80,6 +80,31 @@ multipart_form::file(
     return *this;
 }
 
+multipart_form&
+multipart_form::bytes(
+    std::string_view name,
+    std::string data,
+    std::string_view filename,
+    std::string_view content_type)
+{
+    std::string content_type_buf;
+    if(content_type.empty())
+    {
+        content_type_buf = http::mime_types::content_type(filename);
+        if(content_type_buf.empty())
+            content_type_buf = "application/octet-stream";
+        content_type = content_type_buf;
+    }
+    auto size = data.size();
+    parts_.push_back(
+        part{ .header  = make_header(name, filename, content_type),
+              .is_file = false,
+              .text    = std::move(data),
+              .path    = {},
+              .size    = size });
+    return *this;
+}
+
 std::string
 multipart_form::generate_boundary()
 {
