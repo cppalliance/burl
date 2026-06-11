@@ -146,6 +146,40 @@ public:
         std::string_view filename = {},
         std::string_view content_type = {});
 
+    /** Append a file part with in-memory contents to the form.
+
+        The part is written with a `filename` in its
+        `Content-Disposition` header, so servers
+        treat it as a file upload, but the contents
+        are held in memory rather than streamed from
+        disk.
+
+        @par Exception Safety
+        Calls to allocate may throw.
+
+        @param name The name of the form field.
+
+        @param data The contents of the part.
+
+        @param filename The filename to report in
+        the part header.
+
+        @param content_type The value for the
+        `Content-Type` header of the part. Deduced
+        from the filename extension when empty, with
+        `application/octet-stream` as the fallback.
+
+        @return A reference to this object, for
+        chaining.
+    */
+    BOOST_BURL_DECL
+    multipart_form&
+    bytes(
+        std::string_view name,
+        std::string data,
+        std::string_view filename,
+        std::string_view content_type = {});
+
 private:
     static std::string
     generate_boundary();
