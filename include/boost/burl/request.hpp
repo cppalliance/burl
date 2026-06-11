@@ -55,17 +55,6 @@ struct request
     {
         using clock = std::chrono::steady_clock;
 
-        /** Treat 4xx and 5xx status codes as errors.
-
-            When enabled, a response with a status
-            code of 400 or above produces an error
-            code whose value is the status code and
-            whose category is @ref burl_category.
-
-            @see @ref request_builder::error_for_status.
-        */
-        bool error_for_status = false;
-
         /** Timeout for the entire operation.
 
             When set, overrides
