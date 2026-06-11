@@ -278,6 +278,7 @@ client::execute_impl(
 
     auto url             = request.url;
     auto trusted         = true;
+    auto followlocation  = request.options.followlocation.value_or(config_.followlocation);
     auto maxredirs       = config_.maxredirs;
     auto request_cookies = request.headers.value_or(field::cookie, "");
     for(;;)
@@ -346,7 +347,7 @@ client::execute_impl(
         auto [is_redirect, need_method_change] =
             burl::is_redirect(parser.get().status(), config_);
 
-        if(!is_redirect || !config_.followlocation)
+        if(!is_redirect || !followlocation)
         {
             auto ec = std::error_code{};
             auto status_int = parser.get().status_int();

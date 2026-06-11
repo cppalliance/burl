@@ -387,13 +387,22 @@ follow_redirects(corosio::tls_context tls_ctx)
 
     burl::client client(co_await capy::this_coro::executor, tls_ctx, cfg);
 
-    auto [ec, r] = co_await client.get("http://boost.org").send();
+    auto [ec1, r1] = co_await client.get("http://boost.org").send();
 
-    if(ec)
-        throw std::system_error(ec);
+    if(ec1)
+        throw std::system_error(ec1);
 
-    // Final URL after following redirects, e.g. https://www.boost.org
-    std::cout << r.url() << '\n';
+    // The final URL after following redirects
+    std::cout << r1.url() << '\n';
+
+    auto [ec2, r2] = co_await client.get("http://boost.org")
+        .followlocation(false) // per-request override
+        .send();
+
+    if(ec2)
+        throw std::system_error(ec2);
+
+    std::cout << r2.status_int() << '\n'; // e.g. 301
 }
 
 //==============================================================

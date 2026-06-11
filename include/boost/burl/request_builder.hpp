@@ -196,6 +196,33 @@ public:
         return std::move(*this);
     }
 
+    /** Set whether redirect responses are followed.
+
+        Overrides
+        @ref client::config::followlocation for
+        this request. When disabled, the redirect
+        response is returned as-is; its `Location`
+        header can be inspected through the
+        @ref response.
+
+        @par Example
+        @code
+        auto [ec, r] = co_await c.get("https://example.com/moved")
+            .followlocation(false)
+            .send();
+        @endcode
+
+        @param enable `true` to follow redirects.
+
+        @return The builder, for chaining.
+    */
+    request_builder&&
+    followlocation(bool enable) &&
+    {
+        request_.options.followlocation = enable;
+        return std::move(*this);
+    }
+
     /** Set the request body.
 
         The value is converted to a request body by
