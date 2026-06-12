@@ -11,6 +11,7 @@
 #include <boost/burl/error.hpp>
 
 #include "detail/base64.hpp"
+#include "detail/drain.hpp"
 #include "detail/reuse.hpp"
 
 #include <boost/capy/buffers/make_buffer.hpp>
@@ -362,9 +363,10 @@ client::execute_impl(
         }
 
         // Read and discard small bodies so the connection can be reused
-        parser.set_body_limit(64 * 1024);
-        if(auto [ec] = co_await parser.read(conn); ec)
-            parser.reset();
+        auto [dec] = co_await capy::timeout(
+            detail::drain_body(parser, conn, 1024 * 1024),
+            std::chrono::seconds(2));
+
         if(detail::can_reuse_conn(parser))
             conn.return_to_pool();
 
