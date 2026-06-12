@@ -51,6 +51,11 @@ namespace burl
     to the pool for reuse when it can be kept alive
     and the entire message has arrived.
 
+    A response remains usable after the client which
+    produced it is destroyed; in that case the
+    connection is closed upon destruction instead of
+    being returned to the pool.
+
     @par Example
     @code
     auto [ec, r] = co_await c.get("https://example.com").send();

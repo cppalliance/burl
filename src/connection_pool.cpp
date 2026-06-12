@@ -35,91 +35,13 @@
 #include <cstdint>
 #include <memory>
 #include <string>
+#include <unordered_map>
 #include <utility>
 
 namespace boost
 {
 namespace burl
 {
-
-class connection_pool::tcp_connection final : public connection
-{
-    corosio::tcp_socket socket_;
-
-public:
-    explicit tcp_connection(corosio::tcp_socket socket)
-        : socket_(std::move(socket))
-    {
-    }
-
-    virtual capy::io_task<std::size_t>
-    read_some(std::span<capy::mutable_buffer const> buffers) override
-    {
-        co_return co_await socket_.read_some(buffers);
-    }
-
-    virtual capy::io_task<std::size_t>
-    write_some(std::span<capy::const_buffer const> buffers) override
-    {
-        co_return co_await socket_.write_some(buffers);
-    }
-
-    capy::io_task<>
-    shutdown() override
-    {
-        socket_.shutdown(corosio::shutdown_both);
-        co_return {};
-    }
-
-    bool
-    is_open() override
-    {
-        return socket_.is_open();
-    }
-};
-
-class connection_pool::tls_connection final : public connection
-{
-    corosio::tcp_socket socket_;
-    corosio::openssl_stream stream_;
-
-public:
-    tls_connection(corosio::tcp_socket socket, const corosio::tls_context& ctx)
-        : socket_(std::move(socket))
-        , stream_(&socket_, ctx)
-    {
-    }
-
-    virtual capy::io_task<std::size_t>
-    read_some(std::span<capy::mutable_buffer const> buffers) override
-    {
-        return stream_.read_some(buffers);
-    }
-
-    virtual capy::io_task<std::size_t>
-    write_some(std::span<capy::const_buffer const> buffers) override
-    {
-        return stream_.write_some(buffers);
-    }
-
-    capy::io_task<>
-    handshake()
-    {
-        return stream_.handshake(corosio::openssl_stream::client);
-    }
-
-    capy::io_task<>
-    shutdown() override
-    {
-        return stream_.shutdown();
-    }
-
-    bool
-    is_open() override
-    {
-        return socket_.is_open();
-    }
-};
 
 namespace
 {
@@ -339,123 +261,253 @@ connect_socks5_proxy(
 
 } // namespace
 
-capy::io_task<std::unique_ptr<connection_pool::connection>>
-connection_pool::connect(urls::url_view url) const
+class connection_pool::impl
+    : public std::enable_shared_from_this<impl>
 {
-    auto target_port = effective_port(url);
-    if(target_port.empty())
-        co_return { error::unsupported_url_scheme, {} };
-
-    corosio::tcp_socket socket(exec_);
-
-    if(config_.proxy)
+    struct idle_connection
     {
-        auto const& proxy = *config_.proxy;
-        auto proxy_port   = effective_port(proxy);
-        if(proxy_port.empty())
-            co_return { error::unsupported_proxy_scheme, {} };
+        std::unique_ptr<connection> conn;
+        config::clock::time_point idle_since;
+    };
 
-        auto [ec] = co_await connect_tcp(
-            socket, exec_, config_, proxy.encoded_host(), proxy_port);
+    capy::executor_ref exec_;
+    corosio::tls_context tls_ctx_;
+    std::unordered_multimap<std::string, idle_connection> idle_;
+    config config_;
+
+public:
+    impl(
+        capy::executor_ref exec,
+        corosio::tls_context tls_ctx,
+        config cfg)
+        : exec_(exec)
+        , tls_ctx_(std::move(tls_ctx))
+        , config_(std::move(cfg))
+    {
+    }
+
+    capy::io_task<pooled_connection>
+    acquire(urls::url_view url)
+    {
+        auto key = origin(url);
+        auto [it, last] = idle_.equal_range(key);
+        while(it != last)
+        {
+            auto entry = std::move(it->second);
+            it = idle_.erase(it);
+
+            if(config::clock::now() - entry.idle_since >= config_.idle_timeout)
+                continue;
+
+            if(!entry.conn->is_open())
+                continue;
+
+            co_return {
+                {},
+                { std::move(entry.conn),
+                  weak_from_this(),
+                  std::move(key),
+                  config_.io_timeout }
+            };
+        }
+
+        auto [ec, conn] =
+            co_await capy::timeout(connect(url), config_.connect_timeout);
         if(ec)
             co_return { ec, {} };
 
-        if(proxy.scheme() == "http")
+        co_return {
+            {},
+            { std::move(conn),
+              weak_from_this(),
+              std::move(key),
+              config_.io_timeout }
+        };
+    }
+
+    void
+    release(pooled_connection pc)
+    {
+        if(!pc.conn_ || !pc.conn_->is_open())
+            return;
+
+        if(idle_.count(pc.key_) >= config_.max_idle_per_host)
+            return;
+
+        idle_.emplace(
+            std::move(pc.key_),
+            idle_connection{ std::move(pc.conn_), config::clock::now() });
+    }
+
+private:
+    class tcp_connection final : public connection
+    {
+        corosio::tcp_socket socket_;
+
+    public:
+        explicit tcp_connection(corosio::tcp_socket socket)
+            : socket_(std::move(socket))
         {
-            auto [ec] = co_await connect_http_proxy(
-                socket, url.encoded_host(), target_port, proxy);
-            if(ec)
-                co_return { ec, {} };
         }
-        else if(proxy.scheme() == "socks5" || proxy.scheme() == "socks5h")
+
+        virtual capy::io_task<std::size_t>
+        read_some(std::span<capy::mutable_buffer const> buffers) override
         {
-            auto [ec] = co_await connect_socks5_proxy(
-                socket, url.encoded_host(), target_port, proxy);
+            co_return co_await socket_.read_some(buffers);
+        }
+
+        virtual capy::io_task<std::size_t>
+        write_some(std::span<capy::const_buffer const> buffers) override
+        {
+            co_return co_await socket_.write_some(buffers);
+        }
+
+        capy::io_task<>
+        shutdown() override
+        {
+            socket_.shutdown(corosio::shutdown_both);
+            co_return {};
+        }
+
+        bool
+        is_open() override
+        {
+            return socket_.is_open();
+        }
+    };
+
+    class tls_connection final : public connection
+    {
+        corosio::tcp_socket socket_;
+        corosio::openssl_stream stream_;
+
+    public:
+        tls_connection(
+            corosio::tcp_socket socket,
+            const corosio::tls_context& ctx)
+            : socket_(std::move(socket))
+            , stream_(&socket_, ctx)
+        {
+        }
+
+        virtual capy::io_task<std::size_t>
+        read_some(std::span<capy::mutable_buffer const> buffers) override
+        {
+            return stream_.read_some(buffers);
+        }
+
+        virtual capy::io_task<std::size_t>
+        write_some(std::span<capy::const_buffer const> buffers) override
+        {
+            return stream_.write_some(buffers);
+        }
+
+        capy::io_task<>
+        handshake()
+        {
+            return stream_.handshake(corosio::openssl_stream::client);
+        }
+
+        capy::io_task<>
+        shutdown() override
+        {
+            return stream_.shutdown();
+        }
+
+        bool
+        is_open() override
+        {
+            return socket_.is_open();
+        }
+    };
+
+    capy::io_task<std::unique_ptr<connection>>
+    connect(urls::url_view url) const
+    {
+        auto target_port = effective_port(url);
+        if(target_port.empty())
+            co_return { error::unsupported_url_scheme, {} };
+
+        corosio::tcp_socket socket(exec_);
+
+        if(config_.proxy)
+        {
+            auto const& proxy = *config_.proxy;
+            auto proxy_port   = effective_port(proxy);
+            if(proxy_port.empty())
+                co_return { error::unsupported_proxy_scheme, {} };
+
+            auto [ec] = co_await connect_tcp(
+                socket, exec_, config_, proxy.encoded_host(), proxy_port);
             if(ec)
                 co_return { ec, {} };
+
+            if(proxy.scheme() == "http")
+            {
+                auto [ec] = co_await connect_http_proxy(
+                    socket, url.encoded_host(), target_port, proxy);
+                if(ec)
+                    co_return { ec, {} };
+            }
+            else if(proxy.scheme() == "socks5" || proxy.scheme() == "socks5h")
+            {
+                auto [ec] = co_await connect_socks5_proxy(
+                    socket, url.encoded_host(), target_port, proxy);
+                if(ec)
+                    co_return { ec, {} };
+            }
+            else
+            {
+                co_return { error::unsupported_proxy_scheme, {} };
+            }
         }
         else
         {
-            co_return { error::unsupported_proxy_scheme, {} };
+            auto [ec] = co_await connect_tcp(
+                socket, exec_, config_, url.encoded_host(), target_port);
+            if(ec)
+                co_return { ec, {} };
         }
+
+        if(url.scheme_id() == urls::scheme::https)
+        {
+            auto tls_ctx = tls_ctx_;
+            tls_ctx.set_hostname(url.encoded_host());
+
+            auto conn =
+                std::make_unique<tls_connection>(std::move(socket), tls_ctx);
+            auto [hec] = co_await conn->handshake();
+            if(hec)
+                co_return { hec, {} };
+
+            co_return { {}, std::move(conn) };
+        }
+
+        co_return { {}, std::make_unique<tcp_connection>(std::move(socket)) };
     }
-    else
-    {
-        auto [ec] = co_await connect_tcp(
-            socket, exec_, config_, url.encoded_host(), target_port);
-        if(ec)
-            co_return { ec, {} };
-    }
+};
 
-    if(url.scheme_id() == urls::scheme::https)
-    {
-        auto tls_ctx = tls_ctx_;
-        tls_ctx.set_hostname(url.encoded_host());
-
-        auto conn =
-            std::make_unique<tls_connection>(std::move(socket), tls_ctx);
-        auto [hec] = co_await conn->handshake();
-        if(hec)
-            co_return { hec, {} };
-
-        co_return { {}, std::move(conn) };
-    }
-
-    co_return { {}, std::make_unique<tcp_connection>(std::move(socket)) };
+connection_pool::connection_pool(
+    capy::executor_ref exec,
+    corosio::tls_context tls_ctx,
+    config cfg)
+    : impl_(
+        std::make_shared<impl>(
+            exec, std::move(tls_ctx), std::move(cfg)))
+{
 }
 
 capy::io_task<connection_pool::pooled_connection>
 connection_pool::acquire(urls::url_view url)
 {
-    auto key       = origin(url);
-    auto const now = config::clock::now();
-
-    auto [it, last] = idle_.equal_range(key);
-    while(it != last)
-    {
-        auto entry = std::move(it->second);
-        it         = idle_.erase(it);
-
-        if(now - entry.idle_since >= config_.idle_timeout)
-            continue;
-
-        if(!entry.conn->is_open())
-            continue;
-
-        co_return {
-            {}, { std::move(entry.conn), this, std::move(key), config_.io_timeout }
-        };
-    }
-
-    auto [ec, conn] =
-        co_await capy::timeout(connect(url), config_.connect_timeout);
-    if(ec)
-        co_return { ec, {} };
-
-    co_return {
-        {}, { std::move(conn), this, std::move(key), config_.io_timeout }
-    };
-}
-
-void
-connection_pool::release(pooled_connection pc)
-{
-    if(!pc.conn_ || !pc.conn_->is_open())
-        return;
-
-    if(idle_.count(pc.key_) >= config_.max_idle_per_host)
-        return;
-
-    idle_.emplace(
-        std::move(pc.key_),
-        idle_connection{ std::move(pc.conn_), config::clock::now() });
+    return impl_->acquire(url);
 }
 
 void
 connection_pool::pooled_connection::return_to_pool()
 {
-    if(pool_)
-        pool_->release(std::move(*this));
+    if(auto pool = pool_.lock())
+        pool->release(std::move(*this));
 }
 
 } // namespace burl
