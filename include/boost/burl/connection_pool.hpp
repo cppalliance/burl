@@ -26,7 +26,6 @@
 #include <memory>
 #include <optional>
 #include <string>
-#include <unordered_map>
 #include <utility>
 
 namespace boost
@@ -51,6 +50,9 @@ class response;
 
     Each @ref client owns a connection pool,
     configured through @ref client::config::pool.
+
+    This class is a shared handle to the pool state.
+    Copies share the same underlying pool.
 
     @see @ref client.
 */
@@ -155,17 +157,15 @@ public:
 
         @param cfg The configuration settings.
     */
+    BOOST_BURL_DECL
     connection_pool(
         capy::executor_ref exec,
         corosio::tls_context tls_ctx,
-        config cfg)
-        : exec_(exec)
-        , tls_ctx_(std::move(tls_ctx))
-        , config_(std::move(cfg))
-    {
-    }
+        config cfg);
 
 private:
+    class impl;
+
     class connection
     {
     public:
@@ -184,16 +184,13 @@ private:
         virtual ~connection() = default;
     };
 
-    class tcp_connection;
-    class tls_connection;
-
     class pooled_connection
     {
-        friend class connection_pool;
+        friend class impl;
         friend class response;
 
         std::unique_ptr<connection> conn_;
-        connection_pool* pool_ = nullptr;
+        std::weak_ptr<impl> pool_;
         std::string key_;
         std::optional<config::clock::duration> io_timeout_;
         capy::detail::buffer_array<8, false> rba_; // TODO
@@ -203,11 +200,11 @@ private:
 
         pooled_connection(
             std::unique_ptr<connection> conn,
-            connection_pool* pool,
+            std::weak_ptr<impl> pool,
             std::string key,
             std::optional<config::clock::duration> io_timeout = std::nullopt)
             : conn_(std::move(conn))
-            , pool_(pool)
+            , pool_(std::move(pool))
             , key_(std::move(key))
             , io_timeout_(io_timeout)
         {
@@ -247,25 +244,10 @@ private:
         return_to_pool();
     };
 
-    struct idle_connection
-    {
-        std::unique_ptr<connection> conn;
-        config::clock::time_point idle_since;
-    };
-
     capy::io_task<pooled_connection>
     acquire(urls::url_view url);
 
-    void
-    release(pooled_connection pc);
-
-    capy::io_task<std::unique_ptr<connection>>
-    connect(urls::url_view url) const;
-
-    capy::executor_ref exec_;
-    corosio::tls_context tls_ctx_;
-    std::unordered_multimap<std::string, idle_connection> idle_;
-    config config_;
+    std::shared_ptr<impl> impl_;
 };
 
 } // namespace burl
