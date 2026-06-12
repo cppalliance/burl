@@ -10,6 +10,8 @@
 #include <boost/burl/connection_pool.hpp>
 #include <boost/burl/response.hpp>
 
+#include "detail/reuse.hpp"
+
 #include <boost/capy/error.hpp>
 #include <boost/capy/timeout.hpp>
 
@@ -24,12 +26,10 @@ namespace burl
 response::response(
     urls::url url,
     connection_pool::pooled_connection conn,
-    connection_pool* pool,
     http::response_parser parser,
     std::optional<clock::time_point> deadline)
     : url_(std::move(url))
     , conn_(std::move(conn))
-    , pool_(pool)
     , parser_(std::move(parser))
     , deadline_(deadline)
 {
@@ -38,7 +38,6 @@ response::response(
 response::response(response&& other) noexcept
     : url_(std::move(other.url_))
     , conn_(std::move(other.conn_))
-    , pool_(std::exchange(other.pool_, nullptr))
     , parser_(std::move(other.parser_))
     , deadline_(other.deadline_)
 {
@@ -49,11 +48,10 @@ response::operator=(response&& other) noexcept
 {
     if(this != &other)
     {
-        if(pool_)
-            pool_->release(url_, std::move(conn_), parser_);
+        if(conn_ && detail::can_reuse_conn(parser_))
+            conn_.return_to_pool();
         url_      = std::move(other.url_);
         conn_     = std::move(other.conn_);
-        pool_     = std::exchange(other.pool_, nullptr);
         parser_   = std::move(other.parser_);
         deadline_ = other.deadline_;
     }
@@ -62,8 +60,8 @@ response::operator=(response&& other) noexcept
 
 response::~response()
 {
-    if(pool_)
-        pool_->release(url_, std::move(conn_), parser_);
+    if(conn_ && detail::can_reuse_conn(parser_))
+        conn_.return_to_pool();
 }
 
 capy::io_task<std::string_view>

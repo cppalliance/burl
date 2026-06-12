@@ -48,9 +48,8 @@ namespace burl
 
     The response owns the connection it was received
     on. Upon destruction, the connection is returned
-    to the pool for reuse when the body was read to
-    completion and the connection can be kept alive;
-    otherwise it is closed.
+    to the pool for reuse when it can be kept alive
+    and the entire message has arrived.
 
     @par Example
     @code
@@ -75,14 +74,12 @@ class response
 
     urls::url url_;
     connection_pool::pooled_connection conn_;
-    connection_pool* pool_ = nullptr;
     http::response_parser parser_;
     std::optional<clock::time_point> deadline_;
 
     response(
         urls::url url,
         connection_pool::pooled_connection conn,
-        connection_pool* pool,
         http::response_parser parser,
         std::optional<clock::time_point> deadline);
 
@@ -127,9 +124,8 @@ public:
     /** Destructor.
 
         Returns the connection to the pool for reuse
-        when the body was read to completion and the
-        connection can be kept alive; otherwise the
-        connection is closed.
+        when it can be kept alive and the entire
+        message has arrived.
     */
     BOOST_BURL_DECL
     ~response();
