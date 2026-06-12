@@ -407,7 +407,7 @@ connection_pool::connect(urls::url_view url) const
 capy::io_task<connection_pool::pooled_connection>
 connection_pool::acquire(urls::url_view url)
 {
-    auto const key = origin(url);
+    auto key       = origin(url);
     auto const now = config::clock::now();
 
     auto [it, last] = idle_.equal_range(key);
@@ -422,7 +422,9 @@ connection_pool::acquire(urls::url_view url)
         if(!entry.conn->is_open())
             continue;
 
-        co_return { {}, { std::move(entry.conn), config_.io_timeout } };
+        co_return {
+            {}, { std::move(entry.conn), this, std::move(key), config_.io_timeout }
+        };
     }
 
     auto [ec, conn] =
@@ -430,30 +432,30 @@ connection_pool::acquire(urls::url_view url)
     if(ec)
         co_return { ec, {} };
 
-    co_return { {}, { std::move(conn), config_.io_timeout } };
+    co_return {
+        {}, { std::move(conn), this, std::move(key), config_.io_timeout }
+    };
 }
 
 void
-connection_pool::release(
-    urls::url_view url,
-    connection_pool::pooled_connection pc,
-    http::response_parser const& parser)
+connection_pool::release(pooled_connection pc)
 {
-    if(!parser.is_complete())
-        return;
-
-    if(!parser.get().keep_alive())
-        return;
-
     if(!pc.conn_ || !pc.conn_->is_open())
         return;
 
-    auto const key = origin(url);
-    if(idle_.count(key) >= config_.max_idle_per_host)
+    if(idle_.count(pc.key_) >= config_.max_idle_per_host)
         return;
 
     idle_.emplace(
-        key, idle_connection{ std::move(pc.conn_), config::clock::now() });
+        std::move(pc.key_),
+        idle_connection{ std::move(pc.conn_), config::clock::now() });
+}
+
+void
+connection_pool::pooled_connection::return_to_pool()
+{
+    if(pool_)
+        pool_->release(std::move(*this));
 }
 
 } // namespace burl

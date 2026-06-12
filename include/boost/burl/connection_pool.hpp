@@ -18,7 +18,6 @@
 #include <boost/capy/timeout.hpp>
 #include <boost/corosio/endpoint.hpp>
 #include <boost/corosio/tls_context.hpp>
-#include <boost/http/response_parser.hpp>
 #include <boost/url/url.hpp>
 #include <boost/url/url_view.hpp>
 
@@ -194,6 +193,8 @@ private:
         friend class response;
 
         std::unique_ptr<connection> conn_;
+        connection_pool* pool_ = nullptr;
+        std::string key_;
         std::optional<config::clock::duration> io_timeout_;
         capy::detail::buffer_array<8, false> rba_; // TODO
         capy::detail::buffer_array<8, true> wba_;  // TODO
@@ -202,8 +203,12 @@ private:
 
         pooled_connection(
             std::unique_ptr<connection> conn,
+            connection_pool* pool,
+            std::string key,
             std::optional<config::clock::duration> io_timeout = std::nullopt)
             : conn_(std::move(conn))
+            , pool_(pool)
+            , key_(std::move(key))
             , io_timeout_(io_timeout)
         {
         }
@@ -230,6 +235,16 @@ private:
                 return capy::timeout(conn_->write_some(wba_), *io_timeout_);
             return conn_->write_some(wba_);
         }
+
+        explicit
+        operator bool() const noexcept
+        {
+            return conn_ != nullptr;
+        }
+
+        BOOST_BURL_DECL
+        void
+        return_to_pool();
     };
 
     struct idle_connection
@@ -238,18 +253,12 @@ private:
         config::clock::time_point idle_since;
     };
 
-    BOOST_BURL_DECL
     capy::io_task<pooled_connection>
     acquire(urls::url_view url);
 
-    BOOST_BURL_DECL
     void
-    release(
-        urls::url_view url,
-        pooled_connection pc,
-        http::response_parser const& parser);
+    release(pooled_connection pc);
 
-    BOOST_BURL_DECL
     capy::io_task<std::unique_ptr<connection>>
     connect(urls::url_view url) const;
 

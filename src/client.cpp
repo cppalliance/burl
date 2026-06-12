@@ -11,6 +11,7 @@
 #include <boost/burl/error.hpp>
 
 #include "detail/base64.hpp"
+#include "detail/reuse.hpp"
 
 #include <boost/capy/buffers/make_buffer.hpp>
 #include <boost/capy/ex/execution_context.hpp>
@@ -274,7 +275,6 @@ client::execute_impl(
     serializer.set_message(headers);
 
     http::response_parser parser(http::make_parser_config(parser_cfg));
-    parser.reset();
 
     auto url             = request.url;
     auto trusted         = true;
@@ -324,6 +324,7 @@ client::execute_impl(
                 co_return { wec, {} };
         }
 
+        parser.reset();
         if(headers.method() == http::method::head)
             parser.start_head_response();
         else
@@ -356,8 +357,7 @@ client::execute_impl(
 
             co_return {
                 ec,
-                response{
-                    url, std::move(conn), &pool_, std::move(parser), deadline }
+                response{ url, std::move(conn), std::move(parser), deadline }
             };
         }
 
@@ -365,7 +365,8 @@ client::execute_impl(
         parser.set_body_limit(64 * 1024);
         if(auto [ec] = co_await parser.read(conn); ec)
             parser.reset();
-        pool_.release(url, std::move(conn), parser);
+        if(detail::can_reuse_conn(parser))
+            conn.return_to_pool();
 
         if(maxredirs-- == 0)
             co_return { error::too_many_redirects, {} };
