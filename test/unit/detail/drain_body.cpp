@@ -32,8 +32,6 @@ namespace detail
 
 class drain_body_test
 {
-    // Read the header from the stream, drain the body, and report
-    // the drain result together with whether the message completed.
     static std::pair<std::error_code, bool>
     drain(capy::test::stream& client, std::uint64_t limit)
     {

@@ -14,6 +14,7 @@
 #include "detail/can_reuse_conn.hpp"
 #include "detail/connection_pool.hpp"
 #include "detail/drain_body.hpp"
+#include "detail/redirect.hpp"
 
 #include <boost/capy/buffers/make_buffer.hpp>
 #include <boost/capy/ex/execution_context.hpp>
@@ -42,51 +43,6 @@ namespace burl
 
 namespace
 {
-
-struct is_redirect_result
-{
-    bool is_redirect        = false;
-    bool need_method_change = false;
-};
-
-is_redirect_result
-is_redirect(http::status status, const client::config& cfg) noexcept
-{
-    // The specifications do not intend for 301 and 302
-    // redirects to change the HTTP method, but most
-    // user agents do change the method in practice.
-    switch(status)
-    {
-    case http::status::moved_permanently:
-        return { true, !cfg.post301 };
-    case http::status::found:
-        return { true, !cfg.post302 };
-    case http::status::see_other:
-        return { true, !cfg.post303 };
-    case http::status::temporary_redirect:
-    case http::status::permanent_redirect:
-        return { true, false };
-    default:
-        return { false, false };
-    }
-}
-
-urls::url
-redirect_url(http::response_base const& response, const urls::url_view& referer)
-{
-    auto it = response.find(http::field::location);
-    if(it != response.end())
-    {
-        auto rs = urls::parse_uri_reference(it->value);
-        if(rs.has_value())
-        {
-            urls::url url;
-            urls::resolve(referer, rs.value(), url);
-            return url;
-        }
-    }
-    return {};
-}
 
 void
 set_accept_encoding(
@@ -351,7 +307,7 @@ client::execute_impl(
         }
 
         auto [is_redirect, need_method_change] =
-            burl::is_redirect(parser.get().status(), config_);
+            detail::is_redirect(parser.get().status(), config_);
 
         if(!is_redirect || !followlocation)
         {
@@ -387,7 +343,7 @@ client::execute_impl(
         }
 
         // Prepare the next request to follow the redirect
-        url = redirect_url(parser.get(), url);
+        url = detail::resolve_location(parser.get(), url);
         if(url.empty())
             co_return { error::bad_redirect_response, {} };
 

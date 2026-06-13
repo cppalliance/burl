@@ -45,9 +45,6 @@ class client_test
 {
     struct fake_net
     {
-        // Inert by default (no-op outside fuse::armed), so the
-        // ordinary tests are unaffected. A fuse-armed test passes
-        // an armed fuse to inject transport errors at each I/O point.
         capy::test::fuse fuse;
         std::vector<std::string> scripts;
         std::vector<bool> closes; // close srv after providing script N
