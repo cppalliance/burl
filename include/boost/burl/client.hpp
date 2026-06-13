@@ -307,6 +307,30 @@ public:
     BOOST_BURL_DECL
     client(capy::executor_ref exec, corosio::tls_context tls_ctx, config cfg);
 
+    /** Copy constructor (deleted).
+    */
+    client(client const&) = delete;
+
+    /** Copy assignment (deleted).
+    */
+    client&
+    operator=(client const&) = delete;
+
+    /** Move constructor.
+
+        @param other The client to move from.
+    */
+    client(client&& other) = default;
+
+    /** Move assignment.
+
+        @param other The client to move from.
+
+        @return A reference to this client.
+    */
+    client&
+    operator=(client&& other) = default;
+
     /** Return the default headers.
 
         These headers are sent with every request.
