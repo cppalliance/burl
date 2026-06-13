@@ -169,6 +169,50 @@ private:
     }
 };
 
+class stream_connection final : public connection
+{
+    capy::any_stream stream_;
+    bool open_ = true;
+
+public:
+    explicit stream_connection(capy::any_stream stream)
+        : stream_(std::move(stream))
+    {
+    }
+
+    bool
+    is_open() const noexcept override
+    {
+        return open_;
+    }
+
+    capy::io_task<>
+    shutdown() override
+    {
+        open_ = false;
+        co_return {};
+    }
+
+private:
+    capy::io_task<std::size_t>
+    do_read_some(std::span<capy::mutable_buffer const> buffers) override
+    {
+        auto [ec, n] = co_await stream_.read_some(buffers);
+        if(ec)
+            open_ = false;
+        co_return { ec, n };
+    }
+
+    capy::io_task<std::size_t>
+    do_write_some(std::span<capy::const_buffer const> buffers) override
+    {
+        auto [ec, n] = co_await stream_.write_some(buffers);
+        if(ec)
+            open_ = false;
+        co_return { ec, n };
+    }
+};
+
 } // namespace
 
 connection_pool::connection_pool(
@@ -237,6 +281,15 @@ connection_pool::release(pooled_connection pc)
 capy::io_task<std::unique_ptr<connection>>
 connection_pool::connect(urls::url_view url) const
 {
+    if(config_.connect_handler)
+    {
+        auto [ec, stream] = co_await config_.connect_handler(url);
+        if(ec)
+            co_return { ec, {} };
+        co_return {
+            {}, std::make_unique<stream_connection>(std::move(stream)) };
+    }
+
     auto target_port = effective_port(url);
     if(target_port.empty())
         co_return { error::unsupported_url_scheme, {} };

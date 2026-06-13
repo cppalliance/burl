@@ -17,6 +17,7 @@
 #include <boost/burl/response.hpp>
 
 #include <boost/capy/ex/executor_ref.hpp>
+#include <boost/capy/io/any_stream.hpp>
 #include <boost/capy/io_task.hpp>
 #include <boost/corosio/endpoint.hpp>
 #include <boost/corosio/tls_context.hpp>
@@ -28,6 +29,7 @@
 #include <chrono>
 #include <cstddef>
 #include <cstdint>
+#include <functional>
 #include <limits>
 #include <memory>
 #include <optional>
@@ -265,6 +267,33 @@ public:
             @endcode
         */
         std::optional<urls::url> proxy;
+
+        /** Override connection establishment.
+
+            When set, this function is invoked
+            instead of the built-in name resolution,
+            TCP connection, proxy negotiation, and
+            TLS handshake whenever the pool needs a
+            new connection. 
+
+            Intended for testing and for advanced uses
+            such as connecting over a pre-established
+            tunnel or a Unix domain socket.
+
+            @par Example
+            @code
+            cfg.connect_handler =
+                [](urls::url_view) -> capy::io_task<capy::any_stream>
+                {
+                    auto [a, b] = capy::test::make_stream_pair();
+                    // drive b from the test; hand a to the client
+                    co_return { {}, capy::any_stream(std::move(a)) };
+                };
+            @endcode
+        */
+        std::function<
+            capy::io_task<capy::any_stream>(urls::url_view url)>
+                connect_handler;
     };
 
 private:
