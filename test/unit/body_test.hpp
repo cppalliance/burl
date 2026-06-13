@@ -71,33 +71,31 @@ check_body(
     std::string_view expected)
 {
     BOOST_TEST(body.has_value());
+    capy::test::fuse f;
+    auto r = f.armed([&](capy::test::fuse& f) -> capy::task<> {
+        capy::test::buffer_sink bs(f);
+        capy::any_buffer_sink sink(&bs);
 
-    BOOST_TEST(
-        capy::test::fuse().armed(
-            [&](capy::test::fuse& f) -> capy::task<void>
-            {
-                capy::test::buffer_sink bs(f);
-                capy::any_buffer_sink sink(&bs);
+        auto [ec] = co_await body.write(sink);
+        if(ec)
+            co_return;
 
-                auto [ec] = co_await body.write(sink);
-                if(ec)
-                    co_return;
-
-                BOOST_TEST_EQ(bs.data(), expected);
-            }));
+        BOOST_TEST_EQ(bs.data(), expected);
+    });
+    BOOST_TEST(r.success);
 }
 
 inline std::error_code
-drive_body(
+check_io_body(
     any_request_body const& body,
-    capy::any_buffer_sink& sink)
+    capy::test::buffer_sink& bs)
 {
     corosio::io_context ioc;
     std::error_code ret;
-
+    capy::any_buffer_sink sink(&bs);
     capy::run_async(
         ioc.get_executor(),
-        [&](capy::io_result<> res) { ret = res.ec; })(body.write(sink));
+        [&](capy::io_result<> res) {ret = res.ec; })(body.write(sink));
     ioc.run();
     return ret;
 }

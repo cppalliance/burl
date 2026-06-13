@@ -40,7 +40,13 @@ can_reuse_conn(http::response_parser& parser) noexcept
         }
     }
 
-    return parser.is_complete();
+    if(!parser.is_complete())
+        return false;
+
+    if(parser.has_buffered_data())
+        return false;
+
+    return true;
 }
 
 } // namespace detail

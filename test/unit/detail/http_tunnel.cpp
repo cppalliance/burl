@@ -15,6 +15,7 @@
 #include <boost/burl/error.hpp>
 #include <boost/capy/io/any_stream.hpp>
 #include <boost/capy/task.hpp>
+#include <boost/capy/test/fuse.hpp>
 #include <boost/capy/test/run_blocking.hpp>
 #include <boost/capy/test/stream.hpp>
 #include <boost/url/parse.hpp>
@@ -126,6 +127,29 @@ public:
     }
 
     void
+    testTransportErrorInjection()
+    {
+        capy::test::fuse f;
+        auto r = f.armed(
+            [&](capy::test::fuse&) -> capy::task<>
+            {
+                auto [client, server] = capy::test::make_stream_pair(f);
+                server.provide("HTTP/1.1 200 Connection established\r\n\r\n");
+
+                auto proxy = urls::parse_uri("http://proxy:8080").value();
+
+                auto [ec] = co_await open_http_tunnel(
+                    capy::any_stream(&client), "example.com", "443", proxy);
+                if(ec)
+                    co_return;
+
+                BOOST_TEST(server.data().starts_with(
+                    "CONNECT example.com:443 HTTP/1.1\r\n"));
+            });
+        BOOST_TEST(r.success);
+    }
+
+    void
     run()
     {
         testSuccess();
@@ -133,6 +157,7 @@ public:
         testAuthRequired();
         testConnectFailed();
         testReadError();
+        testTransportErrorInjection();
     }
 };
 

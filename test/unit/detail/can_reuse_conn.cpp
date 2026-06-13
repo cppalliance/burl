@@ -80,6 +80,18 @@ public:
     }
 
     void
+    testBufferedData()
+    {
+        BOOST_TEST(!reusable(
+            "HTTP/1.1 200 OK\r\nContent-Length: 2\r\n\r\n"
+            "ok"
+            "HTTP/1.1 200 OK\r\n"));
+
+        BOOST_TEST(!reusable(
+            "HTTP/1.1 200 OK\r\nContent-Length: 2\r\n\r\nokX"));
+    }
+
+    void
     testNoHeader()
     {
         http::response_parser parser(
@@ -96,6 +108,7 @@ public:
         testConnectionClose();
         testHttp10();
         testIncomplete();
+        testBufferedData();
         testNoHeader();
     }
 };

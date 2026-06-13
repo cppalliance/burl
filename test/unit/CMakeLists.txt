@@ -24,6 +24,14 @@ target_link_libraries(
     boost_capy_test_suite_main
     Boost::burl)
 
+if (TARGET Boost::http_zlib)
+    target_link_libraries(boost_burl_tests PRIVATE Boost::http_zlib)
+endif()
+
+if (TARGET Boost::http_brotli)
+    target_link_libraries(boost_burl_tests PRIVATE Boost::http_brotli)
+endif()
+
 target_include_directories(boost_burl_tests PRIVATE . ../../)
 
 # Register individual tests with CTest

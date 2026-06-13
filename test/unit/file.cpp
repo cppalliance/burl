@@ -47,8 +47,7 @@ struct file_test
         BOOST_TEST_EQ(cl.value(), contents.size());
 
         capy::test::buffer_sink bs;
-        capy::any_buffer_sink sink(&bs);
-        auto ec = drive_body(body, sink);
+        auto ec = check_io_body(body, bs);
         BOOST_TEST(!ec);
         BOOST_TEST_EQ(bs.data(), contents);
     }

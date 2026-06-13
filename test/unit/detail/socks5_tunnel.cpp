@@ -15,6 +15,7 @@
 #include <boost/burl/error.hpp>
 #include <boost/capy/io/any_stream.hpp>
 #include <boost/capy/task.hpp>
+#include <boost/capy/test/fuse.hpp>
 #include <boost/capy/test/run_blocking.hpp>
 #include <boost/capy/test/stream.hpp>
 #include <boost/url/parse.hpp>
@@ -171,6 +172,32 @@ public:
     }
 
     void
+    testTransportErrorInjection()
+    {
+        capy::test::fuse f;
+        auto r = f.armed(
+            [&](capy::test::fuse&) -> capy::task<>
+            {
+                auto [client, server] = capy::test::make_stream_pair(f);
+                server.provide(bytes({ 0x05, 0x00 }) + ipv4_reply());
+
+                auto proxy = urls::parse_uri("socks5://proxy:1080").value();
+
+                auto [ec] = co_await open_socks5_tunnel(
+                    capy::any_stream(&client), "example.com", "443", proxy);
+                if(ec)
+                    co_return;
+
+                std::string expected = bytes({ 0x05, 0x01, 0x00 });
+                expected += bytes({ 0x05, 0x01, 0x00, 0x03, 0x0B });
+                expected += "example.com";
+                expected += bytes({ 0x01, 0xBB });
+                BOOST_TEST(server.data() == expected);
+            });
+        BOOST_TEST(r.success);
+    }
+
+    void
     run()
     {
         testSuccessNoAuth();
@@ -180,6 +207,7 @@ public:
         testAuthFailed();
         testNoAcceptableMethods();
         testConnectRejected();
+        testTransportErrorInjection();
     }
 };
 
