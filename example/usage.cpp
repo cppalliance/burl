@@ -354,11 +354,11 @@ set_timeouts(corosio::tls_context tls_ctx)
     burl::client::config cfg;
 
     // Connect timeout, including TLS handshake and proxy connect
-    cfg.pool.connect_timeout = std::chrono::seconds(30);
+    cfg.connect_timeout = std::chrono::seconds(30);
 
     // Per read/write timeout, for detecting unresponsive servers regardless
     // of the request/response size
-    cfg.pool.io_timeout = std::chrono::seconds(5);
+    cfg.io_timeout = std::chrono::seconds(5);
 
     // Timeout for the whole operation, including retrieving the response
     cfg.timeout = std::chrono::seconds(60);
@@ -434,8 +434,8 @@ capy::task<>
 connection_pool(corosio::tls_context tls_ctx)
 {
     burl::client::config cfg;
-    cfg.pool.idle_timeout = std::chrono::seconds(60);
-    cfg.pool.max_idle_per_host = 10;
+    cfg.pool_idle_timeout = std::chrono::seconds(60);
+    cfg.pool_max_idle_per_host = 10;
 
     burl::client client(co_await capy::this_coro::executor, tls_ctx, cfg);
 
@@ -456,7 +456,7 @@ use_proxy(corosio::tls_context tls_ctx)
 {
     burl::client::config cfg;
     // SOCKS5 and HTTP proxies are supported
-    cfg.pool.proxy = urls::url("socks5h://user:pass@localhost:8080");
+    cfg.proxy = urls::url("socks5h://user:pass@localhost:8080");
 
     burl::client client(co_await capy::this_coro::executor, tls_ctx, cfg);
 

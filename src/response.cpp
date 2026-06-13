@@ -7,10 +7,9 @@
 // Official repository: https://github.com/cppalliance/burl
 //
 
-#include <boost/burl/connection_pool.hpp>
 #include <boost/burl/response.hpp>
 
-#include "detail/reuse.hpp"
+#include "detail/can_reuse_conn.hpp"
 
 #include <boost/capy/error.hpp>
 #include <boost/capy/timeout.hpp>
@@ -25,7 +24,7 @@ namespace burl
 
 response::response(
     urls::url url,
-    connection_pool::pooled_connection conn,
+    detail::pooled_connection conn,
     http::response_parser parser,
     std::optional<clock::time_point> deadline)
     : url_(std::move(url))

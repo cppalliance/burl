@@ -10,23 +10,26 @@
 #ifndef BOOST_BURL_CLIENT_HPP
 #define BOOST_BURL_CLIENT_HPP
 
-#include <boost/burl/connection_pool.hpp>
 #include <boost/burl/cookie_jar.hpp>
 #include <boost/burl/detail/config.hpp>
+#include <boost/burl/detail/connection_pool.hpp>
 #include <boost/burl/request.hpp>
 #include <boost/burl/response.hpp>
 
 #include <boost/capy/ex/executor_ref.hpp>
 #include <boost/capy/io_task.hpp>
+#include <boost/corosio/endpoint.hpp>
 #include <boost/corosio/tls_context.hpp>
 #include <boost/http/field.hpp>
 #include <boost/http/fields.hpp>
+#include <boost/url/url.hpp>
 #include <boost/url/url_view.hpp>
 
 #include <chrono>
 #include <cstddef>
 #include <cstdint>
 #include <limits>
+#include <memory>
 #include <optional>
 #include <string_view>
 
@@ -56,8 +59,7 @@ class request_builder;
 
     @see
         @ref request_builder,
-        @ref response,
-        @ref connection_pool.
+        @ref response.
 */
 class client
 {
@@ -206,18 +208,68 @@ public:
         */
         std::optional<clock::duration> timeout;
 
-        /** Connection pool settings.
+        /** Timeout for establishing a connection.
 
-            Controls connection establishment,
-            including timeouts, socket options, and
-            the proxy, along with connection reuse.
+            Covers name resolution, the TCP
+            connection, proxy negotiation, and the
+            TLS handshake.
         */
-        connection_pool::config pool;
+        clock::duration connect_timeout = std::chrono::seconds(60);
+
+        /** Timeout for individual I/O operations.
+
+            When set, applies to every read and write
+            performed on a connection, bounding the
+            time the peer may remain unresponsive
+            regardless of the message size.
+        */
+        std::optional<clock::duration> io_timeout = std::nullopt;
+
+        /** Time an idle pooled connection remains usable.
+
+            Pooled connections which have been idle for
+            longer than this duration are discarded
+            instead of being reused.
+        */
+        clock::duration pool_idle_timeout = std::chrono::seconds(90);
+
+        /** Maximum number of idle pooled connections per origin.
+
+            When the limit is reached, additional
+            connections are closed instead of being
+            returned to the pool.
+        */
+        std::size_t pool_max_idle_per_host = 10;
+
+        /** Set the `TCP_NODELAY` option on sockets.
+
+            Disables Nagle's algorithm on newly
+            established connections.
+        */
+        bool tcp_nodelay = true;
+
+        /** The local endpoint to bind sockets to.
+        */
+        corosio::endpoint local_address;
+
+        /** The proxy used for establishing connections.
+
+            Supported proxy schemes are `http`,
+            `socks5`, and `socks5h`. Credentials in the
+            userinfo component of the URL are used for
+            proxy authentication.
+
+            @par Example
+            @code
+            cfg.proxy = urls::url("socks5h://user:pass@localhost:8080");
+            @endcode
+        */
+        std::optional<urls::url> proxy;
     };
 
 private:
     config config_;
-    connection_pool pool_;
+    std::shared_ptr<detail::connection_pool> pool_;
     http::fields headers_;
     burl::cookie_jar cookie_jar_;
 

@@ -10,9 +10,9 @@
 #ifndef BOOST_BURL_RESPONSE_HPP
 #define BOOST_BURL_RESPONSE_HPP
 
-#include <boost/burl/connection_pool.hpp>
 #include <boost/burl/conversion.hpp>
 #include <boost/burl/detail/config.hpp>
+#include <boost/burl/detail/connection_pool.hpp>
 #include <boost/burl/error.hpp>
 #include <boost/capy/io/any_buffer_source.hpp>
 #include <boost/capy/io/any_read_source.hpp>
@@ -77,13 +77,13 @@ class response
     using clock = std::chrono::steady_clock;
 
     urls::url url_;
-    connection_pool::pooled_connection conn_;
+    detail::pooled_connection conn_;
     http::response_parser parser_;
     std::optional<clock::time_point> deadline_;
 
     response(
         urls::url url,
-        connection_pool::pooled_connection conn,
+        detail::pooled_connection conn,
         http::response_parser parser,
         std::optional<clock::time_point> deadline);
 

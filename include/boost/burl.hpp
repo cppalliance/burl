@@ -13,7 +13,6 @@
 #include <boost/burl/any_request_body.hpp>
 #include <boost/burl/conversion.hpp>
 #include <boost/burl/client.hpp>
-#include <boost/burl/connection_pool.hpp>
 #include <boost/burl/error.hpp>
 #include <boost/burl/file.hpp>
 #include <boost/burl/json.hpp>

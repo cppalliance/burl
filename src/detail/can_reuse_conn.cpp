@@ -7,7 +7,7 @@
 // Official repository: https://github.com/cppalliance/burl
 //
 
-#include "reuse.hpp"
+#include "can_reuse_conn.hpp"
 
 namespace boost
 {

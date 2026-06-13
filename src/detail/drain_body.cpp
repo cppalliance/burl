@@ -7,15 +7,10 @@
 // Official repository: https://github.com/cppalliance/burl
 //
 
-#ifndef BOOST_BURL_SRC_DETAIL_DRAIN_HPP
-#define BOOST_BURL_SRC_DETAIL_DRAIN_HPP
+#include "drain_body.hpp"
 
 #include <boost/capy/buffers.hpp>
 #include <boost/capy/error.hpp>
-#include <boost/capy/io_task.hpp>
-#include <boost/http/response_parser.hpp>
-
-#include <cstdint>
 
 namespace boost
 {
@@ -24,13 +19,10 @@ namespace burl
 namespace detail
 {
 
-/** Read and discard the remaining body.
-*/
-template<capy::ReadStream Stream>
 capy::io_task<>
 drain_body(
     http::response_parser& parser,
-    Stream& conn,
+    capy::any_stream conn,
     std::uint64_t limit)
 {
     auto source = parser.source_for(conn);
@@ -54,5 +46,3 @@ drain_body(
 } // namespace detail
 } // namespace burl
 } // namespace boost
-
-#endif

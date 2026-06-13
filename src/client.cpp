@@ -11,12 +11,14 @@
 #include <boost/burl/error.hpp>
 
 #include "detail/base64.hpp"
-#include "detail/drain.hpp"
-#include "detail/reuse.hpp"
+#include "detail/can_reuse_conn.hpp"
+#include "detail/connection_pool.hpp"
+#include "detail/drain_body.hpp"
 
 #include <boost/capy/buffers/make_buffer.hpp>
 #include <boost/capy/ex/execution_context.hpp>
 #include <boost/capy/ex/system_context.hpp>
+#include <boost/capy/io/any_stream.hpp>
 #include <boost/capy/timeout.hpp>
 #include <boost/capy/write.hpp>
 #include <boost/http/brotli/decode.hpp>
@@ -144,7 +146,9 @@ client::client(
     corosio::tls_context tls_ctx,
     config cfg)
     : config_(cfg)
-    , pool_(exec, std::move(tls_ctx), cfg.pool)
+    , pool_(
+          std::make_shared<detail::connection_pool>(
+              exec, std::move(tls_ctx), cfg))
 {
     // Disable codings whose decoder service is unavailable.
     auto const& ctx = capy::get_system_context();
@@ -301,7 +305,7 @@ client::execute_impl(
                 headers.set(field::cookie, cookies);
         }
 
-        auto [cec, conn] = co_await pool_.acquire(url);
+        auto [cec, conn] = co_await pool_->acquire(url);
         if(cec)
             co_return { cec, {} };
 
@@ -364,7 +368,7 @@ client::execute_impl(
 
         // Read and discard small bodies so the connection can be reused
         auto [dec] = co_await capy::timeout(
-            detail::drain_body(parser, conn, 1024 * 1024),
+            detail::drain_body(parser, capy::any_stream(&conn), 1024 * 1024),
             std::chrono::seconds(2));
 
         if(detail::can_reuse_conn(parser))
