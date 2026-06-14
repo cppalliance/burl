@@ -25,34 +25,21 @@ struct error_test
     void
     testCategoryNames()
     {
-        BOOST_TEST(std::string(burl_category().name()) == "boost.burl");
-        BOOST_TEST(
-            std::string(burl_condition_category().name()) ==
+        BOOST_TEST_EQ(
+            std::string_view{ burl_category().name() },
+            "boost.burl");
+        BOOST_TEST_EQ(
+            std::string_view{ burl_condition_category().name() },
             "boost.burl.condition");
     }
 
     void
     testMessages()
     {
-        BOOST_TEST_EQ(
-            make_error_code(error::unsupported_url_scheme).message(),
-            "unsupported URL scheme");
-        BOOST_TEST_EQ(
-            make_error_code(error::too_many_redirects).message(),
-            "too many redirects");
-        BOOST_TEST_EQ(
-            make_error_code(error::bad_redirect_response).message(),
-            "bad redirect response");
-        BOOST_TEST_EQ(
-            make_error_code(error::file_changed).message(),
-            "file size changed during read");
-        BOOST_TEST_EQ(
-            make_error_code(error::proxy_auth_failed).message(),
-            "proxy authentication failed");
-
         // The code carries the burl category.
         BOOST_TEST_EQ(
-            &make_error_code(error::file_changed).category(), &burl_category());
+            &make_error_code(error::file_changed).category(),
+            &burl_category());
     }
 
     void

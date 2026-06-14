@@ -973,6 +973,32 @@ public:
     }
 
     void
+    testBasicAuth()
+    {
+        client c(
+            capy::get_system_context().get_executor(),
+            corosio::tls_context());
+
+        c.basic_auth("user", "pass");
+        BOOST_TEST_EQ(
+            c.headers().at(http::field::authorization),
+            "Basic dXNlcjpwYXNz");
+    }
+
+    void
+    testBearerAuth()
+    {
+        client c(
+            capy::get_system_context().get_executor(),
+            corosio::tls_context());
+
+        c.bearer_auth("sekrit");
+        BOOST_TEST_EQ(
+            c.headers().at(http::field::authorization),
+            "Bearer sekrit");
+    }
+
+    void
     run()
     {
         testRequestSerialization();
@@ -999,6 +1025,8 @@ public:
         testStatusErrorThenTransportErrorOnBody();
         testTransportErrorInjection();
         testVerbs();
+        testBasicAuth();
+        testBearerAuth();
     }
 };
 

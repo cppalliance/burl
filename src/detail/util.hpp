@@ -37,6 +37,8 @@ clamp(
     return static_cast<std::size_t>(x);
 }
 
+#if 0
+
 std::optional<std::string>
 extract_filename_form_content_disposition(std::string_view sv);
 
@@ -47,6 +49,7 @@ extract_filename_form_content_disposition(std::string_view sv);
 std::filesystem::path
 resolve_dest(response& resp, std::filesystem::path dest);
 
+#endif
 } // namespace detail
 } // namespace burl
 } // namespace boost

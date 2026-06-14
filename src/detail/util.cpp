@@ -19,7 +19,7 @@ namespace burl
 {
 namespace detail
 {
-
+#if 0
 namespace grammar = boost::urls::grammar;
 namespace variant2 = boost::variant2;
 namespace fs = std::filesystem;
@@ -169,7 +169,7 @@ resolve_dest(response& resp, fs::path dest)
 
     return dest / "index.html";
 }
-
+#endif
 } // namespace detail
 } // namespace burl
 } // namespace boost
