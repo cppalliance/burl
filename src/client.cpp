@@ -326,8 +326,7 @@ client::execute_impl(
         auto [dec] = co_await capy::timeout(
             detail::drain_body(parser, capy::any_stream(&conn), 1024 * 1024),
             std::chrono::seconds(2));
-
-        if(detail::can_reuse_conn(parser))
+        if(!dec && detail::can_reuse_conn(parser))
             conn.return_to_pool();
 
         if(maxredirs-- == 0)
