@@ -172,8 +172,6 @@ jobs:
             ccflags: "--coverage -fprofile-arcs -ftest-coverage"
             install: "lcov wget unzip"
 
-          # Linux Clang (5 configurations)
-
           - compiler: "clang"
             version: "20"
             cxxstd: "20,23"
@@ -485,28 +483,37 @@ jobs:
           ref-source-dir: boost-root
           toolchain: ${{ (startsWith(matrix.runs-on, 'windows') && steps.patch-user-config.outputs.toolchain) || '' }}
 
-      - name: Codecov
+      - name: Generate Coverage Report
         if: ${{ matrix.coverage }}
         run: |
           set -x
-
-          # Generate report
           gcov_tool="gcov"
-          if command -v "gcov-${{ steps.setup-cpp.outputs.version-major }}.${{ steps.setup-cpp.outputs.version-minor }}" &> /dev/null; then
-              gcov_tool="gcov"
-          elif command -v "gcov-${{ steps.setup-cpp.outputs.version-major }}" &> /dev/null; then
+          if command -v "gcov-${{ steps.setup-cpp.outputs.version-major }}" &> /dev/null; then
               gcov_tool="gcov-${{ steps.setup-cpp.outputs.version-major }}"
           fi
-          lcov -c -q -o "boost-root/__build_cmake_test__/coverage.info" -d "boost-root/__build_cmake_test__" --include "$(pwd)/boost-root/libs/${{steps.patch.outputs.module}}/*" --gcov-tool "$gcov_tool"
+          lcov -c -q -o "boost-root/__build_cmake_test__/coverage.info" -d "boost-root/__build_cmake_test__" \
+            --include "$(pwd)/boost-root/libs/${{ steps.patch.outputs.module }}/include/*" \
+            --include "$(pwd)/boost-root/libs/${{ steps.patch.outputs.module }}/src/*" \
+            --gcov-tool "$gcov_tool"
 
-          # Upload to codecov
-          bash <(curl -s https://codecov.io/bash) -f "boost-root/__build_cmake_test__/coverage.info"
+      - name: Upload to Codecov
+        if: ${{ matrix.coverage }}
+        uses: codecov/codecov-action@v5
+        with:
+          files: boost-root/__build_cmake_test__/coverage.info
+          flags: linux
+          token: ${{ secrets.CODECOV_TOKEN }}
+          fail_ci_if_error: false
+          verbose: true
+          disable_search: true
+          plugins: noop
 
-          # Summary
+      - name: Coverage Summary
+        if: ${{ matrix.coverage }}
+        run: |
           echo "# Coverage" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
           echo "[![codecov](https://codecov.io/github/$GITHUB_REPOSITORY/commit/$GITHUB_SHA/graphs/sunburst.svg)](https://codecov.io/github/$GITHUB_REPOSITORY/commit/$GITHUB_SHA)" >> $GITHUB_STEP_SUMMARY
-          echo "" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
           echo "Commit: [![codecov](https://codecov.io/github/$GITHUB_REPOSITORY/commit/$GITHUB_SHA/graph/badge.svg)](https://codecov.io/github/$GITHUB_REPOSITORY/commit/$GITHUB_SHA)" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
