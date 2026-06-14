@@ -96,7 +96,16 @@ public:
     */
     response() = default;
 
-    /** Constructor.
+    /** Copy constructor (deleted).
+    */
+    response(response const&) = delete;
+
+    /** Copy assignment (deleted).
+    */
+    response&
+    operator=(response const&) = delete;
+
+    /** Move constructor.
 
         Constructs a response by taking ownership of
         the contents of another response, including
@@ -108,7 +117,7 @@ public:
     BOOST_BURL_DECL
     response(response&& other) noexcept;
 
-    /** Assignment.
+    /** Move assignment.
 
         Takes ownership of the contents of another
         response, including the underlying
