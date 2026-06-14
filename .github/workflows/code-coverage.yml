@@ -12,7 +12,7 @@
 #
 # After running this workflow successfully, go to https://github.com/cppalliance/burl/settings/pages
 # and enable github pages on the code-coverage branch.
-# The coverage will be hosted at https://cppalliance.github.io/burl
+# The coverage will be hosted at https://cppalliance.org/burl
 #
 
 name: Code Coverage
