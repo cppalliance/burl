@@ -100,6 +100,7 @@ struct cookie_test
 
         // "__Host-" requires Secure, Path=/, and no Domain.
         BOOST_TEST(parse_cookie("__Host-x=1; Secure; Path=/").has_value());
+        BOOST_TEST(parse_cookie("__Host-x=1").has_error()); // missing Secure
         BOOST_TEST(parse_cookie("__Host-x=1; Secure").has_error());
         BOOST_TEST(parse_cookie("__Host-x=1; Secure; Path=/app").has_error());
         BOOST_TEST(
@@ -114,6 +115,38 @@ struct cookie_test
     }
 
     void
+    testExpires()
+    {
+        // Space-separated date format.
+        auto rc = parse_cookie("a=b; Expires=Wed, 21 Oct 2015 07:28:00 GMT");
+        BOOST_TEST(rc.has_value());
+        BOOST_TEST(rc->expires.has_value());
+
+        // Dash-separated date format (the other parse_date branch).
+        auto rc2 = parse_cookie("a=b; Expires=Wed, 21-Oct-2015 07:28:00 GMT");
+        BOOST_TEST(rc2.has_value());
+        BOOST_TEST(rc2->expires.has_value());
+    }
+
+    void
+    testPartitioned()
+    {
+        auto rc = parse_cookie("a=b; Partitioned");
+        BOOST_TEST(rc.has_value());
+        BOOST_TEST(rc->partitioned);
+    }
+
+    void
+    testMissingAttributeValues()
+    {
+        // Attributes that require a value are rejected when it is absent.
+        BOOST_TEST(parse_cookie("a=b; Expires").has_error());
+        BOOST_TEST(parse_cookie("a=b; Max-Age").has_error());
+        BOOST_TEST(parse_cookie("a=b; Domain").has_error());
+        BOOST_TEST(parse_cookie("a=b; Path").has_error());
+    }
+
+    void
     run()
     {
         testBasic();
@@ -123,6 +156,9 @@ struct cookie_test
         testValueless();
         testInvalid();
         testNamePrefixes();
+        testExpires();
+        testPartitioned();
+        testMissingAttributeValues();
     }
 };
 
