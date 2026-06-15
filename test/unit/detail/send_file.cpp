@@ -13,9 +13,10 @@
 #include <boost/burl/error.hpp>
 
 #include <boost/capy/ex/run_async.hpp>
+#include <boost/capy/test/buffer_sink.hpp>
 #include <boost/corosio/io_context.hpp>
 
-#include "body_test.hpp"
+#include "../temp_file.hpp"
 
 #include "test_suite.hpp"
 

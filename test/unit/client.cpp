@@ -26,13 +26,12 @@
 #include <boost/corosio/tls_context.hpp>
 #include <boost/url/url.hpp>
 
+#include "scripted_net.hpp"
 #include "test_suite.hpp"
 
 #include <chrono>
-#include <deque>
 #include <string>
 #include <string_view>
-#include <vector>
 
 namespace boost
 {
@@ -43,86 +42,27 @@ using namespace std::chrono_literals;
 
 class client_test
 {
-    struct fake_net
-    {
-        capy::test::fuse fuse;
-        std::vector<std::string> scripts;
-        std::vector<bool> closes; // close srv after providing script N
-        std::deque<capy::test::stream> servers;
-        std::vector<std::string> origins;
-
-        fake_net() = default;
-
-        explicit fake_net(capy::test::fuse f)
-            : fuse(std::move(f))
-        {
-        }
-
-        client::config
-        config()
-        {
-            client::config cfg;
-            cfg.brotli  = false;
-            cfg.deflate = false;
-            cfg.gzip    = false;
-            cfg.connect_handler =
-                [this](urls::url_view url) -> capy::io_task<capy::any_stream>
-            {
-                origins.emplace_back(url.encoded_origin());
-                auto [cli, srv] = capy::test::make_stream_pair(fuse);
-                auto const n = servers.size();
-                if(n < scripts.size() && !scripts[n].empty())
-                    srv.provide(scripts[n]);
-                if(n < closes.size() && closes[n])
-                    srv.close();
-                servers.push_back(std::move(srv));
-                co_return { {}, capy::any_stream(std::move(cli)) };
-            };
-            return cfg;
-        }
-
-        std::size_t
-        connects() const noexcept
-        {
-            return servers.size();
-        }
-
-        capy::test::stream&
-        server(std::size_t i)
-        {
-            return servers.at(i);
-        }
-
-        std::string
-        written(std::size_t i)
-        {
-            return std::string(servers.at(i).data());
-        }
-    };
-
 public:
-
     void
     testRequestSerialization()
     {
-        fake_net net;
+        scripted_net net;
         net.scripts = {
             "HTTP/1.1 200 OK\r\nContent-Length: 0\r\n\r\n" };
 
-        capy::test::run_blocking()(
-            [&]() -> capy::task<>
-            {
-                client c(
-                    co_await capy::this_coro::executor,
-                    corosio::tls_context(),
-                    net.config());
+        capy::test::run_blocking()([&]() -> capy::task<>
+        {
+            client c(
+                co_await capy::this_coro::executor,
+                corosio::tls_context(),
+                net.config());
 
-                auto [ec, r] = co_await c
-                    .get("http://example.com/index.html?x=1")
-                    .send();
-                BOOST_TEST(!ec);
-                BOOST_TEST(r.status() == http::status::ok);
-            }());
+            auto [ec, r] = co_await c
+                .get("http://example.com/index.html?x=1")
+                .send();
+            BOOST_TEST(!ec);
+            BOOST_TEST(r.status() == http::status::ok);
+        }());
 
         BOOST_TEST_EQ(
             net.written(0),
@@ -134,21 +74,20 @@ public:
     void
     testEmptyPathBecomesSlash()
     {
-        fake_net net;
+        scripted_net net;
         net.scripts = {
             "HTTP/1.1 200 OK\r\nContent-Length: 0\r\n\r\n" };
 
-        capy::test::run_blocking()(
-            [&]() -> capy::task<>
-            {
-                client c(
-                    co_await capy::this_coro::executor,
-                    corosio::tls_context(),
-                    net.config());
-                auto [ec, r] =
-                    co_await c.get("http://example.com").send();
-                BOOST_TEST(!ec);
-            }());
+        capy::test::run_blocking()([&]() -> capy::task<>
+        {
+            client c(
+                co_await capy::this_coro::executor,
+                corosio::tls_context(),
+                net.config());
+            auto [ec, r] =
+                co_await c.get("http://example.com").send();
+            BOOST_TEST(!ec);
+        }());
 
         BOOST_TEST(
             net.written(0).find("GET / HTTP/1.1\r\n") == 0);
@@ -161,23 +100,22 @@ public:
     void
     testPostBody()
     {
-        fake_net net;
+        scripted_net net;
         net.scripts = {
             "HTTP/1.1 200 OK\r\nContent-Length: 0\r\n\r\n" };
 
-        capy::test::run_blocking()(
-            [&]() -> capy::task<>
-            {
-                client c(
-                    co_await capy::this_coro::executor,
-                    corosio::tls_context(),
-                    net.config());
-                auto [ec, r] = co_await c
-                    .post("http://example.com/submit")
-                    .body("abc")
-                    .send();
-                BOOST_TEST(!ec);
-            }());
+        capy::test::run_blocking()([&]() -> capy::task<>
+        {
+            client c(
+                co_await capy::this_coro::executor,
+                corosio::tls_context(),
+                net.config());
+            auto [ec, r] = co_await c
+                .post("http://example.com/submit")
+                .body("abc")
+                .send();
+            BOOST_TEST(!ec);
+        }());
 
         auto out = net.written(0);
         BOOST_TEST(
@@ -192,42 +130,41 @@ public:
     void
     testStatusErrorWithReadableBody()
     {
-        fake_net net;
+        scripted_net net;
         net.scripts = {
             "HTTP/1.1 404 Not Found\r\n"
             "Content-Length: 9\r\n"
             "\r\n"
             "not found" };
 
-        capy::test::run_blocking()(
-            [&]() -> capy::task<>
-            {
-                client c(
-                    co_await capy::this_coro::executor,
-                    corosio::tls_context(),
-                    net.config());
+        capy::test::run_blocking()([&]() -> capy::task<>
+        {
+            client c(
+                co_await capy::this_coro::executor,
+                corosio::tls_context(),
+                net.config());
 
-                auto [ec, r] = co_await c
-                    .get("http://example.com/missing")
-                    .send();
+            auto [ec, r] = co_await c
+                .get("http://example.com/missing")
+                .send();
 
-                // Status errors flow as error codes, but the
-                // response object is still fully usable: the
-                // caller decides whether to read the error body.
-                BOOST_TEST(ec == condition::client_error);
-                BOOST_TEST(
-                    r.status() == http::status::not_found);
+            // Status errors flow as error codes, but the
+            // response object is still fully usable: the
+            // caller decides whether to read the error body.
+            BOOST_TEST(ec == condition::client_error);
+            BOOST_TEST(
+                r.status() == http::status::not_found);
 
-                auto [ec2, body] = co_await r.try_as_view();
-                BOOST_TEST(!ec2);
-                BOOST_TEST_EQ(body, "not found");
-            }());
+            auto [ec2, body] = co_await r.try_as_view();
+            BOOST_TEST(!ec2);
+            BOOST_TEST_EQ(body, "not found");
+        }());
     }
 
     void
     testRedirectSameOrigin()
     {
-        fake_net net;
+        scripted_net net;
         net.scripts = {
             // Connection: close forces the second hop onto a
             // fresh pair so each script maps to one connection.
@@ -241,26 +178,25 @@ public:
             "\r\n"
             "hello" };
 
-        capy::test::run_blocking()(
-            [&]() -> capy::task<>
-            {
-                client c(
-                    co_await capy::this_coro::executor,
-                    corosio::tls_context(),
-                    net.config());
+        capy::test::run_blocking()([&]() -> capy::task<>
+        {
+            client c(
+                co_await capy::this_coro::executor,
+                corosio::tls_context(),
+                net.config());
 
-                auto [ec, r] = co_await c
-                    .get("http://example.com/old")
-                    .send();
-                BOOST_TEST(!ec);
-                BOOST_TEST(r.status() == http::status::ok);
-                BOOST_TEST_EQ(
-                    r.url().buffer(), "http://example.com/next");
+            auto [ec, r] = co_await c
+                .get("http://example.com/old")
+                .send();
+            BOOST_TEST(!ec);
+            BOOST_TEST(r.status() == http::status::ok);
+            BOOST_TEST_EQ(
+                r.url().buffer(), "http://example.com/next");
 
-                auto [ec2, body] = co_await r.try_as_view();
-                BOOST_TEST(!ec2);
-                BOOST_TEST_EQ(body, "hello");
-            }());
+            auto [ec2, body] = co_await r.try_as_view();
+            BOOST_TEST(!ec2);
+            BOOST_TEST_EQ(body, "hello");
+        }());
 
         BOOST_TEST_EQ(net.connects(), 2u);
         BOOST_TEST(
@@ -276,7 +212,7 @@ public:
     void
     test303MethodChange()
     {
-        fake_net net;
+        scripted_net net;
         net.scripts = {
             "HTTP/1.1 303 See Other\r\n"
             "Location: /done\r\n"
@@ -285,21 +221,20 @@ public:
             "\r\n",
             "HTTP/1.1 200 OK\r\nContent-Length: 0\r\n\r\n" };
 
-        capy::test::run_blocking()(
-            [&]() -> capy::task<>
-            {
-                client c(
-                    co_await capy::this_coro::executor,
-                    corosio::tls_context(),
-                    net.config());
+        capy::test::run_blocking()([&]() -> capy::task<>
+        {
+            client c(
+                co_await capy::this_coro::executor,
+                corosio::tls_context(),
+                net.config());
 
-                auto [ec, r] = co_await c
-                    .post("http://example.com/form")
-                    .body("a=1")
-                    .send();
-                BOOST_TEST(!ec);
-                BOOST_TEST(r.status() == http::status::ok);
-            }());
+            auto [ec, r] = co_await c
+                .post("http://example.com/form")
+                .body("a=1")
+                .send();
+            BOOST_TEST(!ec);
+            BOOST_TEST(r.status() == http::status::ok);
+        }());
 
         BOOST_TEST_EQ(net.connects(), 2u);
 
@@ -321,7 +256,7 @@ public:
     void
     testCrossOriginDropsAuthorization()
     {
-        fake_net net;
+        scripted_net net;
         net.scripts = {
             "HTTP/1.1 302 Found\r\n"
             "Location: http://other.example/x\r\n"
@@ -330,22 +265,21 @@ public:
             "\r\n",
             "HTTP/1.1 200 OK\r\nContent-Length: 0\r\n\r\n" };
 
-        capy::test::run_blocking()(
-            [&]() -> capy::task<>
-            {
-                client c(
-                    co_await capy::this_coro::executor,
-                    corosio::tls_context(),
-                    net.config());
+        capy::test::run_blocking()([&]() -> capy::task<>
+        {
+            client c(
+                co_await capy::this_coro::executor,
+                corosio::tls_context(),
+                net.config());
 
-                auto [ec, r] = co_await c
-                    .get("http://example.com/login")
-                    .header(
-                        http::field::authorization,
-                        "Bearer sekrit")
-                    .send();
-                BOOST_TEST(!ec);
-            }());
+            auto [ec, r] = co_await c
+                .get("http://example.com/login")
+                .header(
+                    http::field::authorization,
+                    "Bearer sekrit")
+                .send();
+            BOOST_TEST(!ec);
+        }());
 
         BOOST_TEST_EQ(net.connects(), 2u);
         BOOST_TEST_EQ(
@@ -363,7 +297,7 @@ public:
     void
     testUnrestrictedAuthKeepsAuthorization()
     {
-        fake_net net;
+        scripted_net net;
         net.scripts = {
             "HTTP/1.1 302 Found\r\n"
             "Location: http://other.example/x\r\n"
@@ -371,23 +305,22 @@ public:
             "Connection: close\r\n"
             "\r\n",
             "HTTP/1.1 200 OK\r\nContent-Length: 0\r\n\r\n" };
-        capy::test::run_blocking()(
-            [&]() -> capy::task<>
-            {
-                auto cfg = net.config();
-                cfg.unrestricted_auth = true;
-                client c(
-                    co_await capy::this_coro::executor,
-                    corosio::tls_context(),
-                    cfg);
-                auto [ec, r] = co_await c
-                    .get("http://example.com/login")
-                    .header(
-                        http::field::authorization,
-                        "Bearer sekrit")
-                    .send();
-                BOOST_TEST(!ec);
-            }());
+        capy::test::run_blocking()([&]() -> capy::task<>
+        {
+            auto cfg = net.config();
+            cfg.unrestricted_auth = true;
+            client c(
+                co_await capy::this_coro::executor,
+                corosio::tls_context(),
+                cfg);
+            auto [ec, r] = co_await c
+                .get("http://example.com/login")
+                .header(
+                    http::field::authorization,
+                    "Bearer sekrit")
+                .send();
+            BOOST_TEST(!ec);
+        }());
 
         BOOST_TEST(
             net.written(1).find("Authorization: Bearer sekrit") !=
@@ -397,7 +330,7 @@ public:
     void
     testTooManyRedirects()
     {
-        fake_net net;
+        scripted_net net;
         auto const hop =
             "HTTP/1.1 302 Found\r\n"
             "Location: /again\r\n"
@@ -405,19 +338,18 @@ public:
             "Connection: close\r\n"
             "\r\n";
         net.scripts = { hop, hop, hop };
-        capy::test::run_blocking()(
-            [&]() -> capy::task<>
-            {
-                auto cfg = net.config();
-                cfg.maxredirs = 2;
-                client c(
-                    co_await capy::this_coro::executor,
-                    corosio::tls_context(),
-                    cfg);
-                auto [ec, r] =
-                    co_await c.get("http://example.com/").send();
-                BOOST_TEST(ec == error::too_many_redirects);
-            }());
+        capy::test::run_blocking()([&]() -> capy::task<>
+        {
+            auto cfg = net.config();
+            cfg.maxredirs = 2;
+            client c(
+                co_await capy::this_coro::executor,
+                corosio::tls_context(),
+                cfg);
+            auto [ec, r] =
+                co_await c.get("http://example.com/").send();
+            BOOST_TEST(ec == error::too_many_redirects);
+        }());
 
         // Original request plus maxredirs follows, then stop.
         BOOST_TEST_EQ(net.connects(), 3u);
@@ -426,28 +358,27 @@ public:
     void
     testFollowlocationOff()
     {
-        fake_net net;
+        scripted_net net;
         net.scripts = {
             "HTTP/1.1 302 Found\r\n"
             "Location: /next\r\n"
             "Content-Length: 0\r\n"
             "\r\n" };
-        capy::test::run_blocking()(
-            [&]() -> capy::task<>
-            {
-                auto cfg = net.config();
-                cfg.followlocation = false;
-                client c(
-                    co_await capy::this_coro::executor,
-                    corosio::tls_context(),
-                    cfg);
-                auto [ec, r] =
-                    co_await c.get("http://example.com/").send();
-                // 3xx is not an error condition; the caller
-                // gets the redirect response itself.
-                BOOST_TEST(!ec);
-                BOOST_TEST(r.status() == http::status::found);
-            }());
+        capy::test::run_blocking()([&]() -> capy::task<>
+        {
+            auto cfg = net.config();
+            cfg.followlocation = false;
+            client c(
+                co_await capy::this_coro::executor,
+                corosio::tls_context(),
+                cfg);
+            auto [ec, r] =
+                co_await c.get("http://example.com/").send();
+            // 3xx is not an error condition; the caller
+            // gets the redirect response itself.
+            BOOST_TEST(!ec);
+            BOOST_TEST(r.status() == http::status::found);
+        }());
 
         BOOST_TEST_EQ(net.connects(), 1u);
     }
@@ -455,66 +386,64 @@ public:
     void
     testBadRedirectResponse()
     {
-        fake_net net;
+        scripted_net net;
         net.scripts = {
             // 302 without a usable Location.
             "HTTP/1.1 302 Found\r\n"
             "Content-Length: 0\r\n"
             "\r\n" };
 
-        capy::test::run_blocking()(
-            [&]() -> capy::task<>
-            {
-                client c(
-                    co_await capy::this_coro::executor,
-                    corosio::tls_context(),
-                    net.config());
-                auto [ec, r] =
-                    co_await c.get("http://example.com/").send();
-                BOOST_TEST(ec == error::bad_redirect_response);
-            }());
+        capy::test::run_blocking()([&]() -> capy::task<>
+        {
+            client c(
+                co_await capy::this_coro::executor,
+                corosio::tls_context(),
+                net.config());
+            auto [ec, r] =
+                co_await c.get("http://example.com/").send();
+            BOOST_TEST(ec == error::bad_redirect_response);
+        }());
     }
 
     void
     testKeepAliveReuse()
     {
-        fake_net net;
+        scripted_net net;
         net.scripts = {
             "HTTP/1.1 200 OK\r\n"
             "Content-Length: 2\r\n"
             "\r\n"
             "ok" };
 
-        capy::test::run_blocking()(
-            [&]() -> capy::task<>
+        capy::test::run_blocking()([&]() -> capy::task<>
+        {
+            client c(
+                co_await capy::this_coro::executor,
+                corosio::tls_context(),
+                net.config());
+
             {
-                client c(
-                    co_await capy::this_coro::executor,
-                    corosio::tls_context(),
-                    net.config());
-
-                {
-                    auto [ec, r] = co_await c
-                        .get("http://example.com/a")
-                        .send();
-                    BOOST_TEST(!ec);
-                    auto [ec2, body] = co_await r.try_as_view();
-                    BOOST_TEST(!ec2);
-                    BOOST_TEST_EQ(body, "ok");
-                    // r destroyed here: complete + keep-alive,
-                    // so the connection returns to the pool.
-                }
-
-                net.server(0).provide(
-                    "HTTP/1.1 200 OK\r\n"
-                    "Content-Length: 0\r\n"
-                    "\r\n");
-
                 auto [ec, r] = co_await c
-                    .get("http://example.com/b")
+                    .get("http://example.com/a")
                     .send();
                 BOOST_TEST(!ec);
-            }());
+                auto [ec2, body] = co_await r.try_as_view();
+                BOOST_TEST(!ec2);
+                BOOST_TEST_EQ(body, "ok");
+                // r destroyed here: complete + keep-alive,
+                // so the connection returns to the pool.
+            }
+
+            net.server(0).provide(
+                "HTTP/1.1 200 OK\r\n"
+                "Content-Length: 0\r\n"
+                "\r\n");
+
+            auto [ec, r] = co_await c
+                .get("http://example.com/b")
+                .send();
+            BOOST_TEST(!ec);
+        }());
 
         // One dial, two requests over it.
         BOOST_TEST_EQ(net.connects(), 1u);
@@ -528,7 +457,7 @@ public:
     void
     testConnectionCloseNoReuse()
     {
-        fake_net net;
+        scripted_net net;
         net.scripts = {
             "HTTP/1.1 200 OK\r\n"
             "Content-Length: 2\r\n"
@@ -537,28 +466,27 @@ public:
             "ok",
             "HTTP/1.1 200 OK\r\nContent-Length: 0\r\n\r\n" };
 
-        capy::test::run_blocking()(
-            [&]() -> capy::task<>
+        capy::test::run_blocking()([&]() -> capy::task<>
+        {
+            client c(
+                co_await capy::this_coro::executor,
+                corosio::tls_context(),
+                net.config());
+
             {
-                client c(
-                    co_await capy::this_coro::executor,
-                    corosio::tls_context(),
-                    net.config());
-
-                {
-                    auto [ec, r] = co_await c
-                        .get("http://example.com/a")
-                        .send();
-                    BOOST_TEST(!ec);
-                    auto [ec2, body] = co_await r.try_as_view();
-                    BOOST_TEST(!ec2);
-                }
-
                 auto [ec, r] = co_await c
-                    .get("http://example.com/b")
+                    .get("http://example.com/a")
                     .send();
                 BOOST_TEST(!ec);
-            }());
+                auto [ec2, body] = co_await r.try_as_view();
+                BOOST_TEST(!ec2);
+            }
+
+            auto [ec, r] = co_await c
+                .get("http://example.com/b")
+                .send();
+            BOOST_TEST(!ec);
+        }());
 
         BOOST_TEST_EQ(net.connects(), 2u);
     }
@@ -566,35 +494,34 @@ public:
     void
     testUnconsumedBodyNoReuse()
     {
-        fake_net net;
+        scripted_net net;
         net.scripts = {
             "HTTP/1.1 200 OK\r\n"
             "Content-Length: 1024\r\n"
             "\r\n", // body never arrives in full
             "HTTP/1.1 200 OK\r\nContent-Length: 0\r\n\r\n" };
 
-        capy::test::run_blocking()(
-            [&]() -> capy::task<>
+        capy::test::run_blocking()([&]() -> capy::task<>
+        {
+            client c(
+                co_await capy::this_coro::executor,
+                corosio::tls_context(),
+                net.config());
+
             {
-                client c(
-                    co_await capy::this_coro::executor,
-                    corosio::tls_context(),
-                    net.config());
-
-                {
-                    auto [ec, r] = co_await c
-                        .get("http://example.com/a")
-                        .send();
-                    BOOST_TEST(!ec);
-                    // Drop r with 1024 unread body bytes
-                    // outstanding: dirty, must not be pooled.
-                }
-
                 auto [ec, r] = co_await c
-                    .get("http://example.com/b")
+                    .get("http://example.com/a")
                     .send();
                 BOOST_TEST(!ec);
-            }());
+                // Drop r with 1024 unread body bytes
+                // outstanding: dirty, must not be pooled.
+            }
+
+            auto [ec, r] = co_await c
+                .get("http://example.com/b")
+                .send();
+            BOOST_TEST(!ec);
+        }());
 
         BOOST_TEST_EQ(net.connects(), 2u);
     }
@@ -602,35 +529,34 @@ public:
     void
     testExcessBodyBytesSingleResponse()
     {
-        fake_net net;
+        scripted_net net;
         net.scripts = {
             "HTTP/1.1 200 OK\r\n"
             "Content-Length: 2\r\n"
             "\r\n"
             "okX" }; // one byte past Content-Length
-        capy::test::run_blocking()(
-            [&]() -> capy::task<>
-            {
-                client c(
-                    co_await capy::this_coro::executor,
-                    corosio::tls_context(),
-                    net.config());
+        capy::test::run_blocking()([&]() -> capy::task<>
+        {
+            client c(
+                co_await capy::this_coro::executor,
+                corosio::tls_context(),
+                net.config());
 
-                auto [ec, r] = co_await c
-                    .get("http://example.com/a")
-                    .send();
-                BOOST_TEST(!ec);
+            auto [ec, r] = co_await c
+                .get("http://example.com/a")
+                .send();
+            BOOST_TEST(!ec);
 
-                auto [ec2, body] = co_await r.try_as_view();
-                BOOST_TEST(!ec2);
-                BOOST_TEST_EQ(body, "ok");
-            }());
+            auto [ec2, body] = co_await r.try_as_view();
+            BOOST_TEST(!ec2);
+            BOOST_TEST_EQ(body, "ok");
+        }());
     }
 
     void
     testExcessBytesAfterResponse()
     {
-        fake_net net;
+        scripted_net net;
         net.scripts = {
             "HTTP/1.1 200 OK\r\n"
             "Content-Length: 2\r\n"
@@ -640,30 +566,29 @@ public:
             // The next request must go on a fresh connection.
             "HTTP/1.1 200 OK\r\nContent-Length: 0\r\n\r\n" };
 
-        capy::test::run_blocking()(
-            [&]() -> capy::task<>
+        capy::test::run_blocking()([&]() -> capy::task<>
+        {
+            client c(
+                co_await capy::this_coro::executor,
+                corosio::tls_context(),
+                net.config());
+
             {
-                client c(
-                    co_await capy::this_coro::executor,
-                    corosio::tls_context(),
-                    net.config());
-
-                {
-                    auto [ec, r] = co_await c
-                        .get("http://example.com/a")
-                        .send();
-                    BOOST_TEST(!ec);
-                    auto [ec2, body] = co_await r.try_as_view();
-                    BOOST_TEST(!ec2);
-                    BOOST_TEST_EQ(body, "ok");
-                }
-
                 auto [ec, r] = co_await c
-                    .get("http://example.com/b")
+                    .get("http://example.com/a")
                     .send();
                 BOOST_TEST(!ec);
-                BOOST_TEST(r.status() == http::status::ok);
-            }());
+                auto [ec2, body] = co_await r.try_as_view();
+                BOOST_TEST(!ec2);
+                BOOST_TEST_EQ(body, "ok");
+            }
+
+            auto [ec, r] = co_await c
+                .get("http://example.com/b")
+                .send();
+            BOOST_TEST(!ec);
+            BOOST_TEST(r.status() == http::status::ok);
+        }());
 
         BOOST_TEST_EQ(net.connects(), 2u);
     }
@@ -671,7 +596,7 @@ public:
     void
     testCookieRoundTrip()
     {
-        fake_net net;
+        scripted_net net;
         net.scripts = {
             "HTTP/1.1 200 OK\r\n"
             "Set-Cookie: session=abc123; Path=/\r\n"
@@ -680,28 +605,27 @@ public:
             "\r\n",
             "HTTP/1.1 200 OK\r\nContent-Length: 0\r\n\r\n" };
 
-        capy::test::run_blocking()(
-            [&]() -> capy::task<>
+        capy::test::run_blocking()([&]() -> capy::task<>
+        {
+            auto cfg = net.config();
+            cfg.cookies = true;
+            client c(
+                co_await capy::this_coro::executor,
+                corosio::tls_context(),
+                cfg);
+
             {
-                auto cfg = net.config();
-                cfg.cookies = true;
-                client c(
-                    co_await capy::this_coro::executor,
-                    corosio::tls_context(),
-                    cfg);
-
-                {
-                    auto [ec, r] = co_await c
-                        .get("http://example.com/set")
-                        .send();
-                    BOOST_TEST(!ec);
-                }
-
                 auto [ec, r] = co_await c
-                    .get("http://example.com/get")
+                    .get("http://example.com/set")
                     .send();
                 BOOST_TEST(!ec);
-            }());
+            }
+
+            auto [ec, r] = co_await c
+                .get("http://example.com/get")
+                .send();
+            BOOST_TEST(!ec);
+        }());
 
         BOOST_TEST(
             net.written(0).find("Cookie:") == std::string::npos);
@@ -713,31 +637,30 @@ public:
     void
     testHeadNoBody()
     {
-        fake_net net;
+        scripted_net net;
         net.scripts = {
             "HTTP/1.1 200 OK\r\n"
             "Content-Length: 100\r\n"
             "\r\n" };
 
-        capy::test::run_blocking()(
-            [&]() -> capy::task<>
-            {
-                client c(
-                    co_await capy::this_coro::executor,
-                    corosio::tls_context(),
-                    net.config());
+        capy::test::run_blocking()([&]() -> capy::task<>
+        {
+            client c(
+                co_await capy::this_coro::executor,
+                corosio::tls_context(),
+                net.config());
 
-                auto [ec, r] = co_await c
-                    .head("http://example.com/file")
-                    .send();
-                BOOST_TEST(!ec);
-                BOOST_TEST(
-                    r.content_length().value_or(0) == 100);
+            auto [ec, r] = co_await c
+                .head("http://example.com/file")
+                .send();
+            BOOST_TEST(!ec);
+            BOOST_TEST(
+                r.content_length().value_or(0) == 100);
 
-                auto [ec2, body] = co_await r.try_as_view();
-                BOOST_TEST(!ec2);
-                BOOST_TEST(body.empty());
-            }());
+            auto [ec2, body] = co_await r.try_as_view();
+            BOOST_TEST(!ec2);
+            BOOST_TEST(body.empty());
+        }());
 
         BOOST_TEST(
             net.written(0).find("HEAD /file HTTP/1.1\r\n") == 0);
@@ -759,7 +682,7 @@ public:
             "\x11\x4a\x0d\x0b\x00\x00\x00";
         auto const body = std::string(gz, sizeof(gz) - 1);
 
-        fake_net net;
+        scripted_net net;
         net.scripts = { std::string(
             "HTTP/1.1 200 OK\r\n"
             "Content-Encoding: gzip\r\n"
@@ -767,25 +690,24 @@ public:
             std::to_string(body.size()) +
             "\r\n\r\n" + body) };
 
-        capy::test::run_blocking()(
-            [&]() -> capy::task<>
-            {
-                auto cfg = net.config();
-                cfg.gzip = true;
-                client c(
-                    co_await capy::this_coro::executor,
-                    corosio::tls_context(),
-                    cfg);
+        capy::test::run_blocking()([&]() -> capy::task<>
+        {
+            auto cfg = net.config();
+            cfg.gzip = true;
+            client c(
+                co_await capy::this_coro::executor,
+                corosio::tls_context(),
+                cfg);
 
-                auto [ec, r] = co_await c
-                    .get("http://example.com/z")
-                    .send();
-                BOOST_TEST(!ec);
+            auto [ec, r] = co_await c
+                .get("http://example.com/z")
+                .send();
+            BOOST_TEST(!ec);
 
-                auto [ec2, text] = co_await r.try_as_view();
-                BOOST_TEST(!ec2);
-                BOOST_TEST_EQ(text, "hello world");
-            }());
+            auto [ec2, text] = co_await r.try_as_view();
+            BOOST_TEST(!ec2);
+            BOOST_TEST_EQ(text, "hello world");
+        }());
 
         BOOST_TEST(
             net.written(0).find("Accept-Encoding: gzip\r\n") !=
@@ -807,7 +729,7 @@ public:
             "\x6c\x64\x03";
         auto const body = std::string(br, sizeof(br) - 1);
 
-        fake_net net;
+        scripted_net net;
         net.scripts = { std::string(
             "HTTP/1.1 200 OK\r\n"
             "Content-Encoding: br\r\n"
@@ -815,25 +737,24 @@ public:
             std::to_string(body.size()) +
             "\r\n\r\n" + body) };
 
-        capy::test::run_blocking()(
-            [&]() -> capy::task<>
-            {
-                auto cfg = net.config();
-                cfg.brotli = true;
-                client c(
-                    co_await capy::this_coro::executor,
-                    corosio::tls_context(),
-                    cfg);
+        capy::test::run_blocking()([&]() -> capy::task<>
+        {
+            auto cfg = net.config();
+            cfg.brotli = true;
+            client c(
+                co_await capy::this_coro::executor,
+                corosio::tls_context(),
+                cfg);
 
-                auto [ec, r] = co_await c
-                    .get("http://example.com/z")
-                    .send();
-                BOOST_TEST(!ec);
+            auto [ec, r] = co_await c
+                .get("http://example.com/z")
+                .send();
+            BOOST_TEST(!ec);
 
-                auto [ec2, text] = co_await r.try_as_view();
-                BOOST_TEST(!ec2);
-                BOOST_TEST_EQ(text, "hello world");
-            }());
+            auto [ec2, text] = co_await r.try_as_view();
+            BOOST_TEST(!ec2);
+            BOOST_TEST_EQ(text, "hello world");
+        }());
 
         BOOST_TEST(
             net.written(0).find("Accept-Encoding: br\r\n") !=
@@ -843,103 +764,100 @@ public:
     void
     testConnectTimeout()
     {
-        capy::test::run_blocking()(
-            []() -> capy::task<>
+        capy::test::run_blocking()([]() -> capy::task<>
+        {
+            client::config cfg;
+            cfg.brotli = cfg.deflate = cfg.gzip = false;
+            cfg.connect_timeout = 20ms;
+            cfg.connect_handler =
+                [](urls::url_view) -> capy::io_task<capy::any_stream>
             {
-                client::config cfg;
-                cfg.brotli = cfg.deflate = cfg.gzip = false;
-                cfg.connect_timeout = 20ms;
-                cfg.connect_handler =
-                    [](urls::url_view) -> capy::io_task<capy::any_stream>
+                if(auto [ec] = co_await capy::delay(5s); ec)
                 {
-                    if(auto [ec] = co_await capy::delay(5s); ec)
-                    {
-                        BOOST_TEST_EQ(ec, capy::error::canceled);
-                        co_return { ec, {} };
-                    }
+                    BOOST_TEST_EQ(ec, capy::error::canceled);
+                    co_return { ec, {} };
+                }
 
-                    auto [cli, srv] = capy::test::make_stream_pair();
-                    co_return { {}, capy::any_stream(std::move(cli)) };
-                };
-                client c(
-                    co_await capy::this_coro::executor,
-                    corosio::tls_context(),
-                    cfg);
+                auto [cli, srv] = capy::test::make_stream_pair();
+                co_return { {}, capy::any_stream(std::move(cli)) };
+            };
+            client c(
+                co_await capy::this_coro::executor,
+                corosio::tls_context(),
+                cfg);
 
-                auto [ec, r] = co_await c
-                    .get("http://example.com/")
-                    .send();
-                BOOST_TEST_EQ(ec, capy::error::timeout);
-            }());
+            auto [ec, r] = co_await c
+                .get("http://example.com/")
+                .send();
+            BOOST_TEST_EQ(ec, capy::error::timeout);
+        }());
     }
 
     void
     testStatusErrorThenTransportErrorOnBody()
     {
-        fake_net net;
+        scripted_net net;
         net.scripts = {
             "HTTP/1.1 500 Internal Server Error\r\n"
             "Content-Length: 10\r\n"
             "\r\n"
             "1234" };
-        net.closes = { true };
+        net.close_after = { true };
 
-        capy::test::run_blocking()(
-            [&]() -> capy::task<>
-            {
-                client c(
-                    co_await capy::this_coro::executor,
-                    corosio::tls_context(),
-                    net.config());
+        capy::test::run_blocking()([&]() -> capy::task<>
+        {
+            client c(
+                co_await capy::this_coro::executor,
+                corosio::tls_context(),
+                net.config());
 
-                auto [ec, r] = co_await c
-                    .get("http://example.com/err")
-                    .send();
-                BOOST_TEST(ec == condition::server_error);
-                BOOST_TEST(ec.value() == 500);
-                BOOST_TEST(
-                    r.status() ==
-                    http::status::internal_server_error);
+            auto [ec, r] = co_await c
+                .get("http://example.com/err")
+                .send();
+            BOOST_TEST(ec == condition::server_error);
+            BOOST_TEST(ec.value() == 500);
+            BOOST_TEST(
+                r.status() ==
+                http::status::internal_server_error);
 
-                auto [ec2, body] = co_await r.try_as_view();
-                BOOST_TEST(ec2); // transport-level truncation
-            }());
+            auto [ec2, body] = co_await r.try_as_view();
+            BOOST_TEST(ec2); // transport-level truncation
+        }());
     }
 
     void
     testTransportErrorInjection()
     {
         capy::test::fuse f;
-        auto r = f.armed(
-            [](capy::test::fuse& f) -> capy::task<>
-            {
-                fake_net net(f);
-                net.scripts = {
-                    "HTTP/1.1 200 OK\r\n"
-                    "Content-Length: 5\r\n"
-                    "\r\n"
-                    "hello" };
+        auto r = f.armed([](capy::test::fuse& f) -> capy::task<>
+        {
+            scripted_net net(f);
+            net.scripts = {
+                "HTTP/1.1 200 OK\r\n"
+                "Content-Length: 5\r\n"
+                "\r\n"
+                "hello" };
 
-                client c(
-                    co_await capy::this_coro::executor,
-                    corosio::tls_context(),
-                    net.config());
+            client c(
+                co_await capy::this_coro::executor,
+                corosio::tls_context(),
+                net.config());
 
-                auto [ec, res] = co_await c
-                    .get("http://example.com/")
-                    .send();
-                if(ec)
-                    co_return;
+            auto [ec, res] = co_await c
+                .get("http://example.com/")
+                .send();
+            if(ec)
+                co_return;
 
-                auto [ec2, body] = co_await res.try_as_view();
-                if(ec2)
-                    co_return;
+            auto [ec2, body] = co_await res.try_as_view();
+            if(ec2)
+                co_return;
 
-                BOOST_TEST(res.status() == http::status::ok);
-                BOOST_TEST_EQ(body, "hello");
-                BOOST_TEST(
-                    net.written(0).starts_with("GET / HTTP/1.1\r\n"));
-            });
+            BOOST_TEST(res.status() == http::status::ok);
+            BOOST_TEST_EQ(body, "hello");
+            BOOST_TEST(
+                net.written(0).starts_with("GET / HTTP/1.1\r\n"));
+        });
         BOOST_TEST(r.success);
     }
 

@@ -14,6 +14,7 @@
 #include <boost/burl/conversion.hpp>
 
 #include "body_test.hpp"
+#include "temp_file.hpp"
 #include "test_suite.hpp"
 
 #include <exception>
@@ -57,7 +58,7 @@ struct file_test
     {
         BOOST_TEST_THROWS(
             tag_invoke(
-                body_from_tag<fs::path>{},
+                body_from_tag<std::filesystem::path>{},
                 "./does_not_exist"),
                 std::exception);
     }

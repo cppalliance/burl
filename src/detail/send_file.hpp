@@ -10,6 +10,7 @@
 #ifndef BOOST_BURL_SRC_DETAIL_SEND_FILE_HPP
 #define BOOST_BURL_SRC_DETAIL_SEND_FILE_HPP
 
+#include <boost/capy/io/any_buffer_sink.hpp>
 #include <boost/capy/io_task.hpp>
 
 #include <cstdint>

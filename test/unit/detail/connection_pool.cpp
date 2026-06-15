@@ -10,24 +10,13 @@
 // Test that header file is self-contained.
 #include "src/detail/connection_pool.hpp"
 
-#include "test_suite.hpp"
-
-#include <boost/capy/buffers.hpp>
 #include <boost/capy/delay.hpp>
-#include <boost/capy/ex/this_coro.hpp>
-#include <boost/capy/io/any_stream.hpp>
-#include <boost/capy/task.hpp>
 #include <boost/capy/test/run_blocking.hpp>
 #include <boost/capy/test/stream.hpp>
 #include <boost/corosio/tls_context.hpp>
-#include <boost/url/url_view.hpp>
 
-#include <chrono>
-#include <deque>
-#include <memory>
-#include <string_view>
-#include <system_error>
-#include <vector>
+#include "scripted_net.hpp"
+#include "test_suite.hpp"
 
 namespace boost
 {
@@ -40,44 +29,11 @@ using namespace std::chrono_literals;
 
 class connection_pool_test
 {
-    struct fake_net
-    {
-        std::deque<capy::test::stream> servers;
-        std::vector<urls::url> origins;
-
-        client::config
-        config()
-        {
-            client::config cfg;
-            cfg.connect_handler =
-                [this](urls::url_view url) -> capy::io_task<capy::any_stream>
-            {
-                origins.emplace_back(url);
-                auto [cli, srv] = capy::test::make_stream_pair();
-                servers.push_back(std::move(srv));
-                co_return { {}, capy::any_stream(std::move(cli)) };
-            };
-            return cfg;
-        }
-
-        std::size_t
-        connects() const noexcept
-        {
-            return servers.size();
-        }
-
-        capy::test::stream&
-        server(std::size_t i)
-        {
-            return servers.at(i);
-        }
-    };
-
 public:
     void
     testOriginKeySeparation()
     {
-        fake_net net;
+        scripted_net net;
 
         urls::url_view const urls[4] =
         {
@@ -87,118 +43,114 @@ public:
             "https://a.example.com"
         };
 
-        capy::test::run_blocking()(
-            [&]() -> capy::task<>
-            {
-                auto pool = std::make_shared<connection_pool>(
-                    co_await capy::this_coro::executor,
-                    corosio::tls_context(),
-                    net.config());
+        capy::test::run_blocking()([&]() -> capy::task<>
+        {
+            auto pool = std::make_shared<connection_pool>(
+                co_await capy::this_coro::executor,
+                corosio::tls_context(),
+                net.config());
 
-                for(auto& u : urls)
-                {
-                    auto [ec, pc] = co_await pool->acquire(u);
-                    BOOST_TEST(!ec);
-                    pool->release(std::move(pc));
-                }
-            }());
+            for(auto& u : urls)
+            {
+                auto [ec, pc] = co_await pool->acquire(u);
+                BOOST_TEST(!ec);
+                pool->release(std::move(pc));
+            }
+        }());
 
         BOOST_TEST_EQ(net.connects(), 4u);
-        BOOST_TEST_EQ(net.origins[0], urls[0]);
-        BOOST_TEST_EQ(net.origins[1], urls[1]);
-        BOOST_TEST_EQ(net.origins[2], urls[2]);
-        BOOST_TEST_EQ(net.origins[3], urls[3]);
+        BOOST_TEST_EQ(net.origins[0], urls[0].buffer());
+        BOOST_TEST_EQ(net.origins[1], urls[1].buffer());
+        BOOST_TEST_EQ(net.origins[2], urls[2].buffer());
+        BOOST_TEST_EQ(net.origins[3], urls[3].buffer());
     }
 
     void
     testSameOriginReuses()
     {
-        fake_net net;
+        scripted_net net;
         urls::url_view url = "http://example.com";
 
-        capy::test::run_blocking()(
-            [&]() -> capy::task<>
-            {
-                auto pool = std::make_shared<connection_pool>(
-                    co_await capy::this_coro::executor,
-                    corosio::tls_context(),
-                    net.config());
+        capy::test::run_blocking()([&]() -> capy::task<>
+        {
+            auto pool = std::make_shared<connection_pool>(
+                co_await capy::this_coro::executor,
+                corosio::tls_context(),
+                net.config());
 
-                for(int i = 0; i < 3; ++i)
-                {
-                    auto [ec, pc] = co_await pool->acquire(url);
-                    BOOST_TEST(!ec);
-                    pool->release(std::move(pc));
-                }
-            }());
+            for(int i = 0; i < 3; ++i)
+            {
+                auto [ec, pc] = co_await pool->acquire(url);
+                BOOST_TEST(!ec);
+                pool->release(std::move(pc));
+            }
+        }());
 
         BOOST_TEST_EQ(net.connects(), 1u);
-        BOOST_TEST_EQ(net.origins[0], url);
+        BOOST_TEST_EQ(net.origins[0], url.buffer());
     }
 
     void
     testMaxIdlePerHost()
     {
-        fake_net net;
+        scripted_net net;
         urls::url_view url = "http://example.com";
 
-        capy::test::run_blocking()(
-            [&]() -> capy::task<>
-            {
-                auto cfg = net.config();
-                cfg.pool_max_idle_per_host = 1;
-                auto pool = std::make_shared<connection_pool>(
-                    co_await capy::this_coro::executor,
-                    corosio::tls_context(),
-                    cfg);
+        capy::test::run_blocking()([&]() -> capy::task<>
+        {
+            auto cfg = net.config();
+            cfg.pool_max_idle_per_host = 1;
+            auto pool = std::make_shared<connection_pool>(
+                co_await capy::this_coro::executor,
+                corosio::tls_context(),
+                cfg);
 
-                auto [ec1, pc1] = co_await pool->acquire(url);
-                BOOST_TEST(!ec1);
-                auto [ec2, pc2] = co_await pool->acquire(url);
-                BOOST_TEST(!ec2);
-                BOOST_TEST_EQ(net.connects(), 2u);
+            auto [ec1, pc1] = co_await pool->acquire(url);
+            BOOST_TEST(!ec1);
+            auto [ec2, pc2] = co_await pool->acquire(url);
+            BOOST_TEST(!ec2);
+            BOOST_TEST_EQ(net.connects(), 2u);
 
-                pool->release(std::move(pc1));
-                pool->release(std::move(pc2));
+            pool->release(std::move(pc1));
+            pool->release(std::move(pc2));
 
-                auto [ec3, pc3] = co_await pool->acquire(url);
-                BOOST_TEST(!ec3);
-                BOOST_TEST_EQ(net.connects(), 2u);
+            auto [ec3, pc3] = co_await pool->acquire(url);
+            BOOST_TEST(!ec3);
+            BOOST_TEST_EQ(net.connects(), 2u);
 
-                auto [ec4, pc4] = co_await pool->acquire(url);
-                BOOST_TEST(!ec4);
-                BOOST_TEST_EQ(net.connects(), 3u);
-            }());
+            auto [ec4, pc4] = co_await pool->acquire(url);
+            BOOST_TEST(!ec4);
+            BOOST_TEST_EQ(net.connects(), 3u);
+        }());
     }
 
     void
     testIdleTimeout()
     {
-        fake_net net;
+        scripted_net net;
         urls::url_view url = "http://example.com";
 
-        capy::test::run_blocking()(
-            [&]() -> capy::task<>
+        capy::test::run_blocking()([&]() -> capy::task<>
+        {
+            auto cfg = net.config();
+            cfg.pool_idle_timeout = 10ms;
+            auto pool = std::make_shared<connection_pool>(
+                co_await capy::this_coro::executor,
+                corosio::tls_context(),
+                cfg);
+
             {
-                auto cfg = net.config();
-                cfg.pool_idle_timeout = 10ms;
-                auto pool = std::make_shared<connection_pool>(
-                    co_await capy::this_coro::executor,
-                    corosio::tls_context(),
-                    cfg);
-
-                {
-                    auto [ec, pc] = co_await pool->acquire(url);
-                    BOOST_TEST(!ec);
-                    pool->release(std::move(pc));
-                }
-
-                if(auto [ec] = co_await capy::delay(50ms); ec)
-                    throw std::system_error(ec);
-
                 auto [ec, pc] = co_await pool->acquire(url);
                 BOOST_TEST(!ec);
-            }());
+                pool->release(std::move(pc));
+            }
+
+            if(auto [ec] = co_await capy::delay(50ms); ec)
+                throw std::system_error(ec);
+
+            auto [ec, pc] = co_await pool->acquire(url);
+            BOOST_TEST(!ec);
+        }());
 
         BOOST_TEST_EQ(net.connects(), 2u);
     }
@@ -206,63 +158,61 @@ public:
     void
     testStaleIdleReuse()
     {
-        fake_net net;
+        scripted_net net;
         urls::url_view url = "http://example.com";
 
-        capy::test::run_blocking()(
-            [&]() -> capy::task<>
+        capy::test::run_blocking()([&]() -> capy::task<>
+        {
+            auto pool = std::make_shared<connection_pool>(
+                co_await capy::this_coro::executor,
+                corosio::tls_context(),
+                net.config());
+
             {
-                auto pool = std::make_shared<connection_pool>(
-                    co_await capy::this_coro::executor,
-                    corosio::tls_context(),
-                    net.config());
-
-                {
-                    auto [ec, pc] = co_await pool->acquire(url);
-                    BOOST_TEST(!ec);
-                    pool->release(std::move(pc));
-                }
-
-                // Server FINs the idle connection.
-                net.server(0).close();
-
-                // TODO: pool should detect the dead idle entry
                 auto [ec, pc] = co_await pool->acquire(url);
                 BOOST_TEST(!ec);
-                // BOOST_TEST_EQ(net.connects(), 2u);
-            }());
+                pool->release(std::move(pc));
+            }
+
+            // Server FINs the idle connection.
+            net.server(0).close();
+
+            // TODO: pool should detect the dead idle entry
+            auto [ec, pc] = co_await pool->acquire(url);
+            BOOST_TEST(!ec);
+            // BOOST_TEST_EQ(net.connects(), 2u);
+        }());
     }
 
     void
     testConnectionOutlivesPool()
     {
-        fake_net net;
+        scripted_net net;
         urls::url_view url = "http://example.com";
 
-        capy::test::run_blocking()(
-            [&]() -> capy::task<>
-            {
-                auto pool = std::make_shared<connection_pool>(
-                    co_await capy::this_coro::executor,
-                    corosio::tls_context(),
-                    net.config());
+        capy::test::run_blocking()([&]() -> capy::task<>
+        {
+            auto pool = std::make_shared<connection_pool>(
+                co_await capy::this_coro::executor,
+                corosio::tls_context(),
+                net.config());
 
-                auto [ec, pc] = co_await pool->acquire(url);
-                BOOST_TEST(!ec);
+            auto [ec, pc] = co_await pool->acquire(url);
+            BOOST_TEST(!ec);
 
-                pool.reset(); // pool gone; pc's weak_ptr expires
+            pool.reset(); // pool gone; pc's weak_ptr expires
 
-                // The connection is still fully usable.
-                net.server(0).provide("hello");
-                char buf[8];
-                auto [rec, n] = co_await pc.read_some(
-                    capy::mutable_buffer(buf, sizeof(buf)));
-                BOOST_TEST(!rec);
-                BOOST_TEST_EQ(std::string_view(buf, n), "hello");
+            // The connection is still fully usable.
+            net.server(0).provide("hello");
+            char buf[8];
+            auto [rec, n] = co_await pc.read_some(
+                capy::mutable_buffer(buf, sizeof(buf)));
+            BOOST_TEST(!rec);
+            BOOST_TEST_EQ(std::string_view(buf, n), "hello");
 
-                // Returning to a dead pool is a safe no-op.
-                pc.return_to_pool();
-            }());
+            // Returning to a dead pool is a safe no-op.
+            pc.return_to_pool();
+        }());
 
         BOOST_TEST_EQ(net.connects(), 1u);
     }

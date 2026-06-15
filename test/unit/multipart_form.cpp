@@ -14,6 +14,8 @@
 #include <boost/burl/conversion.hpp>
 
 #include "body_test.hpp"
+#include "temp_file.hpp"
+
 #include "test_suite.hpp"
 
 #include <string>

@@ -37,6 +37,7 @@ can_reuse_conn(http::response_parser& parser) noexcept
         }
         catch(...)
         {
+            // Brotli decoder may have failed to allocate memory.
         }
     }
 

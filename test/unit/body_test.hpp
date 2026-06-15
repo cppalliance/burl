@@ -22,48 +22,12 @@
 #include "test_suite.hpp"
 
 #include <cstdlib>
-#include <filesystem>
-#include <fstream>
-#include <string>
 #include <string_view>
-#include <system_error>
 
 namespace boost
 {
 namespace burl
 {
-
-namespace fs = std::filesystem;
-
-struct temp_file
-{
-    fs::path path;
-
-    temp_file(
-        std::string_view contents,
-        std::string_view extension = {})
-    {
-        path = fs::temp_directory_path() /
-            ("burl_test_" +
-                std::to_string(std::rand()) +
-                std::string(extension));
-
-        std::ofstream ofs(path, std::ios::binary);
-        ofs.write(
-            contents.data(),
-            static_cast<std::streamsize>(contents.size()));
-    }
-
-    ~temp_file()
-    {
-        std::error_code ec;
-        fs::remove(path, ec);
-    }
-
-    temp_file(temp_file const&) = delete;
-    temp_file&
-    operator=(temp_file const&) = delete;
-};
 
 inline void
 check_body(
@@ -95,7 +59,8 @@ check_io_body(
     capy::any_buffer_sink sink(&bs);
     capy::run_async(
         ioc.get_executor(),
-        [&](capy::io_result<> res) {ret = res.ec; })(body.write(sink));
+        [&](capy::io_result<> res) {ret = res.ec; })
+            (body.write(sink));
     ioc.run();
     return ret;
 }
