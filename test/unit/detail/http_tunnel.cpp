@@ -13,16 +13,10 @@
 #include "test_suite.hpp"
 
 #include <boost/burl/error.hpp>
-#include <boost/capy/io/any_stream.hpp>
-#include <boost/capy/task.hpp>
-#include <boost/capy/test/fuse.hpp>
-#include <boost/capy/test/run_blocking.hpp>
-#include <boost/capy/test/stream.hpp>
-#include <boost/url/parse.hpp>
-#include <boost/url/url.hpp>
 
-#include <string_view>
-#include <system_error>
+#include <boost/capy/test/fuse.hpp>
+#include <boost/capy/test/stream.hpp>
+
 
 namespace boost
 {
@@ -34,21 +28,17 @@ namespace detail
 class http_tunnel_test
 {
     static std::error_code
-    run_tunnel(
+    run(
         capy::test::stream& client,
         std::string_view host,
         std::string_view port,
         urls::url_view proxy)
     {
-        std::error_code ec;
-        capy::test::run_blocking()(
-            [&]() -> capy::task<>
-            {
-                auto [e] = co_await open_http_tunnel(
-                    capy::any_stream(&client), host, port, proxy);
-                ec = e;
-            }());
-        return ec;
+        std::error_code ret;
+        capy::test::run_blocking(
+            [&](capy::io_result<> rs){ ret = rs.ec;})
+                (open_http_tunnel(&client, host, port, proxy));
+        return ret;
     }
 
 public:
@@ -58,8 +48,11 @@ public:
         auto [client, server] = capy::test::make_stream_pair();
         server.provide("HTTP/1.1 200 Connection established\r\n\r\n");
 
-        auto proxy = urls::parse_uri("http://proxy:8080").value();
-        auto ec    = run_tunnel(client, "example.com", "443", proxy);
+        auto ec = run(
+            client,
+            "example.com",
+            "443",
+            "http://proxy:8080");
 
         BOOST_TEST(!ec);
 
@@ -80,8 +73,11 @@ public:
         auto [client, server] = capy::test::make_stream_pair();
         server.provide("HTTP/1.1 200 Connection established\r\n\r\n");
 
-        auto proxy = urls::parse_uri("http://user:pass@proxy:8080").value();
-        auto ec    = run_tunnel(client, "example.com", "443", proxy);
+        auto ec = run(
+            client,
+            "example.com",
+            "443",
+            "http://user:pass@proxy:8080");
 
         BOOST_TEST(!ec);
         // Basic base64("user:pass")
@@ -96,8 +92,11 @@ public:
         auto [client, server] = capy::test::make_stream_pair();
         server.provide("HTTP/1.1 407 Proxy Authentication Required\r\n\r\n");
 
-        auto proxy = urls::parse_uri("http://proxy:8080").value();
-        auto ec    = run_tunnel(client, "example.com", "443", proxy);
+        auto ec = run(
+            client,
+            "example.com",
+            "443",
+            "http://proxy:8080");
 
         BOOST_TEST(ec == error::proxy_auth_failed);
     }
@@ -108,8 +107,11 @@ public:
         auto [client, server] = capy::test::make_stream_pair();
         server.provide("HTTP/1.1 403 Forbidden\r\n\r\n");
 
-        auto proxy = urls::parse_uri("http://proxy:8080").value();
-        auto ec    = run_tunnel(client, "example.com", "443", proxy);
+        auto ec = run(
+            client,
+            "example.com",
+            "443",
+            "http://proxy:8080");
 
         BOOST_TEST(ec == error::proxy_connect_failed);
     }
@@ -120,8 +122,11 @@ public:
         auto [client, server] = capy::test::make_stream_pair();
         server.close(); // eof before any response
 
-        auto proxy = urls::parse_uri("http://proxy:8080").value();
-        auto ec    = run_tunnel(client, "example.com", "443", proxy);
+        auto ec = run(
+            client,
+            "example.com",
+            "443",
+            "http://proxy:8080");
 
         BOOST_TEST(ec == error::proxy_connect_failed);
     }
@@ -130,22 +135,23 @@ public:
     testTransportErrorInjection()
     {
         capy::test::fuse f;
-        auto r = f.armed(
-            [&](capy::test::fuse&) -> capy::task<>
-            {
-                auto [client, server] = capy::test::make_stream_pair(f);
-                server.provide("HTTP/1.1 200 Connection established\r\n\r\n");
+        auto r = f.armed([&](capy::test::fuse&) -> capy::task<>
+        {
+            auto [client, server] = capy::test::make_stream_pair(f);
+            server.provide("HTTP/1.1 200 Connection established\r\n\r\n");
 
-                auto proxy = urls::parse_uri("http://proxy:8080").value();
+            auto [ec] = co_await open_http_tunnel(
+                &client,
+                "example.com",
+                "443",
+                "http://proxy:8080");
 
-                auto [ec] = co_await open_http_tunnel(
-                    capy::any_stream(&client), "example.com", "443", proxy);
-                if(ec)
-                    co_return;
+            if(ec)
+                co_return;
 
-                BOOST_TEST(server.data().starts_with(
-                    "CONNECT example.com:443 HTTP/1.1\r\n"));
-            });
+            BOOST_TEST(server.data().starts_with(
+                "CONNECT example.com:443 HTTP/1.1\r\n"));
+        });
         BOOST_TEST(r.success);
     }
 
