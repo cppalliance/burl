@@ -13,18 +13,10 @@
 #include "test_suite.hpp"
 
 #include <boost/burl/error.hpp>
-#include <boost/capy/io/any_stream.hpp>
-#include <boost/capy/task.hpp>
-#include <boost/capy/test/fuse.hpp>
-#include <boost/capy/test/run_blocking.hpp>
-#include <boost/capy/test/stream.hpp>
-#include <boost/url/parse.hpp>
-#include <boost/url/url.hpp>
 
-#include <initializer_list>
-#include <string>
-#include <string_view>
-#include <system_error>
+#include <boost/capy/test/fuse.hpp>
+#include <boost/capy/test/stream.hpp>
+
 
 namespace boost
 {
@@ -49,21 +41,17 @@ class socks5_tunnel_test
     }
 
     static std::error_code
-    run_tunnel(
+    run(
         capy::test::stream& client,
         std::string_view host,
         std::string_view port,
         urls::url_view proxy)
     {
-        std::error_code ec;
-        capy::test::run_blocking()(
-            [&]() -> capy::task<>
-            {
-                auto [e] = co_await open_socks5_tunnel(
-                    capy::any_stream(&client), host, port, proxy);
-                ec = e;
-            }());
-        return ec;
+        std::error_code ret;
+        capy::test::run_blocking(
+            [&](capy::io_result<> rs){ ret = rs.ec;})
+                (open_socks5_tunnel(&client, host, port, proxy));
+        return ret;
     }
 
 public:
@@ -73,8 +61,11 @@ public:
         auto [client, server] = capy::test::make_stream_pair();
         server.provide(bytes({ 0x05, 0x00 }) + ipv4_reply());
 
-        auto proxy = urls::parse_uri("socks5://proxy:1080").value();
-        auto ec    = run_tunnel(client, "example.com", "443", proxy);
+        auto ec = run(
+            client,
+            "example.com",
+            "443",
+            "socks5://proxy:1080");
 
         BOOST_TEST(!ec);
 
@@ -94,8 +85,11 @@ public:
             bytes({ 0x01, 0x00 }) + // auth granted
             ipv4_reply());
 
-        auto proxy = urls::parse_uri("socks5://user:pass@proxy:1080").value();
-        auto ec    = run_tunnel(client, "example.com", "443", proxy);
+        auto ec = run(
+            client,
+            "example.com",
+            "443",
+            "socks5://user:pass@proxy:1080");
 
         BOOST_TEST(!ec);
 
@@ -116,8 +110,11 @@ public:
             bytes({ 0x05, 0x00, 0x00, 0x03, 0x0B }) + // ATYP=domain, len 11
             "example.com" + bytes({ 0x00, 0x50 }));
 
-        auto proxy = urls::parse_uri("socks5://proxy:1080").value();
-        auto ec    = run_tunnel(client, "example.com", "443", proxy);
+        auto ec = run(
+            client,
+            "example.com",
+            "443",
+            "socks5://proxy:1080");
 
         BOOST_TEST(!ec);
     }
@@ -128,8 +125,11 @@ public:
         auto [client, server] = capy::test::make_stream_pair();
         server.provide(bytes({ 0x04, 0x00 }));
 
-        auto proxy = urls::parse_uri("socks5://proxy:1080").value();
-        auto ec    = run_tunnel(client, "example.com", "443", proxy);
+        auto ec = run(
+            client,
+            "example.com",
+            "443",
+            "socks5://proxy:1080");
 
         BOOST_TEST(ec == error::proxy_unsupported_version);
     }
@@ -140,8 +140,11 @@ public:
         auto [client, server] = capy::test::make_stream_pair();
         server.provide(bytes({ 0x05, 0x02 }) + bytes({ 0x01, 0x01 }));
 
-        auto proxy = urls::parse_uri("socks5://user:pass@proxy:1080").value();
-        auto ec    = run_tunnel(client, "example.com", "443", proxy);
+        auto ec = run(
+            client,
+            "example.com",
+            "443",
+            "socks5://user:pass@proxy:1080");
 
         BOOST_TEST(ec == error::proxy_auth_failed);
     }
@@ -152,8 +155,11 @@ public:
         auto [client, server] = capy::test::make_stream_pair();
         server.provide(bytes({ 0x05, 0xFF }));
 
-        auto proxy = urls::parse_uri("socks5://proxy:1080").value();
-        auto ec    = run_tunnel(client, "example.com", "443", proxy);
+        auto ec = run(
+            client,
+            "example.com",
+            "443",
+            "socks5://proxy:1080");
 
         BOOST_TEST(ec == error::proxy_auth_failed);
     }
@@ -165,8 +171,47 @@ public:
         server.provide(
             bytes({ 0x05, 0x00 }) + bytes({ 0x05, 0x01, 0x00, 0x01, 0x00 }));
 
-        auto proxy = urls::parse_uri("socks5://proxy:1080").value();
-        auto ec    = run_tunnel(client, "example.com", "443", proxy);
+        auto ec = run(
+            client,
+            "example.com",
+            "443",
+            "socks5://proxy:1080");
+
+        BOOST_TEST(ec == error::proxy_connect_failed);
+    }
+
+    void
+    testIPv6Reply()
+    {
+        auto [client, server] = capy::test::make_stream_pair();
+        server.provide(
+            bytes({ 0x05, 0x00 }) +
+            bytes({ 0x05, 0x00, 0x00, 0x04 }) + // ATYP=IPv6
+            std::string(16, '\0') +             // 16-byte address
+            bytes({ 0x00, 0x50 }));             // port
+
+        auto ec = run(
+            client,
+            "example.com",
+            "443",
+            "socks5://proxy:1080");
+
+        BOOST_TEST(!ec);
+    }
+
+    void
+    testInvalidAtype()
+    {
+        auto [client, server] = capy::test::make_stream_pair();
+        server.provide(
+            bytes({ 0x05, 0x00 }) +
+            bytes({ 0x05, 0x00, 0x00, 0x09, 0x00 })); // unknown ATYP 0x09
+
+        auto ec = run(
+            client,
+            "example.com",
+            "443",
+            "socks5://proxy:1080");
 
         BOOST_TEST(ec == error::proxy_connect_failed);
     }
@@ -175,25 +220,26 @@ public:
     testTransportErrorInjection()
     {
         capy::test::fuse f;
-        auto r = f.armed(
-            [&](capy::test::fuse&) -> capy::task<>
-            {
-                auto [client, server] = capy::test::make_stream_pair(f);
-                server.provide(bytes({ 0x05, 0x00 }) + ipv4_reply());
+        auto r = f.armed([&](capy::test::fuse&) -> capy::task<>
+        {
+            auto [client, server] = capy::test::make_stream_pair(f);
+            server.provide(bytes({ 0x05, 0x00 }) + ipv4_reply());
 
-                auto proxy = urls::parse_uri("socks5://proxy:1080").value();
+            auto [ec] = co_await open_socks5_tunnel(
+                &client,
+                "example.com",
+                "443",
+                "socks5://proxy:1080");
 
-                auto [ec] = co_await open_socks5_tunnel(
-                    capy::any_stream(&client), "example.com", "443", proxy);
-                if(ec)
-                    co_return;
+            if(ec)
+                co_return;
 
-                std::string expected = bytes({ 0x05, 0x01, 0x00 });
-                expected += bytes({ 0x05, 0x01, 0x00, 0x03, 0x0B });
-                expected += "example.com";
-                expected += bytes({ 0x01, 0xBB });
-                BOOST_TEST(server.data() == expected);
-            });
+            std::string expected = bytes({ 0x05, 0x01, 0x00 });
+            expected += bytes({ 0x05, 0x01, 0x00, 0x03, 0x0B });
+            expected += "example.com";
+            expected += bytes({ 0x01, 0xBB });
+            BOOST_TEST(server.data() == expected);
+        });
         BOOST_TEST(r.success);
     }
 
@@ -207,6 +253,8 @@ public:
         testAuthFailed();
         testNoAcceptableMethods();
         testConnectRejected();
+        testIPv6Reply();
+        testInvalidAtype();
         testTransportErrorInjection();
     }
 };
