@@ -323,10 +323,10 @@ client::execute_impl(
         }
 
         // Read and discard small bodies so the connection can be reused
-        auto [dec] = co_await capy::timeout(
+        auto [dec, drained] = co_await capy::timeout(
             detail::drain_body(parser, capy::any_stream(&conn), 1024 * 1024),
             std::chrono::seconds(2));
-        if(!dec && detail::can_reuse_conn(parser))
+        if(drained && detail::can_reuse_conn(parser))
             conn.return_to_pool();
 
         if(maxredirs-- == 0)

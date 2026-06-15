@@ -12,16 +12,8 @@
 
 #include "test_suite.hpp"
 
-#include <boost/capy/io/any_stream.hpp>
-#include <boost/capy/task.hpp>
-#include <boost/capy/test/run_blocking.hpp>
+#include <boost/capy/test/fuse.hpp>
 #include <boost/capy/test/stream.hpp>
-#include <boost/http/response_parser.hpp>
-
-#include <cstdint>
-#include <string_view>
-#include <system_error>
-#include <utility>
 
 namespace boost
 {
@@ -32,59 +24,103 @@ namespace detail
 
 class drain_body_test
 {
-    static std::pair<std::error_code, bool>
-    drain(capy::test::stream& client, std::uint64_t limit)
+    void
+    check(
+        std::string_view msg,
+        std::uint64_t limit,
+        bool expected)
     {
-        http::response_parser parser(
+        http::response_parser pr(
             http::make_parser_config(http::parser_config{ false }));
-        std::error_code ec;
-        capy::test::run_blocking()(
-            [&]() -> capy::task<>
+        capy::test::fuse f;
+        auto r = f.armed([&](capy::test::fuse&) -> capy::task<>
+        {
+            auto [client, server] = capy::test::make_stream_pair(f);
+            client.set_max_read_size(1);
+            server.provide(msg);
+            server.close();
+
+            pr.reset();
+            pr.start();
+
+            if(auto [rec] = co_await pr.read_header(client); rec)
+                co_return;
+
+            BOOST_TEST(pr.got_header());
+
+            auto [dec, drained] =
+                co_await drain_body(
+                    pr, capy::any_stream(&client), limit);
+
+            if(dec)
             {
-                parser.reset();
-                parser.start();
-                if(auto [rec] = co_await parser.read_header(client); rec)
-                {
-                    ec = rec;
-                    co_return;
-                }
-                auto [dec] =
-                    co_await drain_body(parser, capy::any_stream(&client), limit);
-                ec = dec;
-            }());
-        return { ec, parser.is_complete() };
+                BOOST_TEST(!drained);
+                co_return;
+            }
+
+            BOOST_TEST_EQ(drained, expected);
+        });
+        BOOST_TEST(r.success);
     }
 
 public:
     void
+    testEmptyBody()
+    {
+        auto msg =
+            "HTTP/1.1 200 OK\r\n"
+            "Content-Length: 0\r\n"
+            "\r\n";
+
+        check(msg, 1, true);
+        check(msg, 0, true);
+    }
+
+    void
+    testPartialBody()
+    {
+        auto msg =
+            "HTTP/1.1 200 OK\r\n"
+            "Content-Length: 11\r\n"
+            "\r\n"
+            "hello wo";
+
+        check(msg, 256, false);
+    }
+
+    void
     testContentLength()
     {
-        auto [client, server] = capy::test::make_stream_pair();
-        server.provide("HTTP/1.1 200 OK\r\nContent-Length: 5\r\n\r\nhello");
+        auto msg =
+            "HTTP/1.1 200 OK\r\n"
+            "Content-Length: 5\r\n"
+            "\r\n"
+            "hello";
 
-        auto [ec, complete] = drain(client, 1024);
-
-        BOOST_TEST(!ec);
-        BOOST_TEST(complete);
+        check(msg, 5, true);
+        check(msg, 5 - 1, false);
     }
 
     void
     testChunked()
     {
-        auto [client, server] = capy::test::make_stream_pair();
-        server.provide(
-            "HTTP/1.1 200 OK\r\nTransfer-Encoding: chunked\r\n\r\n"
-            "5\r\nhello\r\n0\r\n\r\n");
+        auto msg =
+            "HTTP/1.1 200 OK\r\n"
+            "Transfer-Encoding: chunked\r\n"
+            "\r\n"
+            "5\r\n"
+            "hello"
+            "0\r\n\r\n";
 
-        auto [ec, complete] = drain(client, 1024);
-
-        BOOST_TEST(!ec);
-        BOOST_TEST(complete);
+        check(msg, 3 + 5 + 5, true);
+        check(msg, 3 + 5 + 5 - 1, false);
     }
 
     void
     run()
     {
+        testEmptyBody();
+        testPartialBody();
         testContentLength();
         testChunked();
     }

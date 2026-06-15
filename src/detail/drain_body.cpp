@@ -10,7 +10,9 @@
 #include "drain_body.hpp"
 
 #include <boost/capy/buffers.hpp>
+#include <boost/capy/buffers/buffer_slice.hpp>
 #include <boost/capy/error.hpp>
+#include <boost/http/error.hpp>
 
 namespace boost
 {
@@ -19,27 +21,50 @@ namespace burl
 namespace detail
 {
 
-capy::io_task<>
+capy::io_task<bool>
 drain_body(
     http::response_parser& parser,
     capy::any_stream conn,
     std::uint64_t limit)
 {
-    auto source = parser.source_for(conn);
     for(;;)
     {
-        capy::const_buffer arr[2];
-        auto [ec, bufs] = co_await source.pull(arr);
-        if(ec == capy::cond::eof)
-            co_return {};
-        if(ec)
-            co_return { ec };
+        if(parser.is_complete())
+            co_return { {}, true };
 
-        auto n = capy::buffer_size(bufs);
-        if(n > limit)
-            co_return {};
-        limit -= n;
-        source.consume(n);
+        parser.consume_body(
+            (std::numeric_limits<std::uint64_t>::max)());
+
+        system::error_code ec;
+        parser.parse(ec);
+
+        if(ec == http::condition::need_more_input)
+        {
+            if(limit == 0)
+                co_return { {}, false };
+
+            auto mbs = parser.prepare();
+            auto [rec, n] = co_await conn.read_some(
+                capy::buffer_slice(mbs, 0, limit).data());
+            if(rec == capy::cond::eof)
+            {
+                parser.commit_eof();
+            }
+            else if(!rec)
+            {
+                parser.commit(n);
+                limit -= n;
+            }
+            else
+            {
+                co_return { rec, false };
+            }
+
+            continue;
+        }
+
+        if(ec)
+            co_return { std::error_code(ec), false };
     }
 }
 
