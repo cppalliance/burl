@@ -11,6 +11,7 @@
 #include "src/detail/connection_pool.hpp"
 
 #include <boost/capy/delay.hpp>
+#include <boost/capy/io/any_stream.hpp>
 #include <boost/capy/test/run_blocking.hpp>
 #include <boost/capy/test/stream.hpp>
 #include <boost/corosio/tls_context.hpp>
@@ -29,6 +30,23 @@ using namespace std::chrono_literals;
 
 class connection_pool_test
 {
+    struct slow_stream
+    {
+        capy::io_task<std::size_t>
+        read_some(auto)
+        {
+            auto [ec] = co_await capy::delay(1s);
+            co_return { ec, {} };
+        }
+
+        capy::io_task<std::size_t>
+        write_some(auto)
+        {
+            auto [ec] = co_await capy::delay(1s);
+            co_return { ec, {} };
+        }
+    };
+
 public:
     void
     testOriginKeySeparation()
@@ -145,7 +163,7 @@ public:
                 pool->release(std::move(pc));
             }
 
-            if(auto [ec] = co_await capy::delay(50ms); ec)
+            if(auto [ec] = co_await capy::delay(20ms); ec)
                 throw std::system_error(ec);
 
             auto [ec, pc] = co_await pool->acquire(url);
@@ -218,6 +236,67 @@ public:
     }
 
     void
+    testConnectTimeout()
+    {
+        client::config cfg;
+        cfg.connect_timeout = 10ms;
+        cfg.connect_handler = [](urls::url_view) -> capy::io_task<capy::any_stream>
+        {
+            if(auto [ec] = co_await capy::delay(1s); ec)
+            {
+                BOOST_TEST_EQ(ec, capy::error::canceled);
+                co_return { ec, {} };
+            }
+            BOOST_TEST_FAIL();
+            auto [cli, srv] = capy::test::make_stream_pair();
+            co_return { {}, capy::any_stream(std::move(cli)) };
+        };
+
+        capy::test::run_blocking()([&]() -> capy::task<>
+        {
+            auto pool = std::make_shared<connection_pool>(
+                co_await capy::this_coro::executor,
+                corosio::tls_context(),
+                cfg);
+
+            auto [ec, pc] = co_await pool->acquire("http://example.com/");
+            BOOST_TEST_EQ(ec, capy::error::timeout);
+        }());
+    }
+
+    void
+    testIoTimeout()
+    {
+        client::config cfg;
+        cfg.io_timeout = 10ms;
+        cfg.connect_handler = [](urls::url_view) -> capy::io_task<capy::any_stream>
+        {
+            co_return { {}, capy::any_stream{ slow_stream{} } };
+        };
+
+        capy::test::run_blocking()([&]() -> capy::task<>
+        {
+            auto pool = std::make_shared<connection_pool>(
+                co_await capy::this_coro::executor,
+                corosio::tls_context(),
+                cfg);
+
+            auto [cec, pc] = co_await pool->acquire("http://example.com/");
+            BOOST_TEST(!cec);
+    
+            char buf[1] = {};
+
+            auto [rec, n1] = co_await pc.read_some(capy::make_buffer(buf));
+            BOOST_TEST(rec == capy::error::timeout);
+            BOOST_TEST_EQ(n1, 0);
+
+            auto [wec, n2] = co_await pc.write_some(capy::make_buffer(buf));
+            BOOST_TEST(wec == capy::error::timeout);
+            BOOST_TEST_EQ(n2, 0);
+        }());
+    }
+
+    void
     run()
     {
         testOriginKeySeparation();
@@ -226,6 +305,8 @@ public:
         testIdleTimeout();
         testStaleIdleReuse();
         testConnectionOutlivesPool();
+        testConnectTimeout();
+        testIoTimeout();
     }
 };
 

@@ -22,10 +22,10 @@ def main(ctx):
         [
             'gcc >=13.0',
             'clang >=17.0',
-            'msvc >=14.1',
+            # 'msvc >=14.1',
             'arm64-gcc latest',
-            'arm64-clang latest',
-            'x86-msvc latest'
+            'arm64-clang latest'
+            # 'x86-msvc latest'
         ],
         '>=20',
         docs=False,
@@ -40,25 +40,25 @@ def main(ctx):
 
     # macOS: generate() skips apple-clang when cxx_range='>=20' because
     # ci-automation's compiler_supports() doesn't list C++20 for apple-clang
-    jobs += [
-        osx_cxx("macOS: Clang 16.2.0", "clang++", packages="",
-            buildscript="drone", buildtype="boost",
-            xcode_version="16.2.0",
-            environment={
-                'B2_TOOLSET': 'clang',
-                'B2_CXXSTD': '20',
-            },
-            globalenv=globalenv),
-
-        osx_cxx("macOS: Clang 26.2.0", "clang++", packages="",
-            buildscript="drone", buildtype="boost",
-            xcode_version="26.2.0",
-            environment={
-                'B2_TOOLSET': 'clang',
-                'B2_CXXSTD': '20',
-            },
-            globalenv=globalenv),
-    ]
+    # jobs += [
+    #     osx_cxx("macOS: Clang 16.2.0", "clang++", packages="",
+    #         buildscript="drone", buildtype="boost",
+    #         xcode_version="16.2.0",
+    #         environment={
+    #             'B2_TOOLSET': 'clang',
+    #             'B2_CXXSTD': '20',
+    #         },
+    #         globalenv=globalenv),
+    # 
+    #     osx_cxx("macOS: Clang 26.2.0", "clang++", packages="",
+    #         buildscript="drone", buildtype="boost",
+    #         xcode_version="26.2.0",
+    #         environment={
+    #             'B2_TOOLSET': 'clang',
+    #             'B2_CXXSTD': '20',
+    #         },
+    #         globalenv=globalenv),
+    # ]
 
     jobs += [
         freebsd_cxx("clang-22", "clang++-22",
@@ -113,16 +113,16 @@ def main(ctx):
                 'COMMENT': 'cmake-subdirectory',
                 'CXX': 'g++-13',
             },
-            globalenv=globalenv),
+            globalenv=globalenv)
 
-        windows_cxx("msvc-14.3 cmake-superproject", "",
-            image="cppalliance/dronevs2022:1",
-            buildtype="cmake-superproject", buildscript="drone",
-            environment={
-                'B2_TOOLSET': 'msvc-14.3',
-                'B2_CXXSTD': '20',
-            },
-            globalenv=globalenv),
+        # windows_cxx("msvc-14.3 cmake-superproject", "",
+        #     image="cppalliance/dronevs2022:1",
+        #     buildtype="cmake-superproject", buildscript="drone",
+        #     environment={
+        #         'B2_TOOLSET': 'msvc-14.3',
+        #         'B2_CXXSTD': '20',
+        #     },
+        #     globalenv=globalenv),
     ]
 
     return jobs

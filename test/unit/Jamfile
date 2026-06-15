@@ -21,6 +21,9 @@ project
       <warnings>extra
       # <warnings-as-errors>on
       <undefined-sanitizer>norecover:<link>static
+      # TODO: detail tests reach internal (non-exported) symbols, which forces
+      # static linking for the whole target. Rework so this isn't required.
+      <link>static
     ;
 
 for local f in [ glob *.cpp ]

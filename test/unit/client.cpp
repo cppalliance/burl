@@ -42,6 +42,32 @@ using namespace std::chrono_literals;
 
 class client_test
 {
+    struct slow_stream
+    {
+        std::string rd_buf;
+
+        capy::io_task<std::size_t>
+        read_some(auto mb)
+        {
+            if(!rd_buf.empty())
+            {
+                auto n = capy::buffer_copy(
+                    mb, capy::make_buffer(rd_buf));
+                rd_buf.clear();
+                co_return { {}, n };
+            }
+    
+            auto [ec] = co_await capy::delay(1s);
+            co_return { ec, {} };
+        }
+
+        capy::io_task<std::size_t>
+        write_some(auto cb)
+        {
+            co_return { {}, capy::buffer_size(cb) };
+        }
+    };
+
 public:
     void
     testRequestSerialization()
@@ -762,34 +788,87 @@ public:
     }
 
     void
-    testConnectTimeout()
+    testTimeoutHeader()
     {
-        capy::test::run_blocking()([]() -> capy::task<>
+        client::config cfg;
+        cfg.timeout = 10ms;
+        cfg.connect_handler = [](urls::url_view) -> capy::io_task<capy::any_stream>
         {
-            client::config cfg;
-            cfg.brotli = cfg.deflate = cfg.gzip = false;
-            cfg.connect_timeout = 20ms;
-            cfg.connect_handler =
-                [](urls::url_view) -> capy::io_task<capy::any_stream>
-            {
-                if(auto [ec] = co_await capy::delay(5s); ec)
-                {
-                    BOOST_TEST_EQ(ec, capy::error::canceled);
-                    co_return { ec, {} };
-                }
+            co_return { {}, capy::any_stream{
+                slow_stream{
+                    "HTTP/1.1 200 OK\r\n"
+                    "Cont" } } };
+        };
 
-                auto [cli, srv] = capy::test::make_stream_pair();
-                co_return { {}, capy::any_stream(std::move(cli)) };
-            };
+        capy::test::run_blocking()([&]() -> capy::task<>
+        {
             client c(
                 co_await capy::this_coro::executor,
                 corosio::tls_context(),
                 cfg);
 
-            auto [ec, r] = co_await c
-                .get("http://example.com/")
+            auto [ec, r] = co_await c.get("http://example.com").send();
+            BOOST_TEST(ec == capy::error::timeout);
+        }());
+    }
+
+    void
+    testTimeoutBody()
+    {
+        client::config cfg;
+        cfg.timeout = 10ms;
+        cfg.connect_handler = [](urls::url_view) -> capy::io_task<capy::any_stream>
+        {
+            co_return { {}, capy::any_stream{
+                slow_stream{
+                    "HTTP/1.1 200 OK\r\n"
+                    "Content-Length: 5\r\n"
+                    "\r\n" } } };
+        };
+
+        capy::test::run_blocking()([&]() -> capy::task<>
+        {
+            client c(
+                co_await capy::this_coro::executor,
+                corosio::tls_context(),
+                cfg);
+
+            auto [ec, r] = co_await c.get("http://example.com").send();
+            BOOST_TEST(!ec);
+
+            auto [bec, body] = co_await r.try_as_view();
+            BOOST_TEST(bec == capy::error::timeout);
+        }());
+    }
+
+    void
+    testTimeoutOverride()
+    {
+        scripted_net net;
+        net.scripts = {
+            "HTTP/1.1 200 OK\r\nContent-Length: 5\r\n\r\n" };
+
+        capy::test::run_blocking()([&]() -> capy::task<>
+        {
+            auto cfg    = net.config();
+            cfg.timeout = 10ms;
+            client c(
+                co_await capy::this_coro::executor,
+                corosio::tls_context(),
+                cfg);
+
+            auto [ec, r] = co_await c.get("http://example.com")
+                .timeout(1s)
                 .send();
-            BOOST_TEST_EQ(ec, capy::error::timeout);
+            BOOST_TEST(!ec);
+
+            if(auto [dec] = co_await capy::delay(20ms); dec)
+                throw std::system_error(dec);
+
+            net.servers.back().provide("hello");
+            auto [bec, body] = co_await r.try_as_view();
+            BOOST_TEST(!bec);
+            BOOST_TEST_EQ(body, "hello");
         }());
     }
 
@@ -939,7 +1018,9 @@ public:
         testHeadNoBody();
         testGzipDecode();
         testBrotliDecode();
-        testConnectTimeout();
+        testTimeoutHeader();
+        testTimeoutBody();
+        testTimeoutOverride();
         testStatusErrorThenTransportErrorOnBody();
         testTransportErrorInjection();
         testVerbs();
