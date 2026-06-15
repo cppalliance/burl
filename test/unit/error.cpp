@@ -12,9 +12,6 @@
 
 #include "test_suite.hpp"
 
-#include <string>
-#include <system_error>
-
 namespace boost
 {
 namespace burl
@@ -34,9 +31,39 @@ struct error_test
     }
 
     void
-    testMessages()
+    testErrorMessages()
     {
-        // The code carries the burl category.
+        auto msg = [](error e) { return make_error_code(e).message(); };
+
+        BOOST_TEST_EQ(
+            msg(error::unsupported_url_scheme),
+            "unsupported URL scheme");
+        BOOST_TEST_EQ(
+            msg(error::too_many_redirects),
+            "too many redirects");
+        BOOST_TEST_EQ(
+            msg(error::bad_redirect_response),
+            "bad redirect response");
+        BOOST_TEST_EQ(
+            msg(error::file_changed),
+            "file size changed during read");
+        BOOST_TEST_EQ(
+            msg(error::unsupported_proxy_scheme),
+            "unsupported proxy scheme");
+        BOOST_TEST_EQ(
+            msg(error::proxy_connect_failed),
+            "proxy could not connect to the target");
+        BOOST_TEST_EQ(
+            msg(error::proxy_auth_failed),
+            "proxy authentication failed");
+        BOOST_TEST_EQ(
+            msg(error::proxy_unsupported_version),
+            "unsupported proxy protocol version");
+
+        BOOST_TEST_EQ(
+            std::error_code(9999, burl_category()).message(),
+            "unknown error");
+
         BOOST_TEST_EQ(
             &make_error_code(error::file_changed).category(),
             &burl_category());
@@ -88,16 +115,19 @@ struct error_test
         BOOST_TEST_EQ(
             make_error_condition(condition::server_error).message(),
             "HTTP server error");
+        BOOST_TEST_EQ(
+            std::error_condition(9999, burl_condition_category()).message(),
+            "unknown condition");
     }
 
     void
     run()
     {
         testCategoryNames();
-        testMessages();
+        testConditionMessages();
+        testErrorMessages();
         testHttpStatusMessages();
         testConditions();
-        testConditionMessages();
     }
 };
 
