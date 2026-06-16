@@ -14,7 +14,7 @@
 #include <boost/burl/detail/config.hpp>
 #include <boost/burl/detail/connection_pool.hpp>
 #include <boost/burl/error.hpp>
-#include <boost/burl/test/response_factory_fwd.hpp>
+#include <boost/burl/test/fwd.hpp>
 #include <boost/capy/io/any_buffer_source.hpp>
 #include <boost/capy/io/any_read_source.hpp>
 #include <boost/capy/io_task.hpp>

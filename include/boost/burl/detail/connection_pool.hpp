@@ -11,7 +11,7 @@
 #define BOOST_BURL_DETAIL_CONNECTION_POOL_HPP
 
 #include <boost/burl/detail/config.hpp>
-#include <boost/burl/test/response_factory_fwd.hpp>
+#include <boost/burl/test/fwd.hpp>
 #include <boost/capy/buffers.hpp>
 #include <boost/capy/detail/buffer_array.hpp>
 #include <boost/capy/io_task.hpp>

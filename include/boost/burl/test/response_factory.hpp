@@ -13,7 +13,6 @@
 #include <boost/burl/detail/connection_pool.hpp>
 #include <boost/burl/response.hpp>
 #include <boost/burl/test/detail/buffer_connection.hpp>
-#include <boost/burl/test/response_factory_fwd.hpp>
 
 #include <boost/http/response.hpp>
 namespace boost
