@@ -57,7 +57,7 @@ class client_test
                 co_return { {}, n };
             }
     
-            auto [ec] = co_await capy::delay(1s);
+            auto [ec] = co_await capy::delay(10s);
             co_return { ec, {} };
         }
 
@@ -858,7 +858,7 @@ public:
                 cfg);
 
             auto [ec, r] = co_await c.get("http://example.com")
-                .timeout(1s)
+                .timeout(10s)
                 .send();
             BOOST_TEST(!ec);
 

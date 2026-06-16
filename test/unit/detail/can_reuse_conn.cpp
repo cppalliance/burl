@@ -37,15 +37,14 @@ class can_reuse_conn_test
         http::response_parser parser(
             http::make_parser_config(http::parser_config{ false }));
         bool result = false;
-        capy::test::run_blocking()(
-            [&]() -> capy::task<>
-            {
-                parser.reset();
-                parser.start();
-                if(auto [rec] = co_await parser.read_header(client); rec)
-                    co_return;
-                result = can_reuse_conn(parser);
-            }());
+        capy::test::run_blocking()([&]() -> capy::task<>
+        {
+            parser.reset();
+            parser.start();
+            if(auto [rec] = co_await parser.read_header(client); rec)
+                co_return;
+            result = can_reuse_conn(parser);
+        }());
         return result;
     }
 

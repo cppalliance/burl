@@ -10,6 +10,7 @@ file-patterns:
 # Filters
 include-symbols:
   - 'boost::burl::**'
+  - 'boost::burl::test::**'
 implementation-defined:
   - 'boost::burl::detail'
   - 'boost::burl::*::detail'

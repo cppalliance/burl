@@ -14,6 +14,7 @@
 #include <boost/burl/detail/config.hpp>
 #include <boost/burl/detail/connection_pool.hpp>
 #include <boost/burl/error.hpp>
+#include <boost/burl/test/response_factory_fwd.hpp>
 #include <boost/capy/io/any_buffer_source.hpp>
 #include <boost/capy/io/any_read_source.hpp>
 #include <boost/capy/io_task.hpp>
@@ -74,6 +75,7 @@ namespace burl
 class response
 {
     friend class client;
+    friend class test::response_factory;
     using clock = std::chrono::steady_clock;
 
     urls::url url_;
@@ -81,6 +83,7 @@ class response
     http::response_parser parser_;
     std::optional<clock::time_point> deadline_;
 
+    BOOST_BURL_DECL
     response(
         urls::url url,
         detail::pooled_connection conn,

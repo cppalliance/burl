@@ -94,10 +94,8 @@ tag_invoke(
     }
 
     auto src = resp.as_buffer_source();
-    if(auto [ec, n] = co_await capy::push_to(src, f); ec)
-        co_return { ec, {} };
-
-    co_return { {}, std::move(dest) };
+    auto [ec, n] = co_await capy::push_to(src, f);
+    co_return { ec, std::move(dest) };
 }
 
 } // namespace burl

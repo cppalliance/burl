@@ -35,14 +35,14 @@ class connection_pool_test
         capy::io_task<std::size_t>
         read_some(auto)
         {
-            auto [ec] = co_await capy::delay(1s);
+            auto [ec] = co_await capy::delay(10s);
             co_return { ec, {} };
         }
 
         capy::io_task<std::size_t>
         write_some(auto)
         {
-            auto [ec] = co_await capy::delay(1s);
+            auto [ec] = co_await capy::delay(10s);
             co_return { ec, {} };
         }
     };

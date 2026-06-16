@@ -11,6 +11,7 @@
 #define BOOST_BURL_DETAIL_CONNECTION_POOL_HPP
 
 #include <boost/burl/detail/config.hpp>
+#include <boost/burl/test/response_factory_fwd.hpp>
 #include <boost/capy/buffers.hpp>
 #include <boost/capy/detail/buffer_array.hpp>
 #include <boost/capy/io_task.hpp>
@@ -74,6 +75,7 @@ private:
 class pooled_connection
 {
     friend class connection_pool;
+    friend class test::response_factory;
 
     using duration = std::chrono::steady_clock::duration;
 

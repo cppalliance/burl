@@ -176,7 +176,9 @@ function(boost_burl_setup_properties target)
 endfunction()
 
 if (BOOST_BURL_MRDOCS_BUILD)
-    file(WRITE "${CMAKE_CURRENT_BINARY_DIR}/mrdocs.cpp" "#include <boost/burl.hpp>\n")
+    file(WRITE "${CMAKE_CURRENT_BINARY_DIR}/mrdocs.cpp"
+        "#include <boost/burl.hpp>\n"
+        "#include <boost/burl/test/response_factory.hpp>\n")
     add_library(boost_burl_mrdocs "${CMAKE_CURRENT_BINARY_DIR}/mrdocs.cpp")
     boost_burl_setup_properties(boost_burl_mrdocs)
     target_compile_definitions(boost_burl_mrdocs PUBLIC BOOST_BURL_MRDOCS)

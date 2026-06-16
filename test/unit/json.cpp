@@ -10,91 +10,208 @@
 // Test that header file is self-contained.
 #include <boost/burl/json.hpp>
 
-#include <boost/burl/any_request_body.hpp>
-#include <boost/burl/conversion.hpp>
+#include <boost/burl/test/response_factory.hpp>
+
+#include <boost/capy/test/run_blocking.hpp>
+#include <boost/json/serialize.hpp>
 
 #include "body_test.hpp"
 #include "test_suite.hpp"
-
-#include <boost/json/array.hpp>
-#include <boost/json/object.hpp>
-#include <boost/json/serialize.hpp>
-#include <boost/json/string.hpp>
-#include <boost/json/value.hpp>
-
-#include <string>
 
 namespace boost
 {
 namespace burl
 {
 
-struct json_test
+class json_test
 {
     static void
-    check_json(any_request_body const& body, json::value const& jv)
+    check(any_request_body const& body, json::value const& v)
     {
         BOOST_TEST(body.has_value());
-
-        auto ct = body.content_type();
-        BOOST_TEST(ct.has_value());
-        BOOST_TEST_EQ(ct.value(), "application/json");
-
         BOOST_TEST(!body.content_length().has_value());
+        BOOST_TEST_EQ(body.content_type().value_or(""), "application/json");
+        check_body(body, json::serialize(v));
+    }
 
-        check_body(body, json::serialize(jv));
+public:
+    void
+    testFromValue()
+    {
+        json::value v = { { "key", "value" }, { "n", 42 } };
+        check(tag_invoke(body_from_tag<json::value>{}, v), v);
     }
 
     void
-    testValue()
+    testFromObject()
     {
-        json::value jv = { { "key", "value" }, { "n", 42 } };
-        auto body = tag_invoke(body_from_tag<json::value>{}, jv);
-        check_json(body, jv);
+        json::object v = { { "a", 1 }, { "b", "two" } };
+        check(tag_invoke(body_from_tag<json::object>{}, v), v);
     }
 
     void
-    testObject()
+    testFromArray()
     {
-        json::object obj;
-        obj["a"] = 1;
-        obj["b"] = "two";
-        auto body = tag_invoke(body_from_tag<json::object>{}, obj);
-        check_json(body, json::value(obj));
+        json::array v = { 1, 2, 3 };
+        check(tag_invoke(body_from_tag<json::array>{}, v), v);
     }
 
     void
-    testArray()
+    testFromString()
     {
-        json::array arr = { 1, 2, 3 };
-        auto body = tag_invoke(body_from_tag<json::array>{}, arr);
-        check_json(body, json::value(arr));
+        json::string v = { "a string value" };
+        check(tag_invoke(body_from_tag<json::string>{}, v), v);
     }
 
     void
-    testString()
+    testFromNull()
     {
-        json::string str = "a string value";
-        auto body = tag_invoke(body_from_tag<json::string>{}, str);
-        check_json(body, json::value(str));
+        json::value v = { nullptr };
+        check(tag_invoke(body_from_tag<json::value>{}, v), v);
     }
 
     void
-    testNull()
+    testToValue()
     {
-        json::value jv = nullptr;
-        auto body = tag_invoke(body_from_tag<json::value>{}, jv);
-        check_json(body, jv);
+        capy::test::run_blocking()([&]() -> capy::task<>
+        {
+            auto r = test::response_factory()
+                .body({ R"({ "key" : "value" })" })
+                .create();
+            auto [ec, v] = co_await r.try_as<json::value>();
+            BOOST_TEST(!ec);
+            BOOST_TEST_EQ(v, (json::value{{ "key", "value" }}));
+        }());
+
+        // Malformed
+        capy::test::run_blocking()([&]() -> capy::task<>
+        {
+            auto r = test::response_factory()
+                .body({"Malformed"})
+                .create();
+            auto [ec, v] = co_await r.try_as<json::value>();
+            BOOST_TEST(ec);
+            BOOST_TEST_EQ(v, json::value{});
+        }());
+
+        // Truncated
+        capy::test::run_blocking()([&]() -> capy::task<>
+        {
+            auto r = test::response_factory()
+                .content_length(64)
+                .body({ R"({ "key" : "value" })" })
+                .create();
+            auto [ec, v] = co_await r.try_as<json::value>();
+            BOOST_TEST_EQ(ec, http::error::incomplete);
+            BOOST_TEST_EQ(v, json::value{});
+        }());
+    }
+
+    void
+    testToObject()
+    {
+        capy::test::run_blocking()([&]() -> capy::task<>
+        {
+            auto r = test::response_factory()
+                .body({ R"({ "key" : "value" })" })
+                .create();
+            auto [ec, v] = co_await r.try_as<json::object>();
+            BOOST_TEST(!ec);
+            BOOST_TEST_EQ(v, (json::object{{ "key", "value" }}));
+        }());
+
+        capy::test::run_blocking()([&]() -> capy::task<>
+        {
+            auto r = test::response_factory()
+                .body({ R"(["item1", "item2"])" }) // array
+                .create();
+            auto [ec, v] = co_await r.try_as<json::object>();
+            BOOST_TEST(ec);
+            BOOST_TEST_EQ(v, json::object{});
+        }());
+    }
+
+    void
+    testToArray()
+    {
+        capy::test::run_blocking()([&]() -> capy::task<>
+        {
+            auto r = test::response_factory()
+                .body({ R"(["item1", "item2"])" })
+                .create();
+            auto [ec, v] = co_await r.try_as<json::array>();
+            BOOST_TEST(!ec);
+            BOOST_TEST_EQ(v, (json::array{ "item1", "item2" }));
+        }());
+
+        capy::test::run_blocking()([&]() -> capy::task<>
+        {
+            auto r = test::response_factory()
+                .body({ R"({ "key" : "value" })" }) // object
+                .create();
+            auto [ec, v] = co_await r.try_as<json::array>();
+            BOOST_TEST(ec);
+            BOOST_TEST_EQ(v, json::array{});
+        }());
+    }
+
+    void
+    testToString()
+    {
+        capy::test::run_blocking()([&]() -> capy::task<>
+        {
+            auto r = test::response_factory()
+                .body({ R"("string")" })
+                .create();
+            auto [ec, v] = co_await r.try_as<json::string>();
+            BOOST_TEST(!ec);
+            BOOST_TEST_EQ(v, (json::string{ "string" }));
+        }());
+
+        capy::test::run_blocking()([&]() -> capy::task<>
+        {
+            auto r = test::response_factory()
+                .body({ R"({ "key" : "value" })" }) // object
+                .create();
+            auto [ec, v] = co_await r.try_as<json::string>();
+            BOOST_TEST(ec);
+            BOOST_TEST_EQ(v, json::string{});
+        }());
+    }
+
+    void
+    testTransportErrorInjection()
+    {
+        capy::test::fuse f;
+        test::response_factory factory;
+        factory.body({ "{ \"key\"", " : \"value\" }" });
+
+        auto r = f.armed([&](capy::test::fuse&) -> capy::task<>
+        {
+            auto r = factory.create(f);
+
+            auto [ec, v] = co_await r.try_as<json::value>();
+            if(ec)
+                co_return;
+    
+            BOOST_TEST_EQ(v, (json::value{{ "key", "value" }}));
+        });
+        BOOST_TEST(r.success);
     }
 
     void
     run()
     {
-        testValue();
-        testObject();
-        testArray();
-        testString();
-        testNull();
+        testFromValue();
+        testFromObject();
+        testFromArray();
+        testFromString();
+        testFromNull();
+        testToValue();
+        testToObject();
+        testToArray();
+        testToString();
+        testTransportErrorInjection();
     }
 };
 
