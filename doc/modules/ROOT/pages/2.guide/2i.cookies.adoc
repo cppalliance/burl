@@ -1,0 +1,92 @@
+//
+// Copyright (c) 2026 Mohammad Nejati
+//
+// Distributed under the Boost Software License, Version 1.0. (See accompanying
+// file LICENSE_1_0.txt or copy at http://www.boost.org/LICENSE_1_0.txt)
+//
+// Official repository: https://github.com/cppalliance/burl
+//
+
+= Cookies
+
+When cookie handling is enabled, the client stores cookies from `Set-Cookie`
+response headers in its cookie jar and sends matching cookies on later
+requests, following the storage and matching rules of RFC 6265. The jar can be
+inspected directly and persisted between sessions.
+
+== Enabling Cookies
+
+Cookie handling is *off* by default; enable it with
+cpp:client::config[config::cookies]:
+
+[source,cpp]
+----
+burl::client::config cfg;
+cfg.cookies = true;
+
+burl::client client(co_await capy::this_coro::executor, tls_ctx, cfg);
+
+// the cookie set here is stored, and returned on the next request to the host
+co_await client.get("https://example.com/login").send();
+auto r = co_await client.get("https://example.com/account").send();
+----
+
+== The Cookie Jar
+
+cpp:client::cookie_jar[client::cookie_jar()] gives direct access to the jar. The
+cookies can be listed, cleared, or seeded by hand:
+
+[source,cpp]
+----
+auto& jar = client.cookie_jar();
+
+jar.clear();                   // remove everything
+jar.clear_session_cookies();   // remove only cookies without an expiry
+----
+
+== Public-Suffix Validation
+
+To stop a server from setting an overly broad "supercookie" on a registry
+suffix such as `com` or `co.uk`, the jar can validate the `Domain` attribute
+against the Public Suffix List. This is a compile-time capability, present when
+the library is built with libpsl:
+
+[source,cpp]
+----
+if(burl::cookie_jar::public_suffix_supported())
+{
+    // Domain attributes are checked against the Public Suffix List
+}
+----
+
+When libpsl is not available, a weaker fallback applies that rejects only
+cookies set on a bare top-level domain.
+
+== Persisting the Jar
+
+cpp:cookie_jar::to_netscape[to_netscape] and
+cpp:cookie_jar::from_netscape[from_netscape] serialize the jar in the Netscape
+cookie file format, the same format used by `curl` and browsers, so it can be
+saved and restored across runs:
+
+[source,cpp]
+----
+// save
+std::ofstream("cookies.txt") << client.cookie_jar().to_netscape();
+
+// restore
+std::ifstream in("cookies.txt");
+std::string text(std::istreambuf_iterator<char>(in), {});
+client.cookie_jar().from_netscape(text);
+----
+
+cpp:cookie_jar::from_netscape[from_netscape] returns a `result<void>`, reporting
+an error if a line is malformed. Empty and comment lines are skipped, except the
+`#HttpOnly_` prefix, which is preserved as part of the format.
+
+== Next Steps
+
+* xref:2.guide/2h.redirects.adoc[Redirects] — How cookies and credentials follow
+  hops
+* xref:2.guide/2e.headers.adoc[Headers and Query Parameters] — Setting a
+  `Cookie` header by hand

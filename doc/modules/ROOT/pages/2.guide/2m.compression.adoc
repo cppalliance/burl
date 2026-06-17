@@ -1,0 +1,95 @@
+//
+// Copyright (c) 2026 Mohammad Nejati
+//
+// Distributed under the Boost Software License, Version 1.0. (See accompanying
+// file LICENSE_1_0.txt or copy at http://www.boost.org/LICENSE_1_0.txt)
+//
+// Official repository: https://github.com/cppalliance/burl
+//
+
+= Compression
+
+Burl can advertise the content codings it accepts and transparently decode a
+compressed response body, so `gzip`, `deflate`, and `br` responses arrive
+already decompressed. Decoding depends on the relevant service being installed
+in the system context.
+
+== Installing the Decode Services
+
+Decoding is provided by Boost.Http and must be registered in the system context
+once, at startup, before any request. The zlib service handles `gzip` and
+`deflate`; the brotli service handles `br`:
+
+[source,cpp]
+----
+#include <boost/http/zlib.hpp>
+#include <boost/http/brotli.hpp>
+
+int main()
+{
+    http::zlib::install_inflate_service(capy::get_system_context());
+    http::brotli::install_decode_service(capy::get_system_context());
+
+    // ... run the client ...
+}
+----
+
+These are available only when Boost.Http is built with zlib and brotli support.
+Guarding the calls with the feature macros keeps the program portable across
+builds that lack them:
+
+[source,cpp]
+----
+#ifdef BOOST_HTTP_HAS_ZLIB
+    http::zlib::install_inflate_service(capy::get_system_context());
+#endif
+#ifdef BOOST_HTTP_HAS_BROTLI
+    http::brotli::install_decode_service(capy::get_system_context());
+#endif
+----
+
+== How It Works
+
+With a service installed and the corresponding setting enabled, the client adds
+that coding to the `Accept-Encoding` request header and decodes a response
+encoded with it.
+
+[source,cpp]
+----
+burl::client::config cfg;
+cfg.gzip    = true;
+cfg.deflate = true;
+cfg.brotli  = false;   // do not advertise or decode br
+
+burl::client client(co_await capy::this_coro::executor, tls_ctx, cfg);
+----
+
+[NOTE]
+====
+A coding whose decode service is not installed is disabled regardless of the
+setting, since the client cannot honor what it advertises.
+====
+
+The decoding is transparent: the body you read through
+xref:2.guide/2c.responses.adoc[any of the body functions] is the decoded
+content, and cpp:response::content_length[content_length()] and the
+`Content-Length` header reflect the encoded size as sent on the wire.
+
+== Opting Out for a Request
+
+A request that sets its own `Accept-Encoding` header is left alone: the client
+neither adds codings to it nor decodes the response. This is the way to control
+encoding for a single request:
+
+[source,cpp]
+----
+auto [ec, r] = co_await client.get("https://example.com/data")
+    .header(http::field::accept_encoding, "identity")
+    .send();
+----
+
+== Next Steps
+
+* xref:2.guide/2c.responses.adoc[Responses] — Reading the decoded body
+* xref:2.guide/2d.error-handling.adoc[Error Handling] — `body_too_large` among
+  protocol failures

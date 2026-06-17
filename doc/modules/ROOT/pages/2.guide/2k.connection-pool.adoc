@@ -1,0 +1,69 @@
+//
+// Copyright (c) 2026 Mohammad Nejati
+//
+// Distributed under the Boost Software License, Version 1.0. (See accompanying
+// file LICENSE_1_0.txt or copy at http://www.boost.org/LICENSE_1_0.txt)
+//
+// Official repository: https://github.com/cppalliance/burl
+//
+
+= Connection Pool
+
+A client keeps its connections alive and reuses them. Reusing a connection
+avoids the cost of a fresh TCP connection and TLS handshake on every request,
+which is the main reason to construct one client and make many requests through
+it rather than creating a client per request.
+
+== Reuse Is Automatic
+
+Connections are pooled by origin: the scheme, host, and port of the request URL.
+When a new request shares the origin of an idle connection, the client reuses it
+instead of opening a new one:
+
+[source,cpp]
+----
+burl::client client(co_await capy::this_coro::executor, tls_ctx);
+
+auto r1 = co_await client.get("https://example.com/a").as<std::string>();
+// the next request to the same origin reuses the connection
+auto r2 = co_await client.get("https://example.com/b").as<std::string>();
+----
+
+== Tuning the Pool
+
+[cols="1,3"]
+|===
+| Setting | Effect
+
+| cpp:client::config[config::pool_idle_timeout]
+| How long an idle connection stays usable. One idle longer than this is
+  discarded rather than reused.
+
+| cpp:client::config[config::pool_max_idle_per_host]
+| The cap on idle connections kept per origin. Beyond it, connections are
+  closed instead of pooled.
+|===
+
+== The Connection's Lifetime
+
+A connection is held by the cpp:response[] while its body is being read, not by
+the client. It returns to the pool when the response is destroyed and only if it
+can be kept alive and the entire message has been received. The practical
+consequences:
+
+* *Read the body to completion to enable reuse.* A response abandoned with its
+  body partly read cannot be pooled.
+* *Reuse needs keep-alive.* A response the server marks to close, or one on a
+  connection that errored, is closed rather than pooled.
+* *Hold a response only as long as needed.* While a response is alive it holds
+  its connection out of the pool. Letting it go promptly returns the connection
+  sooner.
+
+== Next Steps
+
+* xref:2.guide/2c.responses.adoc[Responses] — Reading the body to free the
+  connection
+* xref:2.guide/2j.timeouts.adoc[Timeouts] — Connect and I/O timeouts on new
+  connections
+* xref:2.guide/2l.proxies.adoc[Proxies] — Establishing connections through a
+  proxy

@@ -1,0 +1,122 @@
+//
+// Copyright (c) 2026 Mohammad Nejati
+//
+// Distributed under the Boost Software License, Version 1.0. (See accompanying
+// file LICENSE_1_0.txt or copy at http://www.boost.org/LICENSE_1_0.txt)
+//
+// Official repository: https://github.com/cppalliance/burl
+//
+
+= Error Handling
+
+Burl reports failures as cpp:std::error_code[] values, and offers a throwing
+form of every operation for code that prefers exceptions. This section explains
+the two forms, what counts as an error, and the order in which different
+failures take precedence.
+
+== Two Forms: try and throw
+
+Every operation that can fail comes in a pair. The `try_` form yields
+`(error_code, T)`; the plain form returns `T` and throws a
+cpp:std::system_error[] on failure.
+
+[cols="1,1,2"]
+|===
+| Non-throwing | Throwing | Yields
+
+| cpp:request_builder::send[]
+| —
+| the response object
+
+| cpp:request_builder::try_as<T>[]
+| cpp:request_builder::as<T>[]
+| the body converted to `T`
+
+| cpp:response::try_as_view[]
+| cpp:response::as_view[]
+| a view of the body
+
+| cpp:response::try_as<T>[]
+| cpp:response::as<T>[]
+| the body converted to `T`
+|===
+
+`send` has no throwing counterpart: returning the response alongside the error
+code is the point, since on a status error you usually want to read the body.
+Choose the `try_` form when a failure is expected and you want to branch on it.
+
+[source,cpp]
+----
+// branch on the error
+auto [ec, body] = co_await client.get(url).try_as<std::string>();
+if(ec)
+    log(ec.message());
+
+// or let it propagate
+auto body = co_await client.get(url).as<std::string>();
+----
+
+== HTTP Status Is an Error
+
+A status of 400 or above is itself a failure: the response yields an error
+code whose value is the status code and whose category is cpp:burl_category[].
+
+This is what lets the common case stay terse. A call like
+
+[source,cpp]
+----
+auto body = co_await client.get(url).as<std::string>();
+----
+
+returns normally only when the request completed and the status was
+successful, so there is no separate status check to write.
+
+== Reading the Body of an Error Response
+
+How you finish the request decides whether the error body is available, and
+this is the one place the two forms behave differently on a status error:
+
+* cpp:request_builder::send[send] returns the response with `ec` set, body
+  unread. The body is yours to read.
+* cpp:request_builder::try_as[try_as<T>] reads and converts the body even on a
+  status error, with `ec` reporting the status; any error during body conversion
+  is masked by the status error.
+* cpp:request_builder::as[as<T>] throws on the status before reading the body.
+  The error body is not available through `as`.
+
+So, to inspect the payload of a 4xx or 5xx, use `send` or `try_as`, not `as`:
+
+[source,cpp]
+----
+auto [ec, body] = co_await client.get(url).try_as<std::string>();
+
+if(ec == burl::condition::client_error)
+{
+    std::cerr << ec.message() << '\n';   // e.g. HTTP 404 Not Found
+    std::cerr << body << '\n';           // the server's error body
+}
+----
+
+== Precedence of Failures
+
+A single request can fail in more than one way at once — the connection might
+drop, the status might be an error, and the body might not parse. Burl reports
+the *earliest* failure in this order:
+
+. *Transport* — name resolution, connection, proxy negotiation, TLS, or a read
+  or write failing; also a timeout. The request did not complete.
+. *HTTP protocol* — the response could not be parsed as valid HTTP/1.1, the
+  body exceeded a limit, or content decoding failed.
+. *Status* — the request completed and parsed, but the status was 4xx or 5xx.
+. *Body conversion* — everything succeeded, but the body could not be converted
+  to the requested type (malformed JSON, a JSON value of the wrong kind, an
+  in-place buffer too small).
+
+== Next Steps
+
+* xref:2.guide/2c.responses.adoc[Responses] — Reading a body once the status is
+  known
+* xref:2.guide/2j.timeouts.adoc[Timeouts] — A common source of transport
+  failures
+* xref:2.guide/2h.redirects.adoc[Redirects] — Where
+  cpp:error::too_many_redirects[too_many_redirects] comes from

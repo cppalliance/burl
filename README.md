@@ -10,7 +10,7 @@ A HTTP client library for C++20:
 ```cpp
 burl::client client(exec, tls_ctx);
 
-std::cout << co_await client.get(url).as<std::string>() << '\n';
+std::cout << co_await client.get(url).as<std::string>();
 ```
 
 One line to make a request.
@@ -97,14 +97,14 @@ auto r = co_await client.get(url)
     .query("category", "shoes")
     .query("color", "blue")
     .header(http::field::accept_language, "en")
-    .header("X-Trace-Id", "abc123") // per-request header
+    .header("X-Trace-Id", "abc123")
     .as<json::value>();
 ```
 
 ### Authentication
 
 ```cpp
-// default, sent with every request
+// Default, sent with every request
 client.basic_auth("user", "pass");
 
 auto r = co_await client.get(url)

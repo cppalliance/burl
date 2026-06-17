@@ -36,6 +36,7 @@ namespace urls    = boost::urls;
 capy::task<>
 basic_get(corosio::tls_context tls_ctx)
 {
+    // tag::basic_get[]
     burl::client client(co_await capy::this_coro::executor, tls_ctx);
 
     // Response body as a string
@@ -49,6 +50,7 @@ basic_get(corosio::tls_context tls_ctx)
         .as<json::value>();
 
     std::cout << r2 << '\n';
+    // end::basic_get[]
 }
 
 //==============================================================
@@ -58,6 +60,7 @@ basic_get(corosio::tls_context tls_ctx)
 capy::task<>
 inspect_response(corosio::tls_context tls_ctx)
 {
+    // tag::inspect_response[]
     burl::client client(co_await capy::this_coro::executor, tls_ctx);
 
     // send() yields the response without reading the body, so the status
@@ -71,6 +74,7 @@ inspect_response(corosio::tls_context tls_ctx)
     std::cout << "reason:  " << r.reason() << '\n';
     std::cout << "headers: " << r.headers() << '\n';
     std::cout << "body:    " << co_await r.as<std::string>() << '\n';
+    // end::inspect_response[]
 }
 
 //==============================================================
@@ -80,6 +84,7 @@ inspect_response(corosio::tls_context tls_ctx)
 capy::task<>
 handle_error_status(corosio::tls_context tls_ctx)
 {
+    // tag::handle_error_status[]
     burl::client client(co_await capy::this_coro::executor, tls_ctx);
 
     try
@@ -102,6 +107,7 @@ handle_error_status(corosio::tls_context tls_ctx)
         // HTTP 404 Not Found
         std::cerr << ec.message() << '\n';
     }
+    // end::handle_error_status[]
 }
 
 //==============================================================
@@ -111,6 +117,7 @@ handle_error_status(corosio::tls_context tls_ctx)
 capy::task<>
 add_query_params(corosio::tls_context tls_ctx)
 {
+    // tag::add_query_params[]
     burl::client client(co_await capy::this_coro::executor, tls_ctx);
 
     auto r = co_await client.get("https://postman-echo.com/get")
@@ -119,6 +126,7 @@ add_query_params(corosio::tls_context tls_ctx)
         .as<json::object>();
 
     std::cout << r << '\n';
+    // end::add_query_params[]
 }
 
 //==============================================================
@@ -128,6 +136,7 @@ add_query_params(corosio::tls_context tls_ctx)
 capy::task<>
 set_headers(corosio::tls_context tls_ctx)
 {
+    // tag::set_headers[]
     burl::client client(co_await capy::this_coro::executor, tls_ctx);
 
     // Default headers on the client, sent with every request
@@ -140,6 +149,7 @@ set_headers(corosio::tls_context tls_ctx)
         .as<json::object>();
 
     std::cout << r << '\n';
+    // end::set_headers[]
 }
 
 //==============================================================
@@ -149,6 +159,7 @@ set_headers(corosio::tls_context tls_ctx)
 capy::task<>
 authenticate(corosio::tls_context tls_ctx)
 {
+    // tag::authenticate[]
     burl::client client(co_await capy::this_coro::executor, tls_ctx);
 
     // Default auth, sent with every request
@@ -161,6 +172,7 @@ authenticate(corosio::tls_context tls_ctx)
         .as<json::object>();
 
     std::cout << r << '\n';
+    // end::authenticate[]
 }
 
 //==============================================================
@@ -170,6 +182,7 @@ authenticate(corosio::tls_context tls_ctx)
 capy::task<>
 post_string(corosio::tls_context tls_ctx)
 {
+    // tag::post_string[]
     burl::client client(co_await capy::this_coro::executor, tls_ctx);
 
     auto r = co_await client.post("https://postman-echo.com/post")
@@ -180,6 +193,7 @@ post_string(corosio::tls_context tls_ctx)
         .as<json::object>();
 
     std::cout << r << '\n';
+    // end::post_string[]
 }
 
 //==============================================================
@@ -189,6 +203,7 @@ post_string(corosio::tls_context tls_ctx)
 capy::task<>
 post_json(corosio::tls_context tls_ctx)
 {
+    // tag::post_json[]
     burl::client client(co_await capy::this_coro::executor, tls_ctx);
 
     json::object body({ { "user", "John" }, { "lang", "En" } });
@@ -204,6 +219,7 @@ post_json(corosio::tls_context tls_ctx)
         .as<json::object>();
 
     std::cout << r2 << '\n';
+    // end::post_json[]
 }
 
 //==============================================================
@@ -213,6 +229,7 @@ post_json(corosio::tls_context tls_ctx)
 capy::task<>
 post_urlencoded_form(corosio::tls_context tls_ctx)
 {
+    // tag::post_urlencoded_form[]
     burl::client client(co_await capy::this_coro::executor, tls_ctx);
 
     burl::urlencoded_form form;
@@ -233,6 +250,7 @@ post_urlencoded_form(corosio::tls_context tls_ctx)
         .as<json::object>();
 
     std::cout << r2 << '\n';
+    // end::post_urlencoded_form[]
 }
 
 //==============================================================
@@ -242,6 +260,7 @@ post_urlencoded_form(corosio::tls_context tls_ctx)
 capy::task<>
 post_multipart_form(corosio::tls_context tls_ctx)
 {
+    // tag::post_multipart_form[]
     burl::client client(co_await capy::this_coro::executor, tls_ctx);
 
     burl::multipart_form form;
@@ -263,6 +282,7 @@ post_multipart_form(corosio::tls_context tls_ctx)
         .as<json::object>();
 
     std::cout << r2 << '\n';
+    // end::post_multipart_form[]
 }
 
 //==============================================================
@@ -272,6 +292,7 @@ post_multipart_form(corosio::tls_context tls_ctx)
 capy::task<>
 upload_and_download_file(corosio::tls_context tls_ctx)
 {
+    // tag::upload_and_download_file[]
     namespace fs = std::filesystem;
 
     burl::client client(co_await capy::this_coro::executor, tls_ctx);
@@ -283,6 +304,7 @@ upload_and_download_file(corosio::tls_context tls_ctx)
         .as<fs::path>("./resp.txt"); // Save the response body to a file
 
     std::cout << "Response body saved to:" << r << '\n';
+    // end::upload_and_download_file[]
 }
 
 //==============================================================
@@ -292,6 +314,7 @@ upload_and_download_file(corosio::tls_context tls_ctx)
 capy::task<>
 stream_response(corosio::tls_context tls_ctx)
 {
+    // tag::stream_response[]
     burl::client client(co_await capy::this_coro::executor, tls_ctx);
 
     auto [ec, r] = co_await client.get("https://archives.boost.io/"
@@ -319,6 +342,7 @@ stream_response(corosio::tls_context tls_ctx)
         }
     }
     std::cout << "sha256: " << hash.result() << '\n';
+    // end::stream_response[]
 }
 
 //==============================================================
@@ -328,6 +352,7 @@ stream_response(corosio::tls_context tls_ctx)
 capy::task<>
 inplace_response_body(corosio::tls_context tls_ctx)
 {
+    // tag::inplace_response_body[]
     burl::client::config cfg;
     cfg.response_inplace_buffer = 1024 * 1024;
 
@@ -341,6 +366,7 @@ inplace_response_body(corosio::tls_context tls_ctx)
     // Use the internal inplace buffer for reading the whole body
     // the most efficient method if we know the body always fits.
     std::cout << co_await r.as_view() << '\n';
+    // end::inplace_response_body[]
 }
 
 //==============================================================
@@ -350,6 +376,7 @@ inplace_response_body(corosio::tls_context tls_ctx)
 capy::task<>
 set_timeouts(corosio::tls_context tls_ctx)
 {
+    // tag::set_timeouts[]
     // Client timeouts, applied to every request
     burl::client::config cfg;
 
@@ -370,6 +397,7 @@ set_timeouts(corosio::tls_context tls_ctx)
         .as<std::string>();
 
     std::cout << r << '\n';
+    // end::set_timeouts[]
 }
 
 //==============================================================
@@ -379,6 +407,7 @@ set_timeouts(corosio::tls_context tls_ctx)
 capy::task<>
 follow_redirects(corosio::tls_context tls_ctx)
 {
+    // tag::follow_redirects[]
     burl::client::config cfg;
 
     // Follow redirects (enable by default)
@@ -403,6 +432,7 @@ follow_redirects(corosio::tls_context tls_ctx)
         throw std::system_error(ec2);
 
     std::cout << r2.status_int() << '\n'; // e.g. 301
+    // end::follow_redirects[]
 }
 
 //==============================================================
@@ -412,6 +442,7 @@ follow_redirects(corosio::tls_context tls_ctx)
 capy::task<>
 enable_cookies(corosio::tls_context tls_ctx)
 {
+    // tag::enable_cookies[]
     burl::client::config cfg;
 
     // Cookies (disabled by default)
@@ -424,6 +455,7 @@ enable_cookies(corosio::tls_context tls_ctx)
 
     // Print the stored cookies in Netscape format
     std::cout << client.cookie_jar().to_netscape();
+    // end::enable_cookies[]
 }
 
 //==============================================================
@@ -433,6 +465,7 @@ enable_cookies(corosio::tls_context tls_ctx)
 capy::task<>
 connection_pool(corosio::tls_context tls_ctx)
 {
+    // tag::connection_pool[]
     burl::client::config cfg;
     cfg.pool_idle_timeout = std::chrono::seconds(60);
     cfg.pool_max_idle_per_host = 10;
@@ -445,6 +478,7 @@ connection_pool(corosio::tls_context tls_ctx)
     // Reuses the connection established by the first request
     auto r2 = co_await client.get("https://www.boost.org")
         .as<std::string>();
+    // end::connection_pool[]
 }
 
 //==============================================================
@@ -454,6 +488,7 @@ connection_pool(corosio::tls_context tls_ctx)
 capy::task<>
 use_proxy(corosio::tls_context tls_ctx)
 {
+    // tag::use_proxy[]
     burl::client::config cfg;
     // SOCKS5 and HTTP proxies are supported
     cfg.proxy = urls::url("socks5h://user:pass@localhost:8080");
@@ -465,6 +500,7 @@ use_proxy(corosio::tls_context tls_ctx)
         .as<std::string>();
 
     std::cout << r;
+    // end::use_proxy[]
 }
 
 //==============================================================
@@ -474,6 +510,7 @@ use_proxy(corosio::tls_context tls_ctx)
 capy::task<>
 build_and_execute(corosio::tls_context tls_ctx)
 {
+    // tag::build_and_execute[]
     burl::client client(co_await capy::this_coro::executor, tls_ctx);
 
     // build() produces a request that can be stored and executed later
@@ -487,6 +524,7 @@ build_and_execute(corosio::tls_context tls_ctx)
         throw std::system_error(ec);
 
     std::cout << co_await r.as<json::value>() << '\n';
+    // end::build_and_execute[]
 }
 
 int

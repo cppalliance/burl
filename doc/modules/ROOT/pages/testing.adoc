@@ -1,0 +1,105 @@
+//
+// Copyright (c) 2026 Mohammad Nejati
+//
+// Distributed under the Boost Software License, Version 1.0. (See accompanying
+// file LICENSE_1_0.txt or copy at http://www.boost.org/LICENSE_1_0.txt)
+//
+// Official repository: https://github.com/cppalliance/burl
+//
+
+= Testing
+
+Code that consumes HTTP responses is difficult to test against a live server.
+Burl provides two seams for testing without a network: a factory that
+synthesizes a cpp:response[] directly, and a configuration hook that replaces
+how the client establishes connections.
+
+== Synthesizing a Response
+
+cpp:test::response_factory[] builds a genuine cpp:response[] from a status,
+headers, and a body, with no client or server involved — suitable for
+unit-testing body conversions, status handling, and anything else that takes a
+cpp:response[]:
+
+[source,cpp]
+----
+auto r = burl::test::response_factory(http::status::ok)
+    .header(http::field::content_type, "application/json")
+    .body({ R"({"key":"value"})" })
+    .create();
+
+auto v = co_await r.as<json::value>();
+// assert v.at("key") == "value"
+----
+
+The body is given as a *vector of strings*, and each element is delivered as a
+separate read. This is what makes the factory useful for more than a happy
+path: the split controls how the body is fragmented on the wire, so a
+conversion can be tested against a body that arrives in several reads.
+
+== Injecting Read Failures
+
+cpp:test::response_factory::create[response_factory::create] accepts a
+`capy::test::fuse`. Under an armed fuse it injects a read failure at successive
+points in the body, so a single test can walk a conversion through a failure at
+each read and confirm it surfaces the error rather than mis-parsing a partial
+body:
+
+[source,cpp]
+----
+capy::test::fuse f;
+
+auto factory = burl::test::response_factory(http::status::ok)
+    .header(http::field::content_type, "application/json")
+    .body({ R"({"user")", R"(:"John")", R"(})" });
+
+auto outcome = f.armed([&](capy::test::fuse&) -> capy::task<>
+{
+    auto r = factory.create(f);
+
+    auto [ec, doc] = co_await r.try_as<nlohmann::json>();
+    if(ec)
+        co_return; // a read failed; the conversion surfaced it
+
+    // assert(doc.at("user") == "John");
+});
+
+// assert(outcome.success);
+----
+
+== Replacing Connection Establishment
+
+For an end-to-end test through a real cpp:client[],
+cpp:client::config[config::connect_handler] replaces the client's name
+resolution, connection, proxy negotiation, and TLS handshake. Whenever the pool
+needs a new connection it calls your handler, which returns a `capy::any_stream`
+for the client to speak HTTP over:
+
+[source,cpp]
+----
+burl::client::config cfg;
+cfg.connect_handler =
+    [](urls::url_view) -> capy::io_task<capy::any_stream>
+    {
+        auto [a, b] = capy::test::make_stream_pair();
+        // drive b from the test as the "server"; hand a to the client
+        co_return { {}, capy::any_stream(std::move(a)) };
+    };
+
+burl::client client(co_await capy::this_coro::executor, tls_ctx, cfg);
+----
+
+The handler receives the target URL and yields the stream. Pairing it with
+`capy::test::make_stream_pair` gives one end to the client and keeps the other
+in the test to play the server, letting the full request path run in process.
+The hook is also a way to connect over an already-open tunnel or a Unix domain
+socket in production code.
+
+== Next Steps
+
+* xref:2.guide/2c.responses.adoc[Responses] — The body functions that a
+  synthesized response feeds
+* xref:2.guide/2d.error-handling.adoc[Error Handling] — The failures a fuse
+  helps you cover
+* xref:reference:boost/burl.adoc[Reference] — cpp:test::response_factory[] in
+  detail

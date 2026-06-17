@@ -1,0 +1,71 @@
+//
+// Copyright (c) 2026 Mohammad Nejati
+//
+// Distributed under the Boost Software License, Version 1.0. (See accompanying
+// file LICENSE_1_0.txt or copy at http://www.boost.org/LICENSE_1_0.txt)
+//
+// Official repository: https://github.com/cppalliance/burl
+//
+
+= Query Parameters
+
+Query parameters are the key-and-value pairs that follow the `?` in a URL. Burl
+lets you add them with the builder's cpp:request_builder::query[query] function,
+and they can equally be written straight into the URL you pass to the verb
+function, the two approaches produce the same request.
+
+== The query Function
+
+cpp:request_builder::query[query] appends a key-and-value pair to the URL's
+query string, percent-encoding both:
+
+[source,cpp]
+----
+auto r = co_await client.get("https://example.com/search")
+    .query("category", "shoes")
+    .query("color", "blue")
+    .send();
+// GET /search?category=shoes&color=blue
+----
+
+Each call adds another parameter, so the order of `query` calls is the order
+they appear in the query string.
+
+== Parameters in the URL
+
+You do not have to use cpp:request_builder::query[query] at all: parameters
+written directly into the URL you supply are treated identically. These two
+requests are equivalent:
+
+[source,cpp]
+----
+// added through query
+auto a = co_await client.get("https://example.com/search")
+    .query("category", "shoes")
+    .query("color", "blue")
+    .send();
+
+// written into the supplied URL
+auto b = co_await client.get("https://example.com/search?category=shoes&color=blue")
+    .send();
+----
+
+== Combining Both
+
+cpp:request_builder::query[query] appends to whatever the URL already carries:
+
+[source,cpp]
+----
+auto r = co_await client.get("https://example.com/search?category=shoes")
+    .query("color", "blue")
+    .send();
+// GET /search?category=shoes&color=blue
+----
+
+== Next Steps
+
+* xref:2.guide/2e.headers.adoc[Headers] — Setting request and default headers
+* xref:2.guide/2a.making-requests.adoc[Making Requests] — The verb functions
+  that accept a URL
+* xref:2.guide/2g.authentication.adoc[Authentication] — The managed
+  `Authorization` header

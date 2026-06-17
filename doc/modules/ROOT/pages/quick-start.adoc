@@ -1,0 +1,208 @@
+//
+// Copyright (c) 2026 Mohammad Nejati
+//
+// Distributed under the Boost Software License, Version 1.0. (See accompanying
+// file LICENSE_1_0.txt or copy at http://www.boost.org/LICENSE_1_0.txt)
+//
+// Official repository: https://github.com/cppalliance/burl
+//
+
+= Quick Start
+
+This guide walks through a complete program that performs an HTTPS request and
+prints the response.
+
+== A Complete Program
+
+A complete Burl program looks like this:
+
+[source,cpp]
+----
+#include <boost/burl.hpp>
+#include <boost/capy.hpp>
+#include <boost/corosio.hpp>
+#include <iostream>
+
+namespace burl    = boost::burl;
+namespace capy    = boost::capy;
+namespace corosio = boost::corosio;
+
+capy::task<>
+run(corosio::tls_context tls_ctx)
+{
+    burl::client client(co_await capy::this_coro::executor, tls_ctx);
+
+    auto body = co_await client.get("https://example.com").as<std::string>();
+
+    std::cout << body << '\n';
+}
+
+int
+main()
+{
+    corosio::io_context ioc;
+    corosio::tls_context tls_ctx;
+
+    capy::run_async(ioc.get_executor())(run(tls_ctx));
+    ioc.run();
+}
+----
+
+The examples that follow assume this scaffolding and show only the body of
+`run`.
+
+== Parse the Body as JSON
+
+Asking for a different type changes how the body comes back. With
+Boost.JSON included, request a `json::value` and the body is parsed as it
+arrives:
+
+[source,cpp]
+----
+auto v = co_await client.get(url).as<json::value>();
+
+std::cout << v.at("orders") << '\n';
+----
+
+The xref:2.guide/2c.responses.adoc[responses] guide lists the built-in body
+types, and xref:2.guide/2n.extending.adoc[extending] shows how to add your own.
+
+== Query Parameters and Headers
+
+The builder shapes the request before it goes out. Chain
+cpp:request_builder::query[query()] to add query-string parameters and
+cpp:request_builder::header[header()] to set headers; each takes either an
+`http::field` enumerator or a string name. Headers set on the client itself are
+sent with every request:
+
+[source,cpp]
+----
+// A default header on the client, sent with every request
+client.headers().set(http::field::user_agent, "BoostBurl/1.0");
+
+auto v = co_await client.get(url)
+    .query("category", "shoes")
+    .query("color", "blue")
+    .header(http::field::accept_language, "en")
+    .header("X-Trace-Id", "abc123")
+    .as<json::value>();
+----
+
+See the xref:2.guide/2f.query-parameters.adoc[query parameters] and
+xref:2.guide/2e.headers.adoc[headers] guides for encoding and the
+client-versus-request precedence rules.
+
+== Authentication
+
+Basic and Bearer credentials can be set once on the client or supplied per
+request; both populate the `Authorization` header:
+
+[source,cpp]
+----
+// Default, sent with every request
+client.basic_auth("user", "pass");
+// or client.bearer_auth("a-secret-token")
+
+auto v = co_await client.get(url)
+    .basic_auth("postman", "password") // per-request override
+    .as<json::value>();
+----
+
+The xref:2.guide/2g.authentication.adoc[authentication] guide covers using
+several sets of credentials through one client.
+
+== Send a Body
+
+The POST, PUT, and PATCH verbs accept a body through the builder. The body's
+type determines the `Content-Type` and framing. A `json::value` is sent as
+`application/json`:
+
+[source,cpp]
+----
+auto v = co_await client.post(url)
+    .body(json::object({ { "user", "John" }, { "lang", "En" } }))
+    .as<json::value>();
+----
+
+A cpp:urlencoded_form[] is sent as `application/x-www-form-urlencoded`:
+
+[source,cpp]
+----
+auto v = co_await client.post(url)
+    .body(burl::urlencoded_form()
+        .append("user", "John")
+        .append("lang", "En"))
+    .as<json::value>();
+----
+
+A cpp:multipart_form[] is sent as `multipart/form-data` and can mix text fields
+with file parts; the filename and MIME type are deduced from the path:
+
+[source,cpp]
+----
+auto v = co_await client.post(url)
+    .body(burl::multipart_form()
+        .file("attachment", "./report.log")
+        .text("priority", "high"))
+    .as<json::value>();
+----
+
+A cpp:std::filesystem::path[] streams a file as the request body, and serves as
+a response type too, writing the body straight to disk:
+
+[source,cpp]
+----
+namespace fs = std::filesystem;
+
+fs::path saved = co_await client.put(url)
+    .body<fs::path>("./report.log")   // upload the file as the body
+    .as<fs::path>("./resp.txt");      // save the response body to a file
+----
+
+The xref:2.guide/2b.request-bodies.adoc[request bodies] guide covers every
+built-in body type and how the `Content-Type` and framing are chosen.
+
+== Inspect the Status and Headers
+
+cpp:request_builder::as[as<T>()] is the shortcut for the common case. When you
+need the status line and headers before deciding what to do with the body, call
+cpp:request_builder::send[send()] instead. It yields `(error_code, response)`
+with the body still unread:
+
+[source,cpp]
+----
+auto [ec, r] = co_await client.get(url).send();
+if(ec)
+    throw std::system_error(ec);
+
+std::cout << "status:  " << r.status_int() << '\n';
+std::cout << "headers: " << r.headers() << '\n';
+std::cout << "body:    " << co_await r.as<std::string>() << '\n';
+----
+
+== Handle Errors Without Throwing
+
+cpp:request_builder::as[as<T>()] throws on any failure, including a 4xx or 5xx
+status. To inspect an error instead, use the `try_` forms, which yield
+`(error_code, T)`:
+
+[source,cpp]
+----
+auto [ec, body] = co_await client.get(url)
+    .try_as<std::string>();
+
+if(ec == burl::condition::client_error)
+    std::cerr << ec.message() << '\n';   // e.g. HTTP 404 Not Found
+----
+
+The xref:2.guide/2d.error-handling.adoc[error handling] guide explains the
+full model, including the order in which different failures take precedence.
+
+== Next Steps
+
+* xref:2.guide/2a.making-requests.adoc[Making Requests] — Verbs, the builder,
+  and deferred execution
+* xref:2.guide/2b.request-bodies.adoc[Request Bodies] — Strings, JSON, forms,
+  and files
+* xref:2.guide/2d.error-handling.adoc[Error Handling] — Errors as values
+* xref:examples.adoc[Examples] — A runnable tour of every feature

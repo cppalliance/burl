@@ -1,0 +1,98 @@
+//
+// Copyright (c) 2026 Mohammad Nejati
+//
+// Distributed under the Boost Software License, Version 1.0. (See accompanying
+// file LICENSE_1_0.txt or copy at http://www.boost.org/LICENSE_1_0.txt)
+//
+// Official repository: https://github.com/cppalliance/burl
+//
+
+= Headers
+
+Headers can be set in two places: on the client, where they apply to every
+request, or on an individual request.
+
+== Default Headers
+
+cpp:client::headers[client::headers()] is the set of headers sent with every
+request. A natural place for things that do not change between requests, such as
+a `User-Agent` or an `Accept`:
+
+[source,cpp]
+----
+client.headers().set(http::field::user_agent, "MyApp/1.0");
+client.headers().set(http::field::accept, "application/json");
+----
+
+== Per-Request Headers
+
+The builder's cpp:request_builder::header[header] function sets a header on a
+single request. It comes in two overloads:
+
+[source,cpp]
+----
+auto r = co_await client.get("https://example.com")
+    .header(http::field::accept_language, "en")
+    .header("X-Trace-Id", "abc123")
+    .send();
+----
+
+== Precedence
+
+A header set on the request takes precedence over a default header of the same
+name on the client:
+
+[source,cpp]
+----
+client.headers().set(http::field::accept, "application/json");
+
+// this one request asks for XML instead
+auto r = co_await client.get("https://example.com")
+    .header(http::field::accept, "application/xml")
+    .send();
+----
+
+== Managed Headers
+
+Some headers are managed by the library and derived from other inputs rather
+than set directly:
+
+[cols="1,2"]
+|===
+| Header | Source
+
+| `Content-Type`
+| The xref:2.guide/2b.request-bodies.adoc[request body], though an explicit
+  `Content-Type` on the request still wins
+
+| `Content-Length`
+| The xref:2.guide/2b.request-bodies.adoc[request body], when its length is
+known
+
+| `Transfer-Encoding`
+| Set to `chunked` for a xref:2.guide/2b.request-bodies.adoc[request body] of
+  unknown length, in place of `Content-Length`
+
+| `Host`
+| The request URL
+
+| `Authorization`
+| xref:2.guide/2g.authentication.adoc[Authentication]
+
+| `Cookie`
+| The xref:2.guide/2i.cookies.adoc[cookie jar]
+
+| `Accept-Encoding`
+| The xref:2.guide/2m.compression.adoc[compression] settings, unless you set it
+  yourself
+|===
+
+== Next Steps
+
+* xref:2.guide/2f.query-parameters.adoc[Query Parameters] — Adding parameters to
+  the URL
+* xref:2.guide/2g.authentication.adoc[Authentication] — The managed
+  `Authorization` header
+* xref:2.guide/2b.request-bodies.adoc[Request Bodies] — Where `Content-Type`
+  comes from
+* xref:2.guide/2i.cookies.adoc[Cookies] — The managed `Cookie` header

@@ -62,20 +62,27 @@ tag_invoke(burl::body_from_tag<nlohmann::json>, const nlohmann::json& value)
 capy::io_task<nlohmann::json>
 tag_invoke(burl::body_to_tag<nlohmann::json>, burl::response& resp)
 {
-    // try inplace buffer first
+    // Try the parser's in-place buffer first; it is allocation-free
+    // when the body fits.
     auto [ec, sv] = co_await resp.try_as_view();
-    if(!ec)
-        co_return { {}, nlohmann::json::parse(sv, nullptr, false) };
 
-    // read to a string when internal buffer is not enough
+    // Fall back to a heap string when the body is larger than the buffer.
+    std::string st;
     if(ec == boost::http::error::in_place_overflow)
     {
-        auto [ec, st] = co_await resp.try_as<std::string>();
-        if(ec)
-            co_return { ec, {} };
-        co_return { {}, nlohmann::json::parse(st, nullptr, false) };
+        auto [sec, body] = co_await resp.try_as<std::string>();
+        ec = sec;
+        st = std::move(body);
+        sv = st;
     }
-    co_return { ec, {} };
+    if(ec)
+        co_return { ec, {} };
+
+    // Surface a parse failure as an error rather than a discarded value.
+    auto doc = nlohmann::json::parse(sv, nullptr, false);
+    if(doc.is_discarded())
+        co_return { make_error_code(std::errc::bad_message), {} };
+    co_return { {}, std::move(doc) };
 }
 
 } // namespace nlohmann

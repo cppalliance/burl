@@ -1,0 +1,118 @@
+//
+// Copyright (c) 2026 Mohammad Nejati
+//
+// Distributed under the Boost Software License, Version 1.0. (See accompanying
+// file LICENSE_1_0.txt or copy at http://www.boost.org/LICENSE_1_0.txt)
+//
+// Official repository: https://github.com/cppalliance/burl
+//
+
+= Redirects
+
+Burl follows redirect responses automatically by default, applying the
+method-change and header rules from the HTTP standard. This section covers
+enabling and bounding redirection, how the request method may change, and what
+happens to the `Referer` header and to credentials.
+
+== Enabling and Bounding
+
+cpp:client::config[config::followlocation] controls whether redirects are
+followed; it is enabled by default. cpp:client::config[config::maxredirs] caps
+how many will be followed before the request fails with
+cpp:error::too_many_redirects[]:
+
+[source,cpp]
+----
+burl::client::config cfg;
+cfg.followlocation = true;   // the default
+cfg.maxredirs = 10;          // the default
+
+burl::client client(co_await capy::this_coro::executor, tls_ctx, cfg);
+----
+
+Following can be turned off for a single request with the builder. The redirect
+response is then returned as-is, with its `Location` header available to
+inspect:
+
+[source,cpp]
+----
+auto [ec, r] = co_await client.get("https://example.com/old")
+    .followlocation(false)
+    .send();
+
+std::cout << r.status_int() << '\n';                       // e.g. 301
+std::cout << r.headers().value_or(http::field::location, "") << '\n';
+----
+
+When redirects are followed, cpp:response::url[response::url()] reports the
+final URL the response came from:
+
+[source,cpp]
+----
+auto [ec, r] = co_await client.get("http://example.com").send();
+std::cout << r.url() << '\n';   // the URL after the last hop
+----
+
+== Method Changes
+
+The status code of a redirect determines whether the method is preserved:
+
+[cols="1,3"]
+|===
+| Status | Behavior
+
+| 301 Moved Permanently
+| Historically changed to `GET`; preserved when
+cpp:client::config[config::post301] is set.
+
+| 302 Found
+| Historically changed to `GET`; preserved when
+cpp:client::config[config::post302] is set.
+
+| 303 See Other
+| Changed to `GET`; preserved when cpp:client::config[config::post303] is set.
+
+| 307 Temporary Redirect
+| Method and body preserved.
+
+| 308 Permanent Redirect
+| Method and body preserved.
+|===
+
+By long-standing convention, a `POST` that meets a 301, 302, or 303 is reissued
+as a `GET` without a body. The `post301`, `post302`, and `post303` settings
+keep the original method instead, for servers that expect the stricter modern
+behavior. 307 and 308 always preserve the method and body, so they are the
+status codes to use when a redirect must not change the request.
+
+== The Referer Header
+
+cpp:client::config[config::autoreferer], enabled by default, sets the `Referer`
+header on each redirected request to the URL being left, with any userinfo
+removed:
+
+[source,cpp]
+----
+burl::client::config cfg;
+cfg.autoreferer = false;   // do not add Referer on redirect
+
+burl::client client(co_await capy::this_coro::executor, tls_ctx, cfg);
+----
+
+== Credentials on Cross-Origin Redirects
+
+When a redirect crosses to a different origin, the `Authorization` and
+`Proxy-Authorization` headers and any explicitly set `Cookie` header are
+dropped, so credentials meant for one host are not handed to another.
+cpp:client::config[config::unrestricted_auth] keeps sending them; the
+xref:2.guide/2g.authentication.adoc[authentication] section covers this in full.
+Same- origin redirects always carry credentials through.
+
+== Next Steps
+
+* xref:2.guide/2g.authentication.adoc[Authentication] — Cross-origin credential
+  stripping
+* xref:2.guide/2i.cookies.adoc[Cookies] — How the jar follows redirects
+* xref:2.guide/2d.error-handling.adoc[Error Handling] —
+  cpp:error::too_many_redirects[too_many_redirects] and
+  cpp:error::bad_redirect_response[bad_redirect_response]

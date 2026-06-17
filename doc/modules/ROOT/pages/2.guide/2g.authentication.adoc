@@ -1,0 +1,75 @@
+//
+// Copyright (c) 2026 Mohammad Nejati
+//
+// Distributed under the Boost Software License, Version 1.0. (See accompanying
+// file LICENSE_1_0.txt or copy at http://www.boost.org/LICENSE_1_0.txt)
+//
+// Official repository: https://github.com/cppalliance/burl
+//
+
+= Authentication
+
+Burl supports HTTP Basic and Bearer authentication. Both populate the
+`Authorization` header of the request.
+
+== Default Credentials
+
+cpp:client::basic_auth[] and cpp:client::bearer_auth[] set the default
+`Authorization` header, sent with every request:
+
+[source,cpp]
+----
+client.basic_auth("user", "pass");
+// or client.bearer_auth("a-secret-token");
+----
+
+== Per-Request Credentials
+
+The builder offers the same two functions for a single request, overriding
+any default set on the client:
+
+[source,cpp]
+----
+auto [ec, r] = co_await client.get("https://api.example.com/data")
+    .basic_auth("user", "pass")
+    // or .bearer_auth("a-secret-token")
+    .send();
+----
+
+This is the way to talk to several endpoints with different credentials
+through one client, or to send one authenticated request from a client that is
+otherwise anonymous.
+
+== Credentials Across Redirects
+
+By default, the `Authorization` header is dropped when a
+xref:2.guide/2h.redirects.adoc[redirect] leads to a different origin than the
+original request. This prevents credentials intended for one host from being
+forwarded to another.
+
+When the redirect target is trusted, such as another host in the same service,
+set cpp:client::config[config::unrestricted_auth] to keep sending it:
+
+[source,cpp]
+----
+burl::client::config cfg;
+cfg.unrestricted_auth = true;
+
+burl::client client(co_await capy::this_coro::executor, tls_ctx, cfg);
+----
+
+Credentials are always sent on a redirect that stays on the same origin,
+regardless of this setting.
+
+== Custom Schemes
+
+For an authentication scheme Burl does not build in, you can set the
+`Authorization` header yourself with the builder's
+xref:2.guide/2e.headers.adoc[`header`] function. A header you set explicitly
+is sent as-is.
+
+== Next Steps
+
+* xref:2.guide/2h.redirects.adoc[Redirects] — When credentials are stripped
+* xref:2.guide/2e.headers.adoc[Headers and Query Parameters] — Setting a
+  scheme by hand

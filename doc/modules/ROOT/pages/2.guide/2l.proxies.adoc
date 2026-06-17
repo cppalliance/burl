@@ -1,0 +1,82 @@
+//
+// Copyright (c) 2026 Mohammad Nejati
+//
+// Distributed under the Boost Software License, Version 1.0. (See accompanying
+// file LICENSE_1_0.txt or copy at http://www.boost.org/LICENSE_1_0.txt)
+//
+// Official repository: https://github.com/cppalliance/burl
+//
+
+= Proxies
+
+A client can route all of its connections through a proxy, configured with a
+single URL. HTTP and SOCKS5 proxies are supported.
+
+== Configuring a Proxy
+
+Set cpp:client::config[config::proxy] to the proxy URL, with any credentials in
+its userinfo:
+
+[source,cpp]
+----
+burl::client::config cfg;
+cfg.proxy = urls::url("socks5h://user:pass@localhost:1080");
+
+burl::client client(co_await capy::this_coro::executor, tls_ctx, cfg);
+
+// established through the proxy
+auto r = co_await client.get("https://example.com").send();
+----
+
+== Supported Schemes
+
+The proxy URL's scheme selects the kind of proxy:
+
+[cols="1,3"]
+|===
+| Scheme | Proxy
+
+| `http`
+| An HTTP proxy. `https` targets are tunnelled with `CONNECT`.
+
+| `socks5`
+| A SOCKS5 proxy. The client resolves the target hostname itself.
+
+| `socks5h`
+| A SOCKS5 proxy that resolves the target hostname on the proxy's side.
+|===
+
+The difference between `socks5` and `socks5h` is where DNS resolution happens:
+with `socks5h`, the proxy resolves the name, which keeps the lookup off the
+client's network and is the right choice when the proxy can reach names the
+client cannot. Any scheme not listed above fails the request with
+cpp:error::unsupported_proxy_scheme[].
+
+== Proxy Errors
+
+Failures negotiating with the proxy have their own
+xref:2.guide/2d.error-handling.adoc[error codes], distinct from failures
+reaching the target:
+
+[cols="1,2"]
+|===
+| cpp:error[] | Meaning
+
+| cpp:error::unsupported_proxy_scheme[unsupported_proxy_scheme]
+| The proxy URL's scheme is not supported.
+
+| cpp:error::proxy_connect_failed[proxy_connect_failed]
+| The proxy could not connect to the target.
+
+| cpp:error::proxy_auth_failed[proxy_auth_failed]
+| Authentication with the proxy failed.
+
+| cpp:error::proxy_unsupported_version[proxy_unsupported_version]
+| The proxy replied with an unsupported protocol version.
+|===
+
+== Next Steps
+
+* xref:2.guide/2k.connection-pool.adoc[Connection Pool] — Pooling of proxied
+  connections
+* xref:2.guide/2d.error-handling.adoc[Error Handling] — The proxy error codes

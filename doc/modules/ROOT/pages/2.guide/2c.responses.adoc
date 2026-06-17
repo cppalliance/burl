@@ -1,0 +1,168 @@
+//
+// Copyright (c) 2026 Mohammad Nejati
+//
+// Distributed under the Boost Software License, Version 1.0. (See accompanying
+// file LICENSE_1_0.txt or copy at http://www.boost.org/LICENSE_1_0.txt)
+//
+// Official repository: https://github.com/cppalliance/burl
+//
+
+= Responses
+
+A cpp:response[] gives access to the status, headers, and body of a reply. When
+you obtain one, the status line and headers have already been read; the body is
+still on the connection, waiting to be consumed. This section covers reading the
+metadata and the four ways to read the body.
+
+== Status, Headers, and URL
+
+The metadata is available immediately, without any further I/O:
+
+[source,cpp]
+----
+auto [ec, r] = co_await client.get(url).send();
+
+r.status();           // http::status, e.g. http::status::not_found
+r.status_int();       // unsigned short, e.g. 404
+r.reason();           // string_view, e.g. "Not Found"
+r.ok();               // true for a 2xx status
+r.raise_for_status(); // throws on 4xx and 5xx
+r.version();          // http::version
+r.headers();          // const http::fields_base&
+r.url();              // urls::url_view, the final URL after redirects
+r.content_length();   // optional<uint64_t>, empty for a chunked body
+----
+
+== Reading the Body
+
+The body is read on demand, and there are four ways to do it:
+
+[cols="1,2"]
+|===
+| Approach | Use when
+
+| Convert to a type (cpp:response::as[as<T>], cpp:response::try_as[try_as<T>])
+| You want the whole body as a cpp:std::string[], a JSON value, or a file.
+
+| Read in place (cpp:response::as_view[as_view],
+cpp:response::try_as_view[try_as_view])
+| The body fits in the parser's buffer and you want a view with no allocation.
+
+| Buffer source (cpp:response::as_buffer_source[as_buffer_source])
+| The body is large; process it in chunks from the parser's own buffers.
+
+| Read source (cpp:response::as_read_source[as_read_source])
+| You want the body read incrementally into buffers you provide.
+|===
+
+== Converting to a Type
+
+cpp:response::as[as<T>] and cpp:response::try_as[try_as<T>] read the entire body
+and convert it to `T`. The type selects the conversion:
+
+[source,cpp]
+----
+std::string s = co_await r.as<std::string>();
+json::value v = co_await r.as<json::value>();
+----
+
+The built-in response conversions are:
+
+[cols="1,2"]
+|===
+| Type | Result
+
+| cpp:std::string[]
+| The raw body bytes.
+
+| `json::value`
+| The body parsed as JSON.
+
+| `json::object`, `json::array`, `json::string`
+| The body parsed as JSON, failing if it is not of that kind.
+
+| cpp:std::filesystem::path[]
+| The body written to a file; yields the path.
+|===
+
+xref:2.guide/2n.extending.adoc[Extending] shows how to add your own type.
+
+A conversion may take extra arguments, forwarded after the type. Saving to a
+file takes the destination path:
+
+[source,cpp]
+----
+auto path = co_await r.as<std::filesystem::path>("./download.bin");
+----
+
+== Reading in Place
+
+When the body is small enough to fit in the parser's internal buffer,
+cpp:response::as_view[as_view] and cpp:response::try_as_view[try_as_view] read
+it there and return a cpp:std::string_view[] over it, without a separate
+allocation:
+
+[source,cpp]
+----
+std::string_view body = co_await r.as_view();
+----
+
+The buffer's size is cpp:client::config[config::response_inplace_buffer]. A body
+that does not fit fails with `http::error::in_place_overflow`, which is a signal
+to fall back to cpp:response::as[as<std::string>] rather than a hard error. The
+returned view points into memory owned by the response and is valid until the
+response is destroyed or moved from.
+
+== Streaming with a Buffer Source
+
+For a body too large to hold in memory,
+cpp:response::as_buffer_source[as_buffer_source] returns a source that exposes
+the parser's buffers directly as the body arrives. Pull buffers, consume them,
+and repeat until end of stream:
+
+[source,cpp]
+----
+auto source = r.as_buffer_source();
+for(;;)
+{
+    capy::const_buffer arr[8];
+    auto [ec, bufs] = co_await source.pull(arr);
+    if(ec == capy::cond::eof)
+        break;
+    if(ec)
+        throw std::system_error(ec);
+    for(auto const& buf : bufs)
+    {
+        write_somewhere(buf.data(), buf.size());
+        source.consume(buf.size());
+    }
+}
+----
+
+cpp:response::as_read_source[as_read_source] is the alternative when you would
+rather the body be read into buffers you supply than borrow the parser's.
+
+== The Connection's Lifetime
+
+A cpp:response[] owns the connection it arrived on. When the response is
+destroyed, that connection is returned to the
+xref:2.guide/2k.connection-pool.adoc[pool] for reuse, but only if it can be kept
+alive and the whole message has been received. A body left partially read, or a
+response whose connection cannot be reused, is closed instead. Reading the body
+to completion is therefore what allows the connection to be reused; this happens
+naturally with cpp:response::as[as<T>] and cpp:response::as_view[as_view], and
+is your responsibility when streaming.
+
+A response remains usable after the client that produced it is gone. In that
+case the connection is simply closed on destruction rather than pooled.
+
+== Next Steps
+
+* xref:2.guide/2d.error-handling.adoc[Error Handling] — What the read can fail
+  with
+* xref:2.guide/2m.compression.adoc[Compression] — Transparent decompression
+  of the body
+* xref:2.guide/2k.connection-pool.adoc[Connection Pool] — Where the connection
+  goes next
+* xref:2.guide/2n.extending.adoc[Extending] — Converting the body to your own
+  types

@@ -1,6 +1,94 @@
-= Burl
+//
+// Copyright (c) 2026 Mohammad Nejati
+//
+// Distributed under the Boost Software License, Version 1.0. (See accompanying
+// file LICENSE_1_0.txt or copy at http://www.boost.org/LICENSE_1_0.txt)
+//
+// Official repository: https://github.com/cppalliance/burl
+//
 
-Burl is a high-level HTTP client library built on Capy and Http.
+= Boost.Burl
+
+Boost.Burl is a high-level HTTP client for C++20. It turns a request into a
+single expression:
+
+[source,cpp]
+----
+burl::client client(exec, tls_ctx);
+
+std::cout << co_await client.get(url).as<std::string>();
+----
+
+That single call sends the request, waits for the response, and reads the body
+into a string. A 4xx or 5xx status, a transport failure, or a body that cannot
+be read all surface as a thrown cpp:std::system_error[]. The
+xref:2.guide/2d.error-handling.adoc[error handling] guide covers the
+non-throwing alternatives.
+
+Burl sits at the top of the stack: it composes the sans-I/O HTTP/1.1 parser
+and serializer from Boost.Http with the coroutine streams of Boost.Capy and
+the networking of Boost.Corosio, and adds the conveniences an application
+actually reaches for — body conversions, connection reuse, redirects, content
+decoding, cookies, authentication, proxies, and timeouts.
+
+== What This Library Does
+
+* *One-expression requests* — `client.get(url).as<T>()` performs the request
+  and delivers the body as the type you asked for
+* *Body conversions* — cpp:std::string[], `boost::json` types, URL-encoded and
+  multipart forms, and files, with user-defined types pluggable through
+  `tag_invoke`
+* *Connection pooling* — keep-alive connections reused per origin, with idle
+  timeouts and per-host caps
+* *Automatic redirects* — 301/302/303/307/308 with standards-compliant method
+  changes, `Referer` handling, and credential stripping on cross-origin hops
+* *Content decoding* — transparent `gzip`, `deflate`, and `br` when the
+  corresponding decode service is installed
+* *Cookies* — an RFC 6265 jar with optional public-suffix validation, and
+  persistence in the Netscape cookie file format
+* *Authentication* — Basic and Bearer, set per client or per request
+* *Proxies* — `http`, `socks5`, and `socks5h`, with credentials
+* *Timeouts* — connect, per-I/O, and whole-operation, overridable per request
+* *Streaming and in-place reads* — pull a body incrementally, or read it from
+  the parser's buffer without extra allocations
+
+== What This Library Does Not Do
+
+Burl is a focused HTTP/1.1 client. It does not provide:
+
+* *A server* — Burl makes requests; see Boost.Http and Boost.Beast2 for
+  serving them
+* *HTTP/2 or HTTP/3* — the wire protocol is HTTP/1.1
+* *Its own event loop, sockets, or TLS* — those come from Boost.Corosio
+* *Callbacks or futures* — like the libraries beneath it, Burl is
+  coroutine-only
+
+== Design Philosophy
+
+* *The common case is one line.* The verb functions, the builder, and the
+  body conversions exist so that the request most people make most often reads
+  as a single expression. Everything else is reachable when you need it.
+* *Errors are values, with an opt-in to exceptions.* Every operation has a
+  `try_*` form yielding `(error_code, T)` and a throwing form. A 4xx or 5xx
+  status is itself an error, so the success path stays clear of status checks.
+* *Bodies are open.* Request and response bodies are an extension point, not a
+  closed enumeration. Teaching Burl about a new type is a pair of `tag_invoke`
+  overloads.
+* *Coroutines only.* Building on a coroutine-only stack removes the
+  compromises a hybrid model imposes and keeps the request path linear and
+  readable.
+
+== Target Audience
+
+Burl is for C++ developers writing applications that consume HTTP APIs and
+fetch resources. This documentation assumes:
+
+* *C++20 coroutines* — `co_await`, `co_return`, and awaitables
+* *Familiarity with Boost.Capy* — `task<T>`, executors, and buffer sequences
+* *Basic HTTP* — methods, status codes, and headers
+
+If coroutines or the underlying stack are unfamiliar, the Boost.Capy and
+Boost.Corosio documentation cover them from the ground up.
 
 == Requirements
 
@@ -15,3 +103,55 @@ Burl is a high-level HTTP client library built on Capy and Http.
 * Clang 17+
 * Apple-Clang (macOS 14+)
 * MSVC 14.34+
+
+=== Dependencies
+
+Boost.Burl is built on Boost.Capy, Boost.Corosio, and Boost.Http, and uses
+Boost.URL, Boost.JSON, and Boost.System. Content decoding requires Boost.Http
+built with zlib (`gzip`, `deflate`) and brotli (`br`). Public-suffix
+validation of cookies requires libpsl.
+
+== Code Convention
+
+[NOTE]
+====
+Unless otherwise specified, code examples in this documentation assume the
+following declarations are in effect:
+
+[source,cpp]
+----
+#include <boost/burl.hpp>
+#include <boost/capy.hpp>
+#include <boost/corosio.hpp>
+#include <boost/json.hpp>
+
+namespace burl    = boost::burl;
+namespace capy    = boost::capy;
+namespace corosio = boost::corosio;
+namespace http    = boost::http;
+namespace json    = boost::json;
+namespace urls    = boost::urls;
+----
+
+Snippets that perform requests run inside a coroutine, with a cpp:client[] and a
+`corosio::tls_context tls_ctx` already constructed:
+
+[source,cpp]
+----
+burl::client client(co_await capy::this_coro::executor, tls_ctx);
+----
+
+The xref:quick-start.adoc[Quick Start] shows the surrounding program in full.
+====
+
+== Next Steps
+
+* xref:quick-start.adoc[Quick Start] — Build and run your first request
+* xref:2.guide/2a.making-requests.adoc[Making Requests] — The client, verbs,
+  and the request builder
+* xref:2.guide/2c.responses.adoc[Responses] — Status, headers, and reading the
+  body
+* xref:2.guide/2d.error-handling.adoc[Error Handling] — The value-and-exception
+  error model
+* xref:examples.adoc[Examples] — A runnable tour of the API
+* xref:reference:boost/burl.adoc[Reference] — The generated API reference

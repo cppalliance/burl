@@ -1,0 +1,167 @@
+//
+// Copyright (c) 2026 Mohammad Nejati
+//
+// Distributed under the Boost Software License, Version 1.0. (See accompanying
+// file LICENSE_1_0.txt or copy at http://www.boost.org/LICENSE_1_0.txt)
+//
+// Official repository: https://github.com/cppalliance/burl
+//
+
+= Making Requests
+
+Every request begins at a cpp:client[] and is assembled by a
+cpp:request_builder[]. This section covers both, and the three ways a builder is
+finished.
+
+== The Client
+
+A cpp:client[] is the entry point for performing requests. It owns the
+configuration, a connection pool, a set of default headers, and a cookie jar,
+all shared by every request made through it. Construct one client and reuse it:
+that is what lets connections to the same origin be kept alive and reused
+across requests.
+
+[source,cpp]
+----
+burl::client client(co_await capy::this_coro::executor, tls_ctx);
+----
+
+The constructor takes the executor that asynchronous operations run on and a
+`corosio::tls_context` for `https` connections. A third argument, a
+cpp:client::config[], customizes behavior.
+
+A client is movable but not copyable. It is not safe to use a single client
+concurrently from operations running on different threads.
+
+== Verbs
+
+Six member functions create a builder for the common methods:
+
+[cols="1,2"]
+|===
+| Function | Method
+
+| cpp:client::get[]     | `GET`
+| cpp:client::head[]    | `HEAD`
+| cpp:client::post[]    | `POST`
+| cpp:client::put[]     | `PUT`
+| cpp:client::patch[]   | `PATCH`
+| cpp:client::delete_[] | `DELETE`
+|===
+
+For any other method, cpp:client::request[] takes an `http::method` and the URL:
+
+[source,cpp]
+----
+auto rb = client.request(http::method::options, "https://example.com");
+----
+
+Only the `http` and `https` schemes are supported; any other scheme fails
+the request with cpp:error::unsupported_url_scheme[].
+
+== The Request Builder
+
+The verb functions return a cpp:request_builder[]. Its member functions
+configure the request and return the builder again, so calls chain:
+
+[source,cpp]
+----
+auto r = co_await client.get("https://example.com/search")
+    .query("q", "boost")
+    .header(http::field::accept, "application/json")
+    .timeout(std::chrono::seconds(10))
+    .send();
+----
+
+The builder holds a reference to the client, which must stay alive until the
+request has been sent. The configuration calls —
+cpp:request_builder::query[query], cpp:request_builder::header[header],
+cpp:request_builder::basic_auth[basic_auth],
+cpp:request_builder::bearer_auth[bearer_auth],
+cpp:request_builder::timeout[timeout],
+cpp:request_builder::followlocation[followlocation], and
+cpp:request_builder::body[body] — are each documented in the section for their
+feature. A chain is finished by one of three terminal calls.
+
+== Finishing: send
+
+cpp:request_builder::send[send()] sends the request and reads the status line
+and headers, leaving the body unread. It yields `(error_code, response)`:
+
+[source,cpp]
+----
+auto [ec, r] = co_await client.get("https://example.com").send();
+if(ec)
+    throw std::system_error(ec);
+
+// inspect r.status_int(), r.headers(), then read the body
+----
+
+Use `send` when a decision depends on the status or headers before the body is
+consumed — choosing how to parse it, or short-circuiting on an error. A 4xx or
+5xx status sets `ec` but still returns the response, so the error body remains
+readable. The xref:2.guide/2c.responses.adoc[responses] section covers what the
+returned cpp:response[] offers.
+
+== Finishing: as and try_as
+
+When the goal is simply the body as a particular type,
+cpp:request_builder::as[as<T>] and cpp:request_builder::try_as[try_as<T>]
+combine sending and reading into one step:
+
+[source,cpp]
+----
+// throws on failure
+auto body = co_await client.get("https://example.com").as<std::string>();
+
+// yields (error_code, T)
+auto [ec, v] = co_await client.get("https://example.com").try_as<json::value>();
+----
+
+cpp:request_builder::as[as<T>] throws a cpp:std::system_error[] on any failure;
+cpp:request_builder::try_as[try_as<T>] reports it as an error code. The type `T`
+selects the conversion through `tag_invoke`. These are the same conversions
+offered by cpp:response[], so
+
+[source,cpp]
+----
+co_await client.get(url).as<T>();
+----
+
+is shorthand for `send`-ing the request and calling cpp:response::as<T>[] on the
+result. The exact failure semantics — in particular what happens on a 4xx or 5xx
+status — are the subject of the
+xref:2.guide/2d.error-handling.adoc[error handling] section.
+
+== Finishing: build and execute
+
+cpp:request_builder::build[build()] does not send anything. It returns a
+cpp:request[] — a plain value holding the method, URL, headers, body, and
+per-request options — that can be stored, passed around, and executed later
+through cpp:client::execute[]:
+
+[source,cpp]
+----
+burl::request req = client.post("https://example.com/post")
+    .header("X-Debug", "1")
+    .body("payload")
+    .build();
+
+auto [ec, r] = co_await client.execute(std::move(req));
+----
+
+`execute` behaves exactly like cpp:request_builder::send[send]: it yields
+`(error_code, response)` with the body unread. Separating construction from
+execution is useful for building a request in one place and running it in
+another, for queuing requests, or for retrying the same request after a failure.
+A built cpp:request[] is independent of the builder and of any particular
+client; it can be executed by whichever client is convenient.
+
+== Next Steps
+
+* xref:2.guide/2b.request-bodies.adoc[Request Bodies] — Attaching a payload
+* xref:2.guide/2c.responses.adoc[Responses] — Reading the result
+* xref:2.guide/2d.error-handling.adoc[Error Handling] — What the error code
+  means
+* xref:2.guide/2e.headers.adoc[Headers and Query Parameters] — Shaping the
+  request
