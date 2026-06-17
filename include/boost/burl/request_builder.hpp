@@ -84,7 +84,7 @@ public:
 
     /** Append a parameter to the URL query.
 
-        The key and value are percent-encoded.
+        The name and value are percent-encoded.
 
         @par Example
         @code
@@ -94,7 +94,7 @@ public:
             .send();
         @endcode
 
-        @param key The key of the parameter.
+        @param name The name of the parameter.
 
         @param value The value of the parameter.
 
@@ -102,7 +102,7 @@ public:
     */
     BOOST_BURL_DECL
     request_builder&&
-    query(std::string_view key, std::string_view value) &&;
+    query(std::string_view name, std::string_view value) &&;
 
     /** Set a request header.
 

@@ -16,10 +16,10 @@ files are written exactly this way.
 
 == Sending a Type as a Request Body
 
-To make a type usable with the builder's
-xref:2.guide/2b.request-bodies.adoc[`body`] function, provide a `tag_invoke`
-overload taking cpp:body_from_tag<T>[]. It returns an cpp:any_request_body[], a
-type-erased wrapper around an object satisfying the cpp:RequestBody[] concept:
+To make a type usable with the cpp:request_builder::body[] function, provide a
+`tag_invoke` overload taking cpp:body_from_tag<T>[]. It returns an
+cpp:any_request_body[], a type-erased wrapper around an object satisfying the
+cpp:RequestBody[] concept:
 
 [source,cpp]
 ----
@@ -31,112 +31,51 @@ struct RequestBody
 };
 ----
 
-Here is a complete body that serializes an `nlohmann::json` document. Because
+Here is a complete body that serializes an
+https://github.com/nlohmann/json[`nlohmann::json`^] document. Because
 the serialized text is materialized first, its size is known, so the body
 reports a `Content-Length`:
 
 [source,cpp]
 ----
-namespace nlohmann
-{
-burl::any_request_body
-tag_invoke(burl::body_from_tag<nlohmann::json>, const nlohmann::json& value)
-{
-    class json_body
-    {
-        std::string text_;
-
-    public:
-        explicit json_body(const nlohmann::json& value)
-            : text_(value.dump())
-        {
-        }
-
-        std::optional<std::string>
-        content_type() const
-        {
-            return "application/json";
-        }
-
-        std::optional<std::uint64_t>
-        content_length() const noexcept
-        {
-            return text_.size();
-        }
-
-        capy::io_task<>
-        write(capy::any_buffer_sink& sink) const
-        {
-            auto [ec, n] = co_await sink.write(capy::make_buffer(text_));
-            co_return { ec };
-        }
-    };
-    return json_body{ value };
-}
-} // namespace nlohmann
+include::example$nlohmann_json.cpp[tag=body_from,indent=0]
 ----
 
+Because `content_length()` returns a size, the request goes out with a
+`Content-Length` header; had it returned cpp:std::nullopt[], the body would be
+sent with chunked transfer encoding instead. The `application/json` from
+`content_type()` is used unless the request already sets that header explicitly.
+
 The overload is found by argument-dependent lookup, so placing it in the type's
-own namespace is enough. The type then works with `body` like any built-in:
+own namespace is enough. The type then works with cpp:request_builder::body[]
+like any built-in:
 
 [source,cpp]
 ----
-nlohmann::json doc({ { "user", "John" } });
-
 auto r = co_await client.post("https://example.com/post")
-    .body(doc)
+    .body<nlohmann::json>({ { "user", "John" } })
     .send();
 ----
 
 == Reading a Response Body into a Type
 
-To make a type usable with xref:2.guide/2c.responses.adoc[cpp:response::as[]]
-and cpp:request_builder::as[], provide a `tag_invoke` overload taking
-cpp:body_to_tag<T>[]. It takes the cpp:response[] and returns a
-`capy::io_task<T>` that reads and converts the body:
+To read a response into a value with cpp:request_builder::as<T>[as<T>] or
+cpp:request_builder::try_as<T>[try_as<T>], provide a `tag_invoke` overload
+taking cpp:body_to_tag<T>[] and the cpp:response[]. It returns a
+`capy::io_task<T>` that reads the body and converts it:
 
 [source,cpp]
 ----
-namespace nlohmann
-{
-capy::io_task<nlohmann::json>
-tag_invoke(burl::body_to_tag<nlohmann::json>, burl::response& resp)
-{
-    // Try the parser's in-place buffer first; it is allocation-free
-    // when the body fits.
-    auto [ec, sv] = co_await resp.try_as_view();
-
-    // Fall back to a heap string when the body is larger than the buffer.
-    std::string st;
-    if(ec == http::error::in_place_overflow)
-    {
-        auto [sec, body] = co_await resp.try_as<std::string>();
-        ec = sec;
-        st = std::move(body);
-        sv = st;
-    }
-    if(ec)
-        co_return { ec, {} };
-
-    // Surface a parse failure as an error rather than a discarded value.
-    auto doc = nlohmann::json::parse(sv, nullptr, false);
-    if(doc.is_discarded())
-        co_return { make_error_code(std::errc::bad_message), {} };
-    co_return { {}, std::move(doc) };
-}
-} // namespace nlohmann
+include::example$nlohmann_json.cpp[tag=body_to,indent=0]
 ----
 
-This conversion shows the recommended pattern: read with
-xref:2.guide/2c.responses.adoc[cpp:response::try_as_view[try_as_view]] first,
-which is allocation-free when the body fits the parser's in-place buffer, and on
-`http::error::in_place_overflow` fall back to reading into a cpp:std::string[].
-Build the result on a value-side `tag_invoke` rather than reaching for raw I/O,
-and you inherit the xref:2.guide/2j.timeouts.adoc[timeout] handling and the
-buffer reuse the response already provides.
+This follows the recommended pattern for reading a body. It first calls
+cpp:response::try_as_view[try_as_view], which is allocation-free when the body
+fits the parser's in-place buffer, and only on `http::error::in_place_overflow`
+falls back to reading into a cpp:std::string[].
 
-With both overloads in place, the type is a first-class body in both
-directions:
+With the overload in place, the type is usable with
+cpp:request_builder::as<T>[as<T>] and cpp:request_builder::try_as<T>[try_as<T>]:
 
 [source,cpp]
 ----
@@ -148,7 +87,7 @@ auto doc = co_await client.get("https://example.com/data")
 
 Both `body` and `as` forward any trailing arguments to the matching
 `tag_invoke`, positioned after its fixed parameters. An overload can therefore
-take configuration that burl knows nothing about.
+take configuration that Burl knows nothing about.
 
 The built-in file conversion uses this for its destination path. Its overload
 declares the extra parameter after the cpp:response[]:
@@ -172,9 +111,7 @@ co_await client.get("https://example.com/file")
 
 == Next Steps
 
-* xref:2.guide/2b.request-bodies.adoc[Request Bodies] — The built-in request
-  body types
-* xref:2.guide/2c.responses.adoc[Responses] — The built-in response conversions
-  and cpp:response::try_as_view[try_as_view]
-* xref:examples/nlohmann_json.adoc[nlohmann/json] — The full `nlohmann::json`
-  example
+* xref:2.guide/2b.request-bodies.adoc[] — The built-in request body types
+* xref:2.guide/2c.responses.adoc[] — The built-in response conversions and
+  cpp:response::try_as_view[try_as_view]
+* xref:examples/nlohmann_json.adoc[] — The full `nlohmann::json` example

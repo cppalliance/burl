@@ -30,7 +30,7 @@ r.raise_for_status(); // throws on 4xx and 5xx
 r.version();          // http::version
 r.headers();          // const http::fields_base&
 r.url();              // urls::url_view, the final URL after redirects
-r.content_length();   // optional<uint64_t>, empty for a chunked body
+r.content_length();   // std::optional<std::uint64_t>, empty for a chunked body
 ----
 
 == Reading the Body
@@ -158,11 +158,7 @@ case the connection is simply closed on destruction rather than pooled.
 
 == Next Steps
 
-* xref:2.guide/2d.error-handling.adoc[Error Handling] — What the read can fail
-  with
-* xref:2.guide/2m.compression.adoc[Compression] — Transparent decompression
-  of the body
-* xref:2.guide/2k.connection-pool.adoc[Connection Pool] — Where the connection
-  goes next
-* xref:2.guide/2n.extending.adoc[Extending] — Converting the body to your own
-  types
+* xref:2.guide/2d.error-handling.adoc[] — What the read can fail with
+* xref:2.guide/2m.compression.adoc[] — Transparent decompression of the body
+* xref:2.guide/2k.connection-pool.adoc[] — Where the connection goes next
+* xref:2.guide/2n.extending.adoc[] — Converting the body to your own types

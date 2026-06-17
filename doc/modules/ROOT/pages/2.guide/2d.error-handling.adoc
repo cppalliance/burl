@@ -114,9 +114,7 @@ the *earliest* failure in this order:
 
 == Next Steps
 
-* xref:2.guide/2c.responses.adoc[Responses] — Reading a body once the status is
-  known
-* xref:2.guide/2j.timeouts.adoc[Timeouts] — A common source of transport
-  failures
-* xref:2.guide/2h.redirects.adoc[Redirects] — Where
+* xref:2.guide/2c.responses.adoc[] — Reading a body once the status is known
+* xref:2.guide/2j.timeouts.adoc[] — A common source of transport failures
+* xref:2.guide/2h.redirects.adoc[] — Where
   cpp:error::too_many_redirects[too_many_redirects] comes from

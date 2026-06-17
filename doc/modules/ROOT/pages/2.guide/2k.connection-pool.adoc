@@ -61,9 +61,6 @@ consequences:
 
 == Next Steps
 
-* xref:2.guide/2c.responses.adoc[Responses] — Reading the body to free the
-  connection
-* xref:2.guide/2j.timeouts.adoc[Timeouts] — Connect and I/O timeouts on new
-  connections
-* xref:2.guide/2l.proxies.adoc[Proxies] — Establishing connections through a
-  proxy
+* xref:2.guide/2c.responses.adoc[] — Reading the body to free the connection
+* xref:2.guide/2j.timeouts.adoc[] — Connect and I/O timeouts on new connections
+* xref:2.guide/2l.proxies.adoc[] — Establishing connections through a proxy

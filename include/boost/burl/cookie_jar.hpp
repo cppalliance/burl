@@ -28,7 +28,7 @@ namespace burl
     This container stores cookies received in
     responses and produces the `Cookie` header
     value for requests, applying the storage and
-    matching rules of RFC 6265. A @ref client with
+    matching rules of RFC 6265bis. A @ref client with
     @ref client::config::cookies enabled maintains
     its cookie jar automatically.
 
@@ -81,7 +81,7 @@ public:
     /** Add a cookie received from a URL.
 
         This function performs the storage checks of
-        RFC 6265 against the URL the cookie was
+        RFC 6265bis against the URL the cookie was
         received from:
 
         @li When the cookie carries a `Domain`
@@ -125,7 +125,7 @@ public:
         by domain, path, and the `Secure` attribute,
         and returned as `name=value` pairs separated
         by `"; "`, ordered with longer paths first
-        (RFC 6265 5.4). Expired cookies encountered
+        (RFC 6265bis 5.4). Expired cookies encountered
         during matching are removed from the jar.
 
         @param url The URL of the request.

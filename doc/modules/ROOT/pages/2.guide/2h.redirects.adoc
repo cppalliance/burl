@@ -44,7 +44,7 @@ std::cout << r.status_int() << '\n';                       // e.g. 301
 std::cout << r.headers().value_or(http::field::location, "") << '\n';
 ----
 
-When redirects are followed, cpp:response::url[response::url()] reports the
+When redirects are followed, cpp:response::url[] reports the
 final URL the response came from:
 
 [source,cpp]
@@ -106,13 +106,12 @@ When a redirect crosses to a different origin, the `Authorization` and
 dropped, so credentials meant for one host are not handed to another.
 cpp:client::config[config::unrestricted_auth] keeps sending them; the
 xref:2.guide/2g.authentication.adoc[authentication] section covers this in full.
-Same- origin redirects always carry credentials through.
+Same-origin redirects always carry credentials through.
 
 == Next Steps
 
-* xref:2.guide/2g.authentication.adoc[Authentication] — Cross-origin credential
-  stripping
-* xref:2.guide/2i.cookies.adoc[Cookies] — How the jar follows redirects
-* xref:2.guide/2d.error-handling.adoc[Error Handling] —
+* xref:2.guide/2g.authentication.adoc[] — Cross-origin credential stripping
+* xref:2.guide/2i.cookies.adoc[] — How the jar follows redirects
+* xref:2.guide/2d.error-handling.adoc[] —
   cpp:error::too_many_redirects[too_many_redirects] and
   cpp:error::bad_redirect_response[bad_redirect_response]

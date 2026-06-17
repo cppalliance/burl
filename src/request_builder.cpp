@@ -20,9 +20,9 @@ namespace burl
 {
 
 request_builder&&
-request_builder::query(std::string_view key, std::string_view value) &&
+request_builder::query(std::string_view name, std::string_view value) &&
 {
-    request_.url.params().append({ key, value });
+    request_.url.params().append({ name, value });
     return std::move(*this);
 }
 

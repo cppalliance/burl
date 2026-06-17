@@ -25,12 +25,6 @@ be read all surface as a thrown cpp:std::system_error[]. The
 xref:2.guide/2d.error-handling.adoc[error handling] guide covers the
 non-throwing alternatives.
 
-Burl sits at the top of the stack: it composes the sans-I/O HTTP/1.1 parser
-and serializer from Boost.Http with the coroutine streams of Boost.Capy and
-the networking of Boost.Corosio, and adds the conveniences an application
-actually reaches for — body conversions, connection reuse, redirects, content
-decoding, cookies, authentication, proxies, and timeouts.
-
 == What This Library Does
 
 * *One-expression requests* — `client.get(url).as<T>()` performs the request
@@ -44,7 +38,7 @@ decoding, cookies, authentication, proxies, and timeouts.
   changes, `Referer` handling, and credential stripping on cross-origin hops
 * *Content decoding* — transparent `gzip`, `deflate`, and `br` when the
   corresponding decode service is installed
-* *Cookies* — an RFC 6265 jar with optional public-suffix validation, and
+* *Cookies* — an RFC 6265bis jar with optional public-suffix validation, and
   persistence in the Netscape cookie file format
 * *Authentication* — Basic and Bearer, set per client or per request
 * *Proxies* — `http`, `socks5`, and `socks5h`, with credentials
@@ -78,18 +72,6 @@ Burl is a focused HTTP/1.1 client. It does not provide:
   compromises a hybrid model imposes and keeps the request path linear and
   readable.
 
-== Target Audience
-
-Burl is for C++ developers writing applications that consume HTTP APIs and
-fetch resources. This documentation assumes:
-
-* *C++20 coroutines* — `co_await`, `co_return`, and awaitables
-* *Familiarity with Boost.Capy* — `task<T>`, executors, and buffer sequences
-* *Basic HTTP* — methods, status codes, and headers
-
-If coroutines or the underlying stack are unfamiliar, the Boost.Capy and
-Boost.Corosio documentation cover them from the ground up.
-
 == Requirements
 
 === Assumed Knowledge
@@ -111,7 +93,7 @@ Boost.URL, Boost.JSON, and Boost.System. Content decoding requires Boost.Http
 built with zlib (`gzip`, `deflate`) and brotli (`br`). Public-suffix
 validation of cookies requires libpsl.
 
-== Code Convention
+== Code Conventions
 
 [NOTE]
 ====
@@ -146,12 +128,10 @@ The xref:quick-start.adoc[Quick Start] shows the surrounding program in full.
 
 == Next Steps
 
-* xref:quick-start.adoc[Quick Start] — Build and run your first request
-* xref:2.guide/2a.making-requests.adoc[Making Requests] — The client, verbs,
-  and the request builder
-* xref:2.guide/2c.responses.adoc[Responses] — Status, headers, and reading the
-  body
-* xref:2.guide/2d.error-handling.adoc[Error Handling] — The value-and-exception
-  error model
+* xref:quick-start.adoc[] — Build and run your first request
+* xref:2.guide/2a.making-requests.adoc[] — The client, verbs, and the request
+  builder
+* xref:2.guide/2c.responses.adoc[] — Status, headers, and reading the body
+* xref:2.guide/2d.error-handling.adoc[] — The value-and-exception error model
 * xref:examples/usage.adoc[Examples] — A runnable tour of the API
 * xref:reference:boost/burl.adoc[Reference] — The generated API reference

@@ -11,8 +11,8 @@
 
 When cookie handling is enabled, the client stores cookies from `Set-Cookie`
 response headers in its cookie jar and sends matching cookies on later
-requests, following the storage and matching rules of RFC 6265. The jar can be
-inspected directly and persisted between sessions.
+requests, following the storage and matching rules of RFC 6265bis. The jar can
+be inspected directly and persisted between sessions.
 
 == Enabling Cookies
 
@@ -33,7 +33,7 @@ auto r = co_await client.get("https://example.com/account").send();
 
 == The Cookie Jar
 
-cpp:client::cookie_jar[client::cookie_jar()] gives direct access to the jar. The
+cpp:client::cookie_jar[] gives direct access to the jar. The
 cookies can be listed, cleared, or seeded by hand:
 
 [source,cpp]
@@ -86,7 +86,5 @@ an error if a line is malformed. Empty and comment lines are skipped, except the
 
 == Next Steps
 
-* xref:2.guide/2h.redirects.adoc[Redirects] — How cookies and credentials follow
-  hops
-* xref:2.guide/2e.headers.adoc[Headers and Query Parameters] — Setting a
-  `Cookie` header by hand
+* xref:2.guide/2h.redirects.adoc[] — How cookies and credentials follow hops
+* xref:2.guide/2e.headers.adoc[] — Setting a `Cookie` header by hand

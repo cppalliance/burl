@@ -97,9 +97,8 @@ socket in production code.
 
 == Next Steps
 
-* xref:2.guide/2c.responses.adoc[Responses] — The body functions that a
-  synthesized response feeds
-* xref:2.guide/2d.error-handling.adoc[Error Handling] — The failures a fuse
-  helps you cover
+* xref:2.guide/2c.responses.adoc[] — The body functions that a synthesized
+  response feeds
+* xref:2.guide/2d.error-handling.adoc[] — The failures a fuse helps you cover
 * xref:reference:boost/burl.adoc[Reference] — cpp:test::response_factory[] in
   detail

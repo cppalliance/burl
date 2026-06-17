@@ -64,12 +64,10 @@ regardless of this setting.
 == Custom Schemes
 
 For an authentication scheme Burl does not build in, you can set the
-`Authorization` header yourself with the builder's
-xref:2.guide/2e.headers.adoc[`header`] function. A header you set explicitly
-is sent as-is.
+`Authorization` header yourself with the cpp:request_builder::header[]
+function. A header you set explicitly is sent as-is.
 
 == Next Steps
 
-* xref:2.guide/2h.redirects.adoc[Redirects] — When credentials are stripped
-* xref:2.guide/2e.headers.adoc[Headers and Query Parameters] — Setting a
-  scheme by hand
+* xref:2.guide/2h.redirects.adoc[] — When credentials are stripped
+* xref:2.guide/2e.headers.adoc[] — Setting a scheme by hand

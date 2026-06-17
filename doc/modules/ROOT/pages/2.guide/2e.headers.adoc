@@ -14,7 +14,7 @@ request, or on an individual request.
 
 == Default Headers
 
-cpp:client::headers[client::headers()] is the set of headers sent with every
+cpp:client::headers[] is the set of headers sent with every
 request. A natural place for things that do not change between requests, such as
 a `User-Agent` or an `Accept`:
 
@@ -77,10 +77,10 @@ known
 | The request URL
 
 | `Authorization`
-| xref:2.guide/2g.authentication.adoc[Authentication]
+| xref:2.guide/2g.authentication.adoc[]
 
 | `Cookie`
-| The xref:2.guide/2i.cookies.adoc[cookie jar]
+| The cpp:client::cookie_jar[cookie jar]
 
 | `Accept-Encoding`
 | The xref:2.guide/2m.compression.adoc[compression] settings, unless you set it
@@ -89,10 +89,7 @@ known
 
 == Next Steps
 
-* xref:2.guide/2f.query-parameters.adoc[Query Parameters] — Adding parameters to
-  the URL
-* xref:2.guide/2g.authentication.adoc[Authentication] — The managed
-  `Authorization` header
-* xref:2.guide/2b.request-bodies.adoc[Request Bodies] — Where `Content-Type`
-  comes from
-* xref:2.guide/2i.cookies.adoc[Cookies] — The managed `Cookie` header
+* xref:2.guide/2f.query-parameters.adoc[] — Adding parameters to the URL
+* xref:2.guide/2g.authentication.adoc[] — The managed `Authorization` header
+* xref:2.guide/2b.request-bodies.adoc[] — Where `Content-Type` comes from
+* xref:2.guide/2i.cookies.adoc[] — The managed `Cookie` header

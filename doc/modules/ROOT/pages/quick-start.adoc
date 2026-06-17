@@ -70,8 +70,8 @@ types, and xref:2.guide/2n.extending.adoc[extending] shows how to add your own.
 == Query Parameters and Headers
 
 The builder shapes the request before it goes out. Chain
-cpp:request_builder::query[query()] to add query-string parameters and
-cpp:request_builder::header[header()] to set headers; each takes either an
+cpp:request_builder::query[query] to add query-string parameters and
+cpp:request_builder::header[header] to set headers; each takes either an
 `http::field` enumerator or a string name. Headers set on the client itself are
 sent with every request:
 
@@ -164,9 +164,9 @@ built-in body type and how the `Content-Type` and framing are chosen.
 
 == Inspect the Status and Headers
 
-cpp:request_builder::as[as<T>()] is the shortcut for the common case. When you
+cpp:request_builder::as[as<T>] is the shortcut for the common case. When you
 need the status line and headers before deciding what to do with the body, call
-cpp:request_builder::send[send()] instead. It yields `(error_code, response)`
+cpp:request_builder::send[send] instead. It yields `(error_code, response)`
 with the body still unread:
 
 [source,cpp]
@@ -182,7 +182,7 @@ std::cout << "body:    " << co_await r.as<std::string>() << '\n';
 
 == Handle Errors Without Throwing
 
-cpp:request_builder::as[as<T>()] throws on any failure, including a 4xx or 5xx
+cpp:request_builder::as[as<T>] throws on any failure, including a 4xx or 5xx
 status. To inspect an error instead, use the `try_` forms, which yield
 `(error_code, T)`:
 
@@ -200,9 +200,8 @@ full model, including the order in which different failures take precedence.
 
 == Next Steps
 
-* xref:2.guide/2a.making-requests.adoc[Making Requests] — Verbs, the builder,
-  and deferred execution
-* xref:2.guide/2b.request-bodies.adoc[Request Bodies] — Strings, JSON, forms,
-  and files
-* xref:2.guide/2d.error-handling.adoc[Error Handling] — Errors as values
+* xref:2.guide/2a.making-requests.adoc[] — Verbs, the builder, and deferred
+  execution
+* xref:2.guide/2b.request-bodies.adoc[] — Strings, JSON, forms, and files
+* xref:2.guide/2d.error-handling.adoc[] — Errors as values
 * xref:examples/usage.adoc[Examples] — A runnable tour of every feature

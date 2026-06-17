@@ -85,7 +85,7 @@ feature. A chain is finished by one of three terminal calls.
 
 == Finishing: send
 
-cpp:request_builder::send[send()] sends the request and reads the status line
+cpp:request_builder::send[send] sends the request and reads the status line
 and headers, leaving the body unread. It yields `(error_code, response)`:
 
 [source,cpp]
@@ -135,7 +135,7 @@ xref:2.guide/2d.error-handling.adoc[error handling] section.
 
 == Finishing: build and execute
 
-cpp:request_builder::build[build()] does not send anything. It returns a
+cpp:request_builder::build[build] does not send anything. It returns a
 cpp:request[] — a plain value holding the method, URL, headers, body, and
 per-request options — that can be stored, passed around, and executed later
 through cpp:client::execute[]:
@@ -159,9 +159,7 @@ client; it can be executed by whichever client is convenient.
 
 == Next Steps
 
-* xref:2.guide/2b.request-bodies.adoc[Request Bodies] — Attaching a payload
-* xref:2.guide/2c.responses.adoc[Responses] — Reading the result
-* xref:2.guide/2d.error-handling.adoc[Error Handling] — What the error code
-  means
-* xref:2.guide/2e.headers.adoc[Headers and Query Parameters] — Shaping the
-  request
+* xref:2.guide/2b.request-bodies.adoc[] — Attaching a payload
+* xref:2.guide/2c.responses.adoc[] — Reading the result
+* xref:2.guide/2d.error-handling.adoc[] — What the error code means
+* xref:2.guide/2e.headers.adoc[] — Shaping the request

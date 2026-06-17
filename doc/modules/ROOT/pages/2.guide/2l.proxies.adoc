@@ -37,7 +37,7 @@ The proxy URL's scheme selects the kind of proxy:
 | Scheme | Proxy
 
 | `http`
-| An HTTP proxy. `https` targets are tunnelled with `CONNECT`.
+| An HTTP proxy. `https` targets are tunneled with `CONNECT`.
 
 | `socks5`
 | A SOCKS5 proxy. The client resolves the target hostname itself.
@@ -77,6 +77,5 @@ reaching the target:
 
 == Next Steps
 
-* xref:2.guide/2k.connection-pool.adoc[Connection Pool] — Pooling of proxied
-  connections
-* xref:2.guide/2d.error-handling.adoc[Error Handling] — The proxy error codes
+* xref:2.guide/2k.connection-pool.adoc[] — Pooling of proxied connections
+* xref:2.guide/2d.error-handling.adoc[] — The proxy error codes

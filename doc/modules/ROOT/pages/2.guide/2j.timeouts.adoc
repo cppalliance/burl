@@ -66,9 +66,6 @@ if(ec == capy::error::timeout)
 
 == Next Steps
 
-* xref:2.guide/2d.error-handling.adoc[Error Handling] — Timeouts among transport
-  failures
-* xref:2.guide/2k.connection-pool.adoc[Connection Pool] — The idle timeout, a
-  separate setting
-* xref:2.guide/2c.responses.adoc[Responses] — Which body reads the timeout
-  covers
+* xref:2.guide/2d.error-handling.adoc[] — Timeouts among transport failures
+* xref:2.guide/2k.connection-pool.adoc[] — The idle timeout, a separate setting
+* xref:2.guide/2c.responses.adoc[] — Which body reads the timeout covers

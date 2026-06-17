@@ -72,7 +72,7 @@ setting, since the client cannot honor what it advertises.
 
 The decoding is transparent: the body you read through
 xref:2.guide/2c.responses.adoc[any of the body functions] is the decoded
-content, and cpp:response::content_length[content_length()] and the
+content, and cpp:response::content_length[] and the
 `Content-Length` header reflect the encoded size as sent on the wire.
 
 == Opting Out for a Request
@@ -90,6 +90,6 @@ auto [ec, r] = co_await client.get("https://example.com/data")
 
 == Next Steps
 
-* xref:2.guide/2c.responses.adoc[Responses] — Reading the decoded body
-* xref:2.guide/2d.error-handling.adoc[Error Handling] — `body_too_large` among
+* xref:2.guide/2c.responses.adoc[] — Reading the decoded body
+* xref:2.guide/2d.error-handling.adoc[] — `http::error::body_too_large` among
   protocol failures

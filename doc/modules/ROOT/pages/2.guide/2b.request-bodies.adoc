@@ -83,7 +83,7 @@ auto r = co_await client.post("https://example.com/post")
 == URL-Encoded Forms
 
 cpp:urlencoded_form[] builds an `application/x-www-form-urlencoded` body from
-name and value pairs. Names and values are percent-encoded, with spaces written
+name/value pairs. Names and values are percent-encoded, with spaces written
 as `+`. cpp:urlencoded_form::append[append] chains:
 
 [source,cpp]
@@ -139,8 +139,6 @@ rather than sending a truncated or mis-framed body.
 
 == Next Steps
 
-* xref:2.guide/2c.responses.adoc[Responses] — Reading the body that comes back
-* xref:2.guide/2n.extending.adoc[Extending] — Teaching `body` about your own
-  types
-* xref:2.guide/2e.headers.adoc[Headers and Query Parameters] — Overriding the
-  `Content-Type`
+* xref:2.guide/2c.responses.adoc[] — Reading the body that comes back
+* xref:2.guide/2n.extending.adoc[] — Teaching `body` about your own types
+* xref:2.guide/2e.headers.adoc[] — Overriding the `Content-Type`

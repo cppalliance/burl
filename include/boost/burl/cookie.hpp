@@ -26,7 +26,7 @@ namespace burl
 /** An HTTP cookie.
 
     Objects of this type represent a cookie as
-    defined in RFC 6265, with members corresponding
+    defined in RFC 6265bis, with members corresponding
     to the attributes of a `Set-Cookie` header.
     They are produced by @ref parse_cookie and
     stored in a @ref cookie_jar.
