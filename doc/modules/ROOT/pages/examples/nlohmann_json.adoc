@@ -1,0 +1,88 @@
+//
+// Copyright (c) 2026 Mohammad Nejati
+//
+// Distributed under the Boost Software License, Version 1.0. (See accompanying
+// file LICENSE_1_0.txt or copy at http://www.boost.org/LICENSE_1_0.txt)
+//
+// Official repository: https://github.com/cppalliance/burl
+//
+
+= nlohmann/json
+
+A complete, runnable example of teaching Burl a body type it has never heard of,
+extracted from `example/nlohmann_json.cpp`.
+Burl ships conversions for strings, Boost.JSON, forms, and files, but the same
+mechanism is open: a pair of `tag_invoke` overloads, found by argument-dependent
+lookup, makes any type a first-class body in both directions. Here that type is
+https://github.com/nlohmann/json[`nlohmann::json`].
+
+See xref:2.guide/2n.extending.adoc[Extending] for the concepts this example puts
+to work.
+
+== Sending: body_from_tag
+
+To send a value with cpp:request_builder::body[body], provide a `tag_invoke`
+overload taking cpp:body_from_tag<T>[]. It returns an cpp:any_request_body[], a
+type-erased wrapper around any object satisfying the cpp:RequestBody[] concept.
+
+Here the document is serialized up front with `dump()`, so the body owns the
+text and can report a known `Content-Length`. `write` then hands that buffer to
+the sink in a single call:
+
+[source,cpp]
+----
+include::example$nlohmann_json.cpp[tag=body_from,indent=0]
+----
+
+Because `content_length()` returns a size, the request goes out with a
+`Content-Length` header; had it returned `std::nullopt`, the body would be sent
+with chunked transfer encoding instead. The `application/json` from
+`content_type()` is used unless the request already sets that header explicitly.
+
+== Receiving: body_to_tag
+
+To read a response into a value with cpp:request_builder::as<T>[as<T>] or
+cpp:request_builder::try_as<T>[try_as<T>], provide a `tag_invoke` overload
+taking cpp:body_to_tag<T>[] and the cpp:response[]. It returns a
+`capy::io_task<T>` that reads the body and converts it:
+
+[source,cpp]
+----
+include::example$nlohmann_json.cpp[tag=body_to,indent=0]
+----
+
+This follows the recommended pattern for reading a body. It first calls
+cpp:response::try_as_view[try_as_view], which is allocation-free when the body
+fits the parser's in-place buffer, and only on `http::error::in_place_overflow`
+falls back to reading into a cpp:std::string[]. Building on the response's own
+readers rather than raw I/O inherits its xref:2.guide/2j.timeouts.adoc[timeout]
+handling and buffer reuse. A failed parse is surfaced as an `error_code` rather
+than a silently discarded value.
+
+== Using It
+
+With both overloads in place, `nlohmann::json` is just another body type: the
+same cpp:request_builder::body[body] and cpp:request_builder::as<T>[as<T>] calls
+that drive the built-ins now work on it unchanged:
+
+[source,cpp]
+----
+include::example$nlohmann_json.cpp[tag=round_trip,indent=0]
+----
+
+When the value is a literal, you can name the type on
+cpp:request_builder::body[body<T>] to construct it inline:
+
+[source,cpp]
+----
+include::example$nlohmann_json.cpp[tag=round_trip_inline,indent=0]
+----
+
+== Next Steps
+
+* xref:2.guide/2n.extending.adoc[Extending] — The two `tag_invoke` overloads in
+  depth, including forwarding extra arguments
+* xref:2.guide/2b.request-bodies.adoc[Request Bodies] — The built-in body types
+  and how framing is chosen
+* xref:2.guide/2c.responses.adoc[Responses] — The built-in conversions and
+  cpp:response::try_as_view[try_as_view]

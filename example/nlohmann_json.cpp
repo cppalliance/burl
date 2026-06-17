@@ -22,7 +22,7 @@ namespace corosio = boost::corosio;
 namespace nlohmann
 {
 
-// Serialize an nlohmann::json document into a request body.
+// tag::body_from[]
 burl::any_request_body
 tag_invoke(burl::body_from_tag<nlohmann::json>, const nlohmann::json& value)
 {
@@ -57,8 +57,9 @@ tag_invoke(burl::body_from_tag<nlohmann::json>, const nlohmann::json& value)
     };
     return json_body{ value };
 }
+// end::body_from[]
 
-// Parse a response body into an nlohmann::json document.
+// tag::body_to[]
 capy::io_task<nlohmann::json>
 tag_invoke(burl::body_to_tag<nlohmann::json>, burl::response& resp)
 {
@@ -84,6 +85,7 @@ tag_invoke(burl::body_to_tag<nlohmann::json>, burl::response& resp)
         co_return { make_error_code(std::errc::bad_message), {} };
     co_return { {}, std::move(doc) };
 }
+// end::body_to[]
 
 } // namespace nlohmann
 
@@ -92,19 +94,22 @@ async_main(corosio::tls_context tls_ctx)
 {
     burl::client client(co_await capy::this_coro::executor, tls_ctx);
 
+    // tag::round_trip[]
     nlohmann::json body({ { "user", "John" }, { "lang", "En" } });
     auto r1 = co_await client.post("https://postman-echo.com/post")
         .body(body)
         .as<nlohmann::json>();
 
     std::cout << r1.dump(4) << '\n';
+    // end::round_trip[]
 
-    // Or inline
+    // tag::round_trip_inline[]
     auto r2 = co_await client.post("https://postman-echo.com/post")
         .body<nlohmann::json>({ 1, 2, 3 })
         .as<nlohmann::json>();
 
     std::cout << r2.dump(4) << '\n';
+    // end::round_trip_inline[]
 }
 
 int

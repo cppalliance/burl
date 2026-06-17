@@ -176,5 +176,5 @@ co_await client.get("https://example.com/file")
   body types
 * xref:2.guide/2c.responses.adoc[Responses] — The built-in response conversions
   and cpp:response::try_as_view[try_as_view]
-* xref:../examples.adoc[Examples] — The full `nlohmann::json` example as a
-  runnable program
+* xref:examples/nlohmann_json.adoc[nlohmann/json] — The full `nlohmann::json`
+  example

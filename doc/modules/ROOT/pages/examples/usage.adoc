@@ -7,10 +7,9 @@
 // Official repository: https://github.com/cppalliance/burl
 //
 
-= Examples
+= Usage
 
-A runnable catalog of every feature, extracted from
-https://github.com/cppalliance/burl/tree/develop/example/usage.cpp[`example/usage.cpp`].
+A runnable catalog of every feature, extracted from `example/usage.cpp`.
 Each snippet is the body of a `capy::task<>` coroutine; the surrounding `main`
 and codec setup is shown once in xref:quick-start.adoc[Quick Start]. Each entry
 links to the guide chapter that covers it in depth.
@@ -19,141 +18,141 @@ links to the guide chapter that covers it in depth.
 
 The type passed to cpp:request_builder::as[as<T>] selects how the body is parsed.
 
-See xref:2.guide/2a.making-requests.adoc[Making Requests] and
-xref:2.guide/2c.responses.adoc[Responses].
-
 [source,cpp]
 ----
 include::example$usage.cpp[tag=basic_get,indent=0]
 ----
+
+See xref:2.guide/2a.making-requests.adoc[Making Requests] and
+xref:2.guide/2c.responses.adoc[Responses].
 
 == Inspect Response Status and Headers
 
 cpp:request_builder::send[send] returns the response with headers ready and the
 body still unread.
 
-See xref:2.guide/2c.responses.adoc[Responses].
-
 [source,cpp]
 ----
 include::example$usage.cpp[tag=inspect_response,indent=0]
 ----
+
+See xref:2.guide/2c.responses.adoc[Responses].
 
 == Handle Error Status Codes
 
 cpp:request_builder::try_as[try_as<T>] returns an `error_code` instead of throwing
 on 4xx/5xx.
 
-See xref:2.guide/2d.error-handling.adoc[Error Handling].
-
 [source,cpp]
 ----
 include::example$usage.cpp[tag=handle_error_status,indent=0]
 ----
+
+See xref:2.guide/2d.error-handling.adoc[Error Handling].
 
 == Add Query Parameters
 
 cpp:request_builder::query[query] appends percent-encoded key/value pairs to the
 URL.
 
-See xref:2.guide/2f.query-parameters.adoc[Query Parameters].
-
 [source,cpp]
 ----
 include::example$usage.cpp[tag=add_query_params,indent=0]
 ----
 
+See xref:2.guide/2f.query-parameters.adoc[Query Parameters].
+
 == Set Request Headers
 
 Client headers apply to every request; request headers apply to one.
-
-See xref:2.guide/2e.headers.adoc[Headers].
 
 [source,cpp]
 ----
 include::example$usage.cpp[tag=set_headers,indent=0]
 ----
 
+See xref:2.guide/2e.headers.adoc[Headers].
+
 == Authentication
 
 cpp:client::basic_auth[basic_auth]/cpp:client::bearer_auth[bearer_auth] set
 `Authorization`, on the client or per request.
-
-See xref:2.guide/2g.authentication.adoc[Authentication].
 
 [source,cpp]
 ----
 include::example$usage.cpp[tag=authenticate,indent=0]
 ----
 
+See xref:2.guide/2g.authentication.adoc[Authentication].
+
 == POST a String Body
 
 A string body defaults to `text/plain`; override with a `content_type` header.
-
-See xref:2.guide/2b.request-bodies.adoc[Request Bodies].
 
 [source,cpp]
 ----
 include::example$usage.cpp[tag=post_string,indent=0]
 ----
 
+See xref:2.guide/2b.request-bodies.adoc[Request Bodies].
+
 == POST a JSON Body
 
 A `json::value` is serialized and sent as `application/json`.
-
-See xref:2.guide/2b.request-bodies.adoc[Request Bodies].
 
 [source,cpp]
 ----
 include::example$usage.cpp[tag=post_json,indent=0]
 ----
 
+See xref:2.guide/2b.request-bodies.adoc[Request Bodies].
+
 == POST a URL-Encoded Form
 
 cpp:urlencoded_form[] builds an `application/x-www-form-urlencoded` body.
-
-See xref:2.guide/2b.request-bodies.adoc[Request Bodies].
 
 [source,cpp]
 ----
 include::example$usage.cpp[tag=post_urlencoded_form,indent=0]
 ----
 
+See xref:2.guide/2b.request-bodies.adoc[Request Bodies].
+
 == POST a Multipart Form
 
 cpp:multipart_form[] mixes file uploads and text fields as
 `multipart/form-data`.
-
-See xref:2.guide/2b.request-bodies.adoc[Request Bodies].
 
 [source,cpp]
 ----
 include::example$usage.cpp[tag=post_multipart_form,indent=0]
 ----
 
+See xref:2.guide/2b.request-bodies.adoc[Request Bodies].
+
 == Upload and Download a File
 
 cpp:request_builder::body[body<fs::path>] streams from a file;
 cpp:request_builder::as[as<fs::path>] streams to one.
-
-See xref:2.guide/2b.request-bodies.adoc[Request Bodies] and
-xref:2.guide/2c.responses.adoc[Responses].
 
 [source,cpp]
 ----
 include::example$usage.cpp[tag=upload_and_download_file,indent=0]
 ----
 
+See xref:2.guide/2b.request-bodies.adoc[Request Bodies] and
+xref:2.guide/2c.responses.adoc[Responses].
+
 == Stream a Response Body
 
 `pull` the body in chunks instead of buffering it all in memory.
-
-See xref:2.guide/2c.responses.adoc[Responses].
 
 [source,cpp]
 ----
 include::example$usage.cpp[tag=stream_response,indent=0]
 ----
+
+See xref:2.guide/2c.responses.adoc[Responses].
 
 == Read a Response Body In Place
 
@@ -161,81 +160,81 @@ When the body fits in cpp:client::config[response_inplace_buffer],
 cpp:response::as_view[as_view] reads it straight from the connection's internal
 buffer with no extra allocation.
 
-See xref:2.guide/2c.responses.adoc[Responses].
-
 [source,cpp]
 ----
 include::example$usage.cpp[tag=inplace_response_body,indent=0]
 ----
 
+See xref:2.guide/2c.responses.adoc[Responses].
+
 == Set Timeouts
 
 Separate limits for connect, each I/O step, and the whole operation.
-
-See xref:2.guide/2j.timeouts.adoc[Timeouts].
 
 [source,cpp]
 ----
 include::example$usage.cpp[tag=set_timeouts,indent=0]
 ----
 
+See xref:2.guide/2j.timeouts.adoc[Timeouts].
+
 == Follow Redirects
 
 Chase `Location` up to cpp:client::config[maxredirs] hops; the response reports
 the final URL.
-
-See xref:2.guide/2h.redirects.adoc[Redirects].
 
 [source,cpp]
 ----
 include::example$usage.cpp[tag=follow_redirects,indent=0]
 ----
 
+See xref:2.guide/2h.redirects.adoc[Redirects].
+
 == Enable Cookies
 
 Set cpp:client::config[cookies] to keep a jar that stores and replays cookies
 per host.
-
-See xref:2.guide/2i.cookies.adoc[Cookies].
 
 [source,cpp]
 ----
 include::example$usage.cpp[tag=enable_cookies,indent=0]
 ----
 
+See xref:2.guide/2i.cookies.adoc[Cookies].
+
 == Reuse Connections With the Pool
 
 Idle connections are kept alive so later requests skip the handshakes.
-
-See xref:2.guide/2k.connection-pool.adoc[Connection Pool].
 
 [source,cpp]
 ----
 include::example$usage.cpp[tag=connection_pool,indent=0]
 ----
 
+See xref:2.guide/2k.connection-pool.adoc[Connection Pool].
+
 == Use a Proxy
 
 Set cpp:client::config[proxy] to route requests through an HTTP or SOCKS5 proxy.
-
-See xref:2.guide/2l.proxies.adoc[Proxies].
 
 [source,cpp]
 ----
 include::example$usage.cpp[tag=use_proxy,indent=0]
 ----
 
+See xref:2.guide/2l.proxies.adoc[Proxies].
+
 == Build a Request and Execute It Later
 
 cpp:request_builder::build[build] captures a cpp:request[] value to store and
 run later with cpp:client::execute[execute].
 
-See xref:2.guide/2a.making-requests.adoc[Making Requests].
-
 [source,cpp]
 ----
 include::example$usage.cpp[tag=build_and_execute,indent=0]
 ----
+
+See xref:2.guide/2a.making-requests.adoc[Making Requests].
 
 == Next Steps
 

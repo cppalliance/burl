@@ -205,4 +205,4 @@ full model, including the order in which different failures take precedence.
 * xref:2.guide/2b.request-bodies.adoc[Request Bodies] — Strings, JSON, forms,
   and files
 * xref:2.guide/2d.error-handling.adoc[Error Handling] — Errors as values
-* xref:examples.adoc[Examples] — A runnable tour of every feature
+* xref:examples/usage.adoc[Examples] — A runnable tour of every feature
