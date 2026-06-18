@@ -9,136 +9,155 @@
 
 = Request Bodies
 
-A request body is attached with the builder's cpp:request_builder::body[body]
-function. The type of the value decides three things: the `Content-Type` header,
+A request body is attached with the cpp:request_builder::body[] function.
+The type of the value decides three things: the `Content-Type` header,
 whether the body is sent with a known `Content-Length` or with chunked transfer
-encoding, and how the bytes are produced on the wire. This section covers the
-built-in body types, xref:2.guide/2n.extending.adoc[extending] shows how to add
-your own type.
+encoding, and how the bytes are produced on the wire.
 
 == How the Body Is Framed
 
 cpp:request_builder::body[body] accepts any value for which a conversion is
-defined, by calling `tag_invoke` with a cpp:body_from_tag<T>[]. The result is an
-cpp:any_request_body[].
-
-Two rules hold for every body type:
+defined, by calling `tag_invoke` with a cpp:body_from_tag<T>[]; the result is an
+cpp:any_request_body[]. Two rules then hold for every body type:
 
 * The body's `Content-Type` is sent *unless* the request already sets that
-  header explicitly. Setting `http::field::content_type` on the request always
+  header explicitly — setting `http::field::content_type` on the request always
   wins.
-* The framing — a `Content-Length` header, or chunked transfer encoding — is
-  *always* taken from the body and cannot be overridden. A body whose size is
-  known in advance is sent with a `Content-Length`; one whose size is not
-  is sent chunked.
+* The framing — a `Content-Length`, or chunked transfer encoding — is *always*
+  taken from the body and cannot be overridden. A body whose size is known in
+  advance is sent with a `Content-Length`; one whose size is not is sent chunked.
 
-== Strings
+== Built-in Body Types
 
-A cpp:std::string[], a cpp:std::string_view[], or a string literal becomes a
-body with `Content-Type: text/plain; charset=utf-8` and a `Content-Length`:
+=== Strings
+
+A cpp:std::string[], a cpp:std::string_view[], or a string literal is sent as
+`text/plain; charset=utf-8` with a `Content-Length`:
 
 [source,cpp]
 ----
-auto r = co_await client.post("https://example.com/post")
+auto [ec, r] = co_await client.post("https://example.com/post")
     .body("plain text payload")
     .send();
 ----
 
-A cpp:std::string[] body owns its data. A cpp:std::string_view[] or
-string-literal body refers to the characters in place without copying, so the
-underlying buffer must outlive the request. To send text under a different media
-type, set the header explicitly:
+The default `Content-Type` can be overridden by setting the header explicitly:
 
 [source,cpp]
 ----
-auto r = co_await client.post("https://example.com/post")
+auto [ec, r] = co_await client.post("https://example.com/post")
     .body("<note>hi</note>")
     .header(http::field::content_type, "application/xml")
     .send();
 ----
 
-== JSON
+=== JSON
 
-The Boost.JSON types — `json::value`, `json::object`, `json::array`, and
-`json::string` — are serialized incrementally as the request is sent, under
-`Content-Type: application/json`.
+The Boost.JSON types are sent as `application/json`, serialized incrementally as
+the request goes out. Their serialized size is not known beforehand, so this is
+the one built-in body sent with chunked transfer encoding:
+
 [source,cpp]
 ----
 json::object obj({ { "user", "John" }, { "lang", "En" } });
 
-auto r = co_await client.post("https://example.com/post")
+auto [ec, r] = co_await client.post("https://example.com/post")
     .body(obj)
-    .as<json::value>();
+    .send();
 ----
 
-A literal value can be constructed inline by naming the type explicitly:
+Naming the type builds the value inline, with no named variable:
 
 [source,cpp]
 ----
-auto r = co_await client.post("https://example.com/post")
+auto [ec, r] = co_await client.post("https://example.com/post")
     .body<json::array>({ 1, 2, 3 })
-    .as<json::value>();
+    .send();
 ----
 
-== URL-Encoded Forms
+=== URL-Encoded Forms
 
 cpp:urlencoded_form[] builds an `application/x-www-form-urlencoded` body from
-name/value pairs. Names and values are percent-encoded, with spaces written
-as `+`. cpp:urlencoded_form::append[append] chains:
+name/value pairs, sent with a `Content-Length`.
+cpp:urlencoded_form::append[append] chains, and the same name may be added more
+than once to submit a multi-valued field:
 
 [source,cpp]
 ----
-auto r = co_await client.post("https://example.com/post")
+auto [ec, r] = co_await client.post("https://example.com/post")
     .body(burl::urlencoded_form()
         .append("user", "John")
-        .append("lang", "En"))
-    .as<json::value>();
+        .append("color", "blue")
+        .append("color", "green"))
+    .send();
+// user=John&color=blue&color=green
 ----
 
-== Multipart Forms
-
-cpp:multipart_form[] builds a `multipart/form-data` body, the format browsers
-use for file uploads. It mixes text parts and file parts, separated by a
-randomly generated boundary:
+Names and values are percent-encoded: only the RFC 3986 unreserved characters
+pass through, spaces become `+`, and the `&` and `=` separators are escaped, so a
+value can never break out of the field structure. A form can also be built from
+an initializer list or any range of pairs:
 
 [source,cpp]
 ----
-auto r = co_await client.post("https://example.com/upload")
+std::map<std::string, std::string> fields = {
+    { "lang", "En" },
+    { "user", "John" } };
+
+auto [ec, r] = co_await client.post("https://example.com/post")
+    .body<burl::urlencoded_form>(fields)
+    .send();
+----
+
+=== Multipart Forms
+
+cpp:multipart_form[] builds a `multipart/form-data` body from a sequence of
+parts separated by a generated boundary, as specified by
+https://www.rfc-editor.org/rfc/rfc7578[RFC 7578]:
+
+[source,cpp]
+----
+auto [ec, r] = co_await client.post("https://example.com/upload")
     .body(burl::multipart_form()
         .text("priority", "high")
         .file("attachment", "./report.log"))
-    .as<json::value>();
+    .send();
 ----
 
-A file part is streamed from disk while the request is sent; only the path is
-held in the form. The filename and `Content-Type` reported in the part header
-are deduced from the path — falling back to `application/octet-stream` — and
-either can be given explicitly. When the contents are already in memory but
-should still be presented to the server as a file,
-cpp:multipart_form::bytes[bytes] writes a part with a filename from an in-memory
-buffer.
+cpp:multipart_form::text[text] adds a plain field, while
+cpp:multipart_form::file[file] adds a file that is streamed from disk as the
+request is sent; only the path is held, with its filename and `Content-Type`
+deduced from it unless set explicitly. When the data is already in memory but
+should still arrive as a file, cpp:multipart_form::bytes[bytes] writes a part
+with a filename from an in-memory buffer.
 
-== Files
+=== Files
 
-Naming cpp:std::filesystem::path[] as the body type uploads a file. Its contents
-are streamed while the request is sent, so the whole file is never held in
-memory:
+Naming cpp:std::filesystem::path[] uploads a file, streamed from disk so the
+whole file is never held in memory. The `Content-Type` is deduced from the
+filename extension, defaulting to `application/octet-stream`, and the
+`Content-Length` is the file's size:
 
 [source,cpp]
 ----
-auto r = co_await client.put("https://example.com/put")
+auto [ec, r] = co_await client.put("https://example.com/put")
     .body<std::filesystem::path>("./report.log")
     .send();
 ----
 
-The `Content-Type` is deduced from the filename extension, falling back to
-`application/octet-stream`, and the `Content-Length` is the file's size at the
-time of the call. Because the length is fixed up front, a file that *shrinks*
-before the transfer completes fails the request with cpp:error::file_changed[],
-rather than sending a truncated or mis-framed body.
+The size is read when cpp:request_builder::body[] is called, so a path whose
+size cannot be determined throws cpp:std::filesystem::filesystem_error[] from
+that call. Because the length is then fixed, a file that shrinks before the
+transfer completes fails the request with cpp:error::file_changed[].
+
+== Your Own Types
+
+cpp:request_builder::body[] accepts any type for which a `tag_invoke` conversion
+is defined. xref:2.guide/2n.extending.adoc[] shows how to write one for a type
+of your own.
 
 == Next Steps
 
 * xref:2.guide/2c.responses.adoc[] — Reading the body that comes back
-* xref:2.guide/2n.extending.adoc[] — Teaching `body` about your own types
+* xref:2.guide/2d.error-handling.adoc[] — Handling failures
 * xref:2.guide/2e.headers.adoc[] — Overriding the `Content-Type`

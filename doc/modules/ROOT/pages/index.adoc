@@ -133,5 +133,5 @@ The xref:quick-start.adoc[Quick Start] shows the surrounding program in full.
   builder
 * xref:2.guide/2c.responses.adoc[] — Status, headers, and reading the body
 * xref:2.guide/2d.error-handling.adoc[] — The value-and-exception error model
-* xref:examples/usage.adoc[Examples] — A runnable tour of the API
+* xref:examples/usage.adoc[] — A runnable tour of the API
 * xref:reference:boost/burl.adoc[Reference] — The generated API reference

@@ -53,9 +53,10 @@ The examples that follow assume this scaffolding and show only the body of
 
 == Parse the Body as JSON
 
-Asking for a different type changes how the body comes back. With
-Boost.JSON included, request a `json::value` and the body is parsed as it
-arrives:
+The program above asked for a `std::string` and got the raw body bytes. The
+type argument selects the conversion: ask cpp:request_builder::as[as<T>] for a
+`json::value` and the same call parses the response as JSON, incrementally as
+it arrives, and hands back a value you can navigate directly:
 
 [source,cpp]
 ----
@@ -183,8 +184,8 @@ std::cout << "body:    " << co_await r.as<std::string>() << '\n';
 == Handle Errors Without Throwing
 
 cpp:request_builder::as[as<T>] throws on any failure, including a 4xx or 5xx
-status. To inspect an error instead, use the `try_` forms, which yield
-`(error_code, T)`:
+status. To inspect an error instead, use
+cpp:request_builder::try_as[try_as<T>], which yields `(error_code, T)`:
 
 [source,cpp]
 ----
@@ -204,4 +205,4 @@ full model, including the order in which different failures take precedence.
   execution
 * xref:2.guide/2b.request-bodies.adoc[] — Strings, JSON, forms, and files
 * xref:2.guide/2d.error-handling.adoc[] — Errors as values
-* xref:examples/usage.adoc[Examples] — A runnable tour of every feature
+* xref:examples/usage.adoc[] — A runnable tour of every feature
