@@ -52,7 +52,7 @@ like any built-in:
 
 [source,cpp]
 ----
-auto r = co_await client.post("https://example.com/post")
+auto [ec, r] = co_await client.post("https://example.com/post")
     .body<nlohmann::json>({ { "user", "John" } })
     .send();
 ----

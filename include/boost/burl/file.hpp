@@ -38,7 +38,7 @@ namespace burl
 
     @par Example
     @code
-    auto r = co_await c.put("https://example.com/put")
+    auto [ec, r] = co_await c.put("https://example.com/put")
         .body<std::filesystem::path>("./report.log")
         .send();
     @endcode

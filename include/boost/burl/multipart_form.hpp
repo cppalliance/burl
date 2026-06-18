@@ -44,7 +44,7 @@ namespace burl
     form.file("attachment", "./crash_report.log");
     form.text("priority", "high");
 
-    auto r = co_await c.post("https://example.com/post")
+    auto [ec, r] = co_await c.post("https://example.com/post")
         .body(form)
         .send();
     @endcode

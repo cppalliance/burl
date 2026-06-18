@@ -25,7 +25,7 @@ cfg.proxy = urls::url("socks5h://user:pass@localhost:1080");
 burl::client client(co_await capy::this_coro::executor, tls_ctx, cfg);
 
 // established through the proxy
-auto r = co_await client.get("https://example.com").send();
+auto [ec, r] = co_await client.get("https://example.com").send();
 ----
 
 == Supported Schemes

@@ -36,7 +36,7 @@ namespace burl
 
     @par Example
     @code
-    auto r = co_await c.post("https://example.com/post")
+    auto [ec, r] = co_await c.post("https://example.com/post")
         .body(burl::urlencoded_form()
             .append("user", "John")
             .append("lang", "En"))
@@ -101,7 +101,7 @@ public:
             { "user", "John" },
             { "lang", "En" } };
 
-        auto r = co_await c.post("https://example.com/post")
+        auto [ec, r] = co_await c.post("https://example.com/post")
             .body<burl::urlencoded_form>(fields)
             .send();
         @endcode

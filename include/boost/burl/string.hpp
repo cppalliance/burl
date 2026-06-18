@@ -35,7 +35,7 @@ namespace burl
 
     @par Example
     @code
-    auto r = co_await c.post(url)
+    auto [ec, r] = co_await c.post(url)
         .body(std::string("payload"))
         .send();
     @endcode
@@ -77,7 +77,7 @@ tag_invoke(body_from_tag<std::string_view>, std::string_view body);
 
     @par Example
     @code
-    auto r = co_await c.post(url)
+    auto [ec, r] = co_await c.post(url)
         .body("payload")
         .send();
     @endcode

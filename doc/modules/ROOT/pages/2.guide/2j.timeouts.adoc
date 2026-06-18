@@ -48,7 +48,7 @@ cpp:client::config[config::timeout] for one request:
 
 [source,cpp]
 ----
-auto r = co_await client.get("https://example.com/report")
+auto [ec, r] = co_await client.get("https://example.com/report")
     .timeout(std::chrono::seconds(3))
     .send();
 ----

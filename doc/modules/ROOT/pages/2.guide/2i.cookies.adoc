@@ -27,8 +27,8 @@ cfg.cookies = true;
 burl::client client(co_await capy::this_coro::executor, tls_ctx, cfg);
 
 // the cookie set here is stored, and returned on the next request to the host
-co_await client.get("https://example.com/login").send();
-auto r = co_await client.get("https://example.com/account").send();
+auto [ec1, r1] = co_await client.get("https://example.com/login").send();
+auto [ec2, r2] = co_await client.get("https://example.com/account").send();
 ----
 
 == The Cookie Jar

@@ -40,7 +40,7 @@ auto [ec, r] = co_await client.get("https://example.com/old")
     .followlocation(false)
     .send();
 
-std::cout << r.status_int() << '\n';                       // e.g. 301
+std::cout << r.status_int() << '\n';   // e.g. 301
 std::cout << r.headers().value_or(http::field::location, "") << '\n';
 ----
 

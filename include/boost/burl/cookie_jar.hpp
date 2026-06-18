@@ -44,7 +44,7 @@ namespace burl
 
     burl::client c(co_await capy::this_coro::executor, tls_ctx, cfg);
 
-    auto r = co_await c.get("https://example.com/login").send();
+    auto [ec, r] = co_await c.get("https://example.com/login").send();
 
     // Print the stored cookies in Netscape format
     std::cout << c.cookie_jar().to_netscape();

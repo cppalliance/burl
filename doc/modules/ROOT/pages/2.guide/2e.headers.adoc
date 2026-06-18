@@ -31,7 +31,7 @@ single request. It comes in two overloads:
 
 [source,cpp]
 ----
-auto r = co_await client.get("https://example.com")
+auto [ec, r] = co_await client.get("https://example.com")
     .header(http::field::accept_language, "en")
     .header("X-Trace-Id", "abc123")
     .send();
@@ -47,7 +47,7 @@ name on the client:
 client.headers().set(http::field::accept, "application/json");
 
 // this one request asks for XML instead
-auto r = co_await client.get("https://example.com")
+auto [ec, r] = co_await client.get("https://example.com")
     .header(http::field::accept, "application/xml")
     .send();
 ----

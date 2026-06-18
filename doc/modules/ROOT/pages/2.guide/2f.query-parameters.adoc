@@ -21,7 +21,7 @@ query string, percent-encoding both:
 
 [source,cpp]
 ----
-auto r = co_await client.get("https://example.com/search")
+auto [ec, r] = co_await client.get("https://example.com/search")
     .query("category", "shoes")
     .query("color", "blue")
     .send();
@@ -55,7 +55,7 @@ cpp:request_builder::query[] appends to whatever the URL already carries:
 
 [source,cpp]
 ----
-auto r = co_await client.get("https://example.com/search?category=shoes")
+auto [ec, r] = co_await client.get("https://example.com/search?category=shoes")
     .query("color", "blue")
     .send();
 // GET /search?category=shoes&color=blue

@@ -88,7 +88,7 @@ public:
 
         @par Example
         @code
-        auto r = co_await c.get("https://example.com/get")
+        auto [ec, r] = co_await c.get("https://example.com/get")
             .query("category", "shoes")
             .query("color", "blue")
             .send();
@@ -237,7 +237,7 @@ public:
 
         @par Example
         @code
-        auto r = co_await c.post("https://example.com/post")
+        auto [ec, r] = co_await c.post("https://example.com/post")
             .body(json::value({ "key", "value" }))
             .send();
         @endcode
