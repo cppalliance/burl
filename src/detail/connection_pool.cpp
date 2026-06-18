@@ -87,12 +87,12 @@ public:
         return socket_.is_open();
     }
 
-    capy::io_task<>
-    shutdown() override
-    {
-        socket_.shutdown(corosio::shutdown_both);
-        co_return {};
-    }
+    // capy::io_task<>
+    // shutdown() override
+    // {
+    //     socket_.shutdown(corosio::shutdown_both);
+    //     co_return {};
+    // }
 
 private:
     capy::io_task<std::size_t>
@@ -132,11 +132,11 @@ public:
         return socket_.is_open();
     }
 
-    capy::io_task<>
-    shutdown() override
-    {
-        return stream_.shutdown();
-    }
+    // capy::io_task<>
+    // shutdown() override
+    // {
+    //     return stream_.shutdown();
+    // }
 
 private:
     capy::io_task<std::size_t>
@@ -169,12 +169,12 @@ public:
         return open_;
     }
 
-    capy::io_task<>
-    shutdown() override
-    {
-        open_ = false;
-        co_return {};
-    }
+    // capy::io_task<>
+    // shutdown() override
+    // {
+    //     open_ = false;
+    //     co_return {};
+    // }
 
 private:
     capy::io_task<std::size_t>

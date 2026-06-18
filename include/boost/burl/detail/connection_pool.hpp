@@ -59,8 +59,8 @@ public:
     virtual bool
     is_open() const noexcept = 0;
 
-    virtual capy::io_task<>
-    shutdown() = 0;
+    // virtual capy::io_task<>
+    // shutdown() = 0;
 
     virtual ~connection() = default;
 

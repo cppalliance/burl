@@ -54,11 +54,11 @@ public:
         return true;
     }
 
-    capy::io_task<>
-    shutdown() override
-    {
-        co_return {};
-    }
+    // capy::io_task<>
+    // shutdown() override
+    // {
+    //     co_return {};
+    // }
 
 private:
     capy::io_task<std::size_t>
