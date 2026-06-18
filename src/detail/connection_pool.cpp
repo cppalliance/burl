@@ -11,6 +11,7 @@
 
 #include <boost/burl/error.hpp>
 
+#include "effective_port.hpp"
 #include "http_tunnel.hpp"
 #include "socks5_tunnel.hpp"
 
@@ -38,24 +39,6 @@ namespace detail
 
 namespace
 {
-
-std::string_view
-effective_port(const urls::url_view& url)
-{
-    if(url.has_port())
-        return url.port();
-
-    if(url.scheme() == "https")
-        return "443";
-
-    if(url.scheme() == "http")
-        return "80";
-
-    if(url.scheme() == "socks5" || url.scheme() == "socks5h")
-        return "1080";
-
-    return {};
-}
 
 std::string
 origin(urls::url_view url)
