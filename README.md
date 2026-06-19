@@ -27,7 +27,7 @@ One line to make a request.
   cross-origin hops.
 - **Content encodings** — transparent `gzip`, `deflate`, and `br` decoding
   when the corresponding decode service is installed.
-- **Cookies** — RFC 6265 jar with optional public-suffix validation (libpsl).
+- **Cookies** — RFC 6265bis jar with optional public-suffix validation (libpsl).
 - **Authentication** — Basic and Bearer, per client or per request.
 - **Proxies** — `http`, `socks5`, with credentials.
 - **Timeouts** — connect, per-I/O, and whole-operation, overridable per

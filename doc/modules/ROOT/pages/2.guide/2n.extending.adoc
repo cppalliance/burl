@@ -23,7 +23,7 @@ cpp:RequestBody[] concept:
 
 [source,cpp]
 ----
-struct RequestBody
+struct MyRequestBody
 {
     std::optional<std::string>   content_type()   const;
     std::optional<std::uint64_t> content_length() const;

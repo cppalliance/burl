@@ -77,7 +77,7 @@ struct cookie_jar_test
             BOOST_TEST_EQ(jar.cookie_header(url), "");
         }
 
-        // RFC 6265 5.2.3: a leading dot is ignored — accepted on a domain,
+        // RFC 6265bis 5.6.3: a leading dot is ignored — accepted on a domain,
         // rejected on a bare TLD.
         {
             cookie_jar jar;
@@ -131,7 +131,7 @@ struct cookie_jar_test
             urls::url("https://example.com/app"),
             parse_cookie("k=1; Path=/app").value());
 
-        // RFC 6265 5.1.4: the cookie path is a prefix ending on a boundary.
+        // RFC 6265bis 5.1.4: the cookie path is a prefix ending on a boundary.
         BOOST_TEST_EQ(jar.cookie_header(urls::url("https://example.com/app")), "k=1");
         BOOST_TEST_EQ(
             jar.cookie_header(urls::url("https://example.com/app/x")), "k=1");
@@ -140,11 +140,11 @@ struct cookie_jar_test
         BOOST_TEST_EQ(
             jar.cookie_header(urls::url("https://example.com/application")), "");
 
-        // RFC 6265 5.1.4: a no-path request defaults to "/", not matching /app.
+        // RFC 6265bis 5.1.4: a no-path request defaults to "/", not matching /app.
         BOOST_TEST_EQ(
             jar.cookie_header(urls::url("https://example.com")), "");
 
-        // RFC 6265 5.1.4: the defaulted "/" does match a root cookie.
+        // RFC 6265bis 5.1.4: the defaulted "/" does match a root cookie.
         cookie_jar root;
         root.add(
             urls::url("https://example.com/"), parse_cookie("a=1").value());
@@ -155,7 +155,7 @@ struct cookie_jar_test
     void
     testOrdering()
     {
-        // RFC 6265 5.4: cookies with longer paths come first.
+        // RFC 6265bis 5.8: cookies with longer paths come first.
         {
             cookie_jar jar;
             jar.add(
@@ -183,7 +183,7 @@ struct cookie_jar_test
             BOOST_TEST_EQ(jar.cookie_header(url), "a=1; b=2; c=3");
         }
 
-        // RFC 6265 5.3: an updated cookie keeps its original position.
+        // RFC 6265bis 5.7: an updated cookie keeps its original position.
         {
             cookie_jar jar;
             urls::url url("https://example.com/");
@@ -330,7 +330,7 @@ struct cookie_jar_test
             BOOST_TEST_EQ(jar.cookie_header(url), "a=1");
         }
 
-        // RFC 6265 5.1.3: suffix matching does not apply to IP hosts, so a
+        // RFC 6265bis 5.1.3: suffix matching does not apply to IP hosts, so a
         // cookie set on one address is not sent to a different address that
         // shares a textual suffix.
         {
@@ -426,7 +426,7 @@ struct cookie_jar_test
     void
     testPublicSuffixHostOnly()
     {
-        // RFC 6265 5.3 step 5: a public-suffix Domain equal to the host is
+        // RFC 6265bis 5.7 step 9: a public-suffix Domain equal to the host is
         // accepted as host-only (a bare label is a public suffix either way).
         {
             cookie_jar jar;

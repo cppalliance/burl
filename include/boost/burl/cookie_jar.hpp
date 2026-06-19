@@ -125,7 +125,7 @@ public:
         by domain, path, and the `Secure` attribute,
         and returned as `name=value` pairs separated
         by `"; "`, ordered with longer paths first
-        (RFC 6265bis 5.4). Expired cookies encountered
+        (RFC 6265bis 5.8). Expired cookies encountered
         during matching are removed from the jar.
 
         @param url The URL of the request.

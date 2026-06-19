@@ -32,8 +32,8 @@ namespace burl
     stored in a @ref cookie_jar.
 
     @par Specification
-    @li <a href="https://datatracker.ietf.org/doc/html/rfc6265"
-        >HTTP State Management Mechanism (rfc6265)</a>
+    @li <a href="https://datatracker.ietf.org/doc/html/draft-ietf-httpbis-rfc6265bis"
+        >Cookies: HTTP State Management Mechanism (rfc6265bis)</a>
 
     @see
         @ref parse_cookie,
@@ -143,8 +143,8 @@ struct cookie
     @endcode
 
     @par Specification
-    @li <a href="https://datatracker.ietf.org/doc/html/rfc6265#section-5.2"
-        >5.2. The Set-Cookie Header (rfc6265)</a>
+    @li <a href="https://datatracker.ietf.org/doc/html/draft-ietf-httpbis-rfc6265bis#section-5.6"
+        >5.6. The Set-Cookie Header Field (rfc6265bis)</a>
 
     @param sv The string to parse.
 

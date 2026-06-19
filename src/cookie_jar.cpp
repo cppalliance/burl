@@ -57,7 +57,7 @@ domain_match(
 bool
 path_match(core::string_view r_path, core::string_view c_path) noexcept
 {
-    // RFC 6265 5.1.4: an empty request path defaults to "/"
+    // RFC 6265bis 5.1.4: an empty request path defaults to "/"
     if(r_path.empty())
         r_path = "/";
 
@@ -208,13 +208,13 @@ cookie_jar::add(const urls::url_view& url, cookie c)
         auto& c_domain = c.domain.value();
         normalize_host(c_domain);
 
-        // RFC 6265 5.2.3: a leading dot in the Domain attribute is ignored
+        // RFC 6265bis 5.6.3: a leading dot in the Domain attribute is ignored
         if(c_domain.starts_with('.'))
             c_domain.erase(0, 1);
 
         if(is_public_suffix(c_domain))
         {
-            // RFC 6265 5.3 step 5: a public-suffix Domain is rejected, unless
+            // RFC 6265bis 5.7 step 9: a public-suffix Domain is rejected, unless
             // it equals the request host, which makes the cookie host-only.
             if(c_domain != r_host)
                 return;
@@ -277,7 +277,7 @@ cookie_jar::add(const urls::url_view& url, cookie c)
         return;
     }
 
-    // RFC 6265bis 5.3: replacing keeps the old cookie's position so creation
+    // RFC 6265bis 5.7 step 23: replacing keeps the old cookie's position so creation
     // order (used for header ordering) is retained.
     if(it != cookies_.end())
         *it = std::move(c);
@@ -315,7 +315,7 @@ cookie_jar::cookie_header(const urls::url_view& url)
         ++it;
     }
 
-    // RFC 6265 5.4: longer paths first; stable_sort keeps creation order as
+    // RFC 6265bis 5.8: longer paths first; stable_sort keeps creation order as
     // the tiebreaker.
     std::stable_sort(
         matched.begin(),
