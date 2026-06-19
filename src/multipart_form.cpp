@@ -175,36 +175,30 @@ public:
     capy::io_task<>
     write(capy::any_buffer_sink& sink) const
     {
+        using capy::make_buffer;
+
         for(auto const& p : form_.parts_)
         {
-            if(auto [ec, n] = co_await sink.write(capy::make_buffer(p.header));
-               ec)
+            if(auto [ec, n] = co_await sink.write(make_buffer(p.header)); ec)
                 co_return { ec };
 
             if(p.is_file)
             {
-                if(auto [ec] = co_await detail::send_file(sink, p.path, p.size);
-                   ec)
+                if(auto [ec] = co_await detail::send_file(sink, p.path, p.size); ec)
                     co_return { ec };
             }
             else
             {
-                if(auto [ec, n] =
-                       co_await sink.write(capy::make_buffer(p.text));
-                   ec)
+                if(auto [ec, n] = co_await sink.write(make_buffer(p.text)); ec)
                     co_return { ec };
             }
 
-            if(auto [ec, n] = co_await sink.write(
-                   capy::make_buffer(std::string_view("\r\n")));
-               ec)
+            if(auto [ec, n] = co_await sink.write(make_buffer("\r\n", 2)); ec)
                 co_return { ec };
         }
 
-        auto trailer = "--" + form_.boundary_ + "--\r\n";
-        if(auto [ec, n] = co_await sink.write(
-               capy::make_buffer(std::string_view(trailer)));
-           ec)
+        auto const trailer = "--" + form_.boundary_ + "--\r\n";
+        if(auto [ec, n] = co_await sink.write(make_buffer(trailer)); ec)
             co_return { ec };
 
         co_return {};
