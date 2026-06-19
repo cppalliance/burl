@@ -30,8 +30,9 @@ whole-operation timeout can be overridden per request.
 
 | cpp:client::config[config::timeout]
 | The whole operation, from connecting through receipt of the response
-  headers. Whatever time is left then bounds reading the body in place. Off by
-  default.
+  headers. Whatever time is left then bounds a whole-body read
+  (cpp:response::as[as<T>] or cpp:response::as_view[as_view]), but not the
+  streaming sources you drive yourself. Off by default.
 |===
 
 They address different failure modes and are meant to be combined. The connect
@@ -68,4 +69,4 @@ if(ec == capy::error::timeout)
 
 * xref:2.guide/2d.error-handling.adoc[] — Timeouts among transport failures
 * xref:2.guide/2k.connection-pool.adoc[] — The idle timeout, a separate setting
-* xref:2.guide/2c.responses.adoc[] — Which body reads the timeout covers
+* xref:2.guide/2c.responses.adoc[] — The body-reading methods in detail

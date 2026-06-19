@@ -202,10 +202,13 @@ public:
             within this duration, from connection
             establishment through receipt of the
             response headers. The remaining time
-            also applies to reading the body with
-            @ref response::try_as_view and
-            @ref response::as_view. Can be
-            overridden per request with
+            then bounds a whole-body read with
+            @ref response::as or
+            @ref response::as_view (and their
+            `try_` forms), but not the streaming
+            sources @ref response::as_buffer_source
+            and @ref response::as_read_source. Can
+            be overridden per request with
             @ref request_builder::timeout.
         */
         std::optional<clock::duration> timeout;
@@ -395,9 +398,7 @@ public:
 
         The jar stores cookies received in responses
         and supplies them for subsequent requests
-        when @ref config::cookies is enabled. It can
-        be persisted and restored using its stream
-        operators.
+        when @ref config::cookies is enabled.
     */
     burl::cookie_jar&
     cookie_jar() noexcept
@@ -409,9 +410,7 @@ public:
 
         The jar stores cookies received in responses
         and supplies them for subsequent requests
-        when @ref config::cookies is enabled. It can
-        be persisted and restored using its stream
-        operators.
+        when @ref config::cookies is enabled.
     */
     const burl::cookie_jar&
     cookie_jar() const noexcept
