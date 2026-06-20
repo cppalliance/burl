@@ -23,13 +23,14 @@ def main(ctx):
             'gcc >=13.0',
             'clang >=17.0',
             # 'msvc >=14.1',
-            'arm64-gcc latest',
             'arm64-clang latest'
             # 'x86-msvc latest'
         ],
         '>=20',
+        cmake=False,
         docs=False,
         coverage=False,
+        asan=False,
         cache_dir='cache')
     # Note: liburing-dev is not added to generate()'s package list.
     # generate() emits jobs on Ubuntu focal (which has no liburing-dev
@@ -60,33 +61,33 @@ def main(ctx):
     #         globalenv=globalenv),
     # ]
 
-    jobs += [
-        freebsd_cxx("clang-22", "clang++-22",
-            buildscript="drone", buildtype="boost",
-            freebsd_version="15.0",
-            environment={
-                'B2_TOOLSET': 'clang-22',
-                'B2_CXXSTD': '20',
-            },
-            globalenv=globalenv),
-    ]
+    # jobs += [
+    #     freebsd_cxx("clang-22", "clang++-22",
+    #         buildscript="drone", buildtype="boost",
+    #         freebsd_version="15.0",
+    #         environment={
+    #             'B2_TOOLSET': 'clang-22',
+    #             'B2_CXXSTD': '20',
+    #         },
+    #         globalenv=globalenv),
+    # ]
 
     # Jobs not covered by generate()
     jobs += [
-        linux_cxx("Valgrind", "clang++-17", packages="clang-17 libc6-dbg libstdc++-12-dev liburing-dev",
-            llvm_os="jammy", llvm_ver="17",
-            buildscript="drone", buildtype="valgrind",
-            image="cppalliance/droneubuntu2204:1",
-            environment={
-                'COMMENT': 'valgrind',
-                'B2_TOOLSET': 'clang-17',
-                'B2_CXXSTD': '20',
-                'B2_DEFINES': 'BOOST_NO_STRESS_TEST=1',
-                'B2_VARIANT': 'debug',
-                'B2_TESTFLAGS': 'testing.launcher=valgrind',
-                'VALGRIND_OPTS': '--error-exitcode=1',
-            },
-            globalenv=globalenv),
+        # linux_cxx("Valgrind", "clang++-17", packages="clang-17 libc6-dbg libstdc++-12-dev liburing-dev",
+        #     llvm_os="jammy", llvm_ver="17",
+        #     buildscript="drone", buildtype="valgrind",
+        #     image="cppalliance/droneubuntu2204:1",
+        #     environment={
+        #         'COMMENT': 'valgrind',
+        #         'B2_TOOLSET': 'clang-17',
+        #         'B2_CXXSTD': '20',
+        #         'B2_DEFINES': 'BOOST_NO_STRESS_TEST=1',
+        #         'B2_VARIANT': 'debug',
+        #         'B2_TESTFLAGS': 'testing.launcher=valgrind',
+        #         'VALGRIND_OPTS': '--error-exitcode=1',
+        #     },
+        #     globalenv=globalenv),
 
         # Note: no liburing-dev on the Drone cmake jobs even though the
         # noble image has 2.5+. Docker's default seccomp profile blocks

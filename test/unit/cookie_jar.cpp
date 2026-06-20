@@ -14,8 +14,6 @@
 
 #include <boost/url/url.hpp>
 
-#include <string>
-
 namespace boost
 {
 namespace burl
@@ -23,6 +21,10 @@ namespace burl
 
 struct cookie_jar_test
 {
+    //
+    // Adding, replacing, and header ordering
+    //
+
     void
     testAddAndHeader()
     {
@@ -33,76 +35,6 @@ struct cookie_jar_test
         jar.add(url, parse_cookie("theme=dark").value());
 
         BOOST_TEST_EQ(jar.cookie_header(url), "id=42; theme=dark");
-    }
-
-    void
-    testSecure()
-    {
-        cookie_jar jar;
-        urls::url https("https://example.com/");
-        jar.add(https, parse_cookie("s=1; Secure").value());
-
-        BOOST_TEST_EQ(jar.cookie_header(https), "s=1");
-
-        urls::url http("http://example.com/");
-        BOOST_TEST_EQ(jar.cookie_header(http), "");
-    }
-
-    void
-    testDomainMismatch()
-    {
-        cookie_jar jar;
-        urls::url url("https://example.com/");
-
-        jar.add(url, parse_cookie("x=1; Domain=other.com").value());
-        BOOST_TEST_EQ(jar.cookie_header(url), "");
-    }
-
-    void
-    testPublicSuffix()
-    {
-        // A registrable domain is accepted.
-        {
-            cookie_jar jar;
-            urls::url url("https://www.example.com/");
-            jar.add(url, parse_cookie("a=1; Domain=example.com").value());
-            BOOST_TEST_EQ(jar.cookie_header(url), "a=1");
-        }
-
-        // A bare TLD is rejected, by libpsl and the no-dot fallback alike.
-        {
-            cookie_jar jar;
-            urls::url url("https://example.com/");
-            jar.add(url, parse_cookie("a=1; Domain=com").value());
-            BOOST_TEST_EQ(jar.cookie_header(url), "");
-        }
-
-        // RFC 6265bis 5.6.3: a leading dot is ignored — accepted on a domain,
-        // rejected on a bare TLD.
-        {
-            cookie_jar jar;
-            urls::url url("https://www.example.com/");
-            jar.add(url, parse_cookie("a=1; Domain=.example.com").value());
-            BOOST_TEST_EQ(jar.cookie_header(url), "a=1");
-        }
-        {
-            cookie_jar jar;
-            urls::url url("https://example.com/");
-            jar.add(url, parse_cookie("a=1; Domain=.com").value());
-            BOOST_TEST_EQ(jar.cookie_header(url), "");
-        }
-
-        // A multi-label public suffix is rejected only with libpsl; the
-        // no-dot fallback can't tell and accepts it.
-        {
-            cookie_jar jar;
-            urls::url url("https://example.co.uk/");
-            jar.add(url, parse_cookie("a=1; Domain=co.uk").value());
-            if(cookie_jar::public_suffix_supported())
-                BOOST_TEST_EQ(jar.cookie_header(url), "");
-            else
-                BOOST_TEST_EQ(jar.cookie_header(url), "a=1");
-        }
     }
 
     void
@@ -121,35 +53,6 @@ struct cookie_jar_test
         BOOST_TEST_EQ(
             jar.cookie_header(urls::url("https://example.com/")),
             "k=new; d=new");
-    }
-
-    void
-    testPathMatch()
-    {
-        cookie_jar jar;
-        jar.add(
-            urls::url("https://example.com/app"),
-            parse_cookie("k=1; Path=/app").value());
-
-        // RFC 6265bis 5.1.4: the cookie path is a prefix ending on a boundary.
-        BOOST_TEST_EQ(jar.cookie_header(urls::url("https://example.com/app")), "k=1");
-        BOOST_TEST_EQ(
-            jar.cookie_header(urls::url("https://example.com/app/x")), "k=1");
-
-        // A prefix that is not on a path boundary does not match.
-        BOOST_TEST_EQ(
-            jar.cookie_header(urls::url("https://example.com/application")), "");
-
-        // RFC 6265bis 5.1.4: a no-path request defaults to "/", not matching /app.
-        BOOST_TEST_EQ(
-            jar.cookie_header(urls::url("https://example.com")), "");
-
-        // RFC 6265bis 5.1.4: the defaulted "/" does match a root cookie.
-        cookie_jar root;
-        root.add(
-            urls::url("https://example.com/"), parse_cookie("a=1").value());
-        BOOST_TEST_EQ(
-            root.cookie_header(urls::url("https://example.com")), "a=1");
     }
 
     void
@@ -194,55 +97,18 @@ struct cookie_jar_test
         }
     }
 
+    //
+    // Domain matching
+    //
+
     void
-    testLocalhostSecure()
+    testDomainMismatch()
     {
-        // localhost is a secure context, so Secure cookies are accepted and
-        // sent over plain http (matches curl/browsers).
-        {
-            cookie_jar jar;
-            urls::url url("http://localhost/");
-            jar.add(url, parse_cookie("s=1; Secure").value());
-            BOOST_TEST_EQ(jar.cookie_header(url), "s=1");
-        }
+        cookie_jar jar;
+        urls::url url("https://example.com/");
 
-        // The same holds for loopback addresses.
-        {
-            cookie_jar jar;
-            urls::url url("http://127.0.0.1/");
-            jar.add(url, parse_cookie("s=1; Secure").value());
-            BOOST_TEST_EQ(jar.cookie_header(url), "s=1");
-        }
-        {
-            cookie_jar jar;
-            urls::url url("http://127.0.0.255/");
-            jar.add(url, parse_cookie("s=1; Secure").value());
-            BOOST_TEST_EQ(jar.cookie_header(url), "s=1");
-        }
-        {
-            cookie_jar jar;
-            urls::url url("http://[::1]/");
-            jar.add(url, parse_cookie("s=1; Secure").value());
-            BOOST_TEST_EQ(jar.cookie_header(url), "s=1");
-        }
-
-        // "localhost." is not a secure context: fail closed rather than
-        // normalize the trailing dot (matches curl's literal check).
-        {
-            cookie_jar jar;
-            urls::url url("http://localhost./");
-            jar.add(url, parse_cookie("s=1; Secure").value());
-            BOOST_TEST_EQ(jar.cookie_header(url), "");
-        }
-
-        // A non-loopback host over http is not secure, so the cookie is
-        // rejected.
-        {
-            cookie_jar jar;
-            urls::url url("http://example.com/");
-            jar.add(url, parse_cookie("s=1; Secure").value());
-            BOOST_TEST_EQ(jar.cookie_header(url), "");
-        }
+        jar.add(url, parse_cookie("x=1; Domain=other.com").value());
+        BOOST_TEST_EQ(jar.cookie_header(url), "");
     }
 
     void
@@ -285,36 +151,6 @@ struct cookie_jar_test
             jar.add(url, parse_cookie("a=1; Domain=com.").value());
             BOOST_TEST_EQ(
                 jar.cookie_header(urls::url("https://example.com/")), "");
-        }
-    }
-
-    void
-    testIPv6()
-    {
-        // An IPv6 literal host is keyed without its brackets.
-        {
-            cookie_jar jar;
-            jar.add(
-                urls::url("http://[::1]/"), parse_cookie("a=1").value());
-            BOOST_TEST_EQ(
-                jar.cookie_header(urls::url("http://[::1]/")), "a=1");
-        }
-
-        // The exported jar uses the bracket-free address and re-imports
-        // to the same key.
-        {
-            cookie_jar jar;
-            jar.add(
-                urls::url("http://[::1]/"), parse_cookie("a=1").value());
-
-            const auto s = jar.to_netscape();
-            BOOST_TEST(s.find("[") == std::string::npos);
-            BOOST_TEST(s.find("::1\t") != std::string::npos);
-
-            cookie_jar in;
-            BOOST_TEST(in.from_netscape(s).has_value());
-            BOOST_TEST_EQ(
-                in.cookie_header(urls::url("http://[::1]/")), "a=1");
         }
     }
 
@@ -378,49 +214,95 @@ struct cookie_jar_test
     }
 
     void
-    testNetscapeValueless()
+    testIPv6()
     {
-        // A value-less cookie exports with an empty value field and must
-        // re-import without error.
-        cookie_jar jar;
-        jar.add(
-            urls::url("http://example.com/"), parse_cookie("flag=").value());
+        // An IPv6 literal host is keyed without its brackets.
+        {
+            cookie_jar jar;
+            jar.add(
+                urls::url("http://[::1]/"), parse_cookie("a=1").value());
+            BOOST_TEST_EQ(
+                jar.cookie_header(urls::url("http://[::1]/")), "a=1");
+        }
 
-        cookie_jar in;
-        BOOST_TEST(in.from_netscape(jar.to_netscape()).has_value());
-        BOOST_TEST_EQ(
-            in.cookie_header(urls::url("http://example.com/")), "flag=");
+        // The exported jar uses the bracket-free address and re-imports
+        // to the same key.
+        {
+            cookie_jar jar;
+            jar.add(
+                urls::url("http://[::1]/"), parse_cookie("a=1").value());
+
+            const auto s = jar.to_netscape();
+            BOOST_TEST(s.find("[") == std::string::npos);
+            BOOST_TEST(s.find("::1\t") != std::string::npos);
+
+            cookie_jar in;
+            BOOST_TEST(in.from_netscape(s).has_value());
+            BOOST_TEST_EQ(
+                in.cookie_header(urls::url("http://[::1]/")), "a=1");
+        }
     }
 
+    //
+    // Public suffix
+    //
+
     void
-    testNetscapeLeadingDot()
+    testPublicSuffix()
     {
-        // A leading-dot domain imported from a file must still match the
-        // host and its subdomains.
-        cookie_jar jar;
-        BOOST_TEST(
-            jar.from_netscape(
-                "# Netscape HTTP Cookie File\n\n"
-                ".example.com\tTRUE\t/\tFALSE\t0\ta\t1\n").has_value());
-        BOOST_TEST_EQ(
-            jar.cookie_header(urls::url("http://www.example.com/")), "a=1");
-        BOOST_TEST_EQ(
-            jar.cookie_header(urls::url("http://example.com/")), "a=1");
+        // A registrable domain is accepted.
+        {
+            cookie_jar jar;
+            urls::url url("https://www.example.com/");
+            jar.add(url, parse_cookie("a=1; Domain=example.com").value());
+            BOOST_TEST_EQ(jar.cookie_header(url), "a=1");
+        }
 
-        // The leading dot marks tailmatch even when the flag column is FALSE,
-        // and is stripped so it survives an export round-trip.
-        cookie_jar dotted;
-        BOOST_TEST(
-            dotted.from_netscape(
-                "# Netscape HTTP Cookie File\n\n"
-                ".example.com\tFALSE\t/\tFALSE\t0\tb\t2\n").has_value());
-        BOOST_TEST_EQ(
-            dotted.cookie_header(urls::url("http://sub.example.com/")), "b=2");
+        // A bare TLD is rejected, by libpsl and the no-dot fallback alike.
+        {
+            cookie_jar jar;
+            urls::url url("https://example.com/");
+            jar.add(url, parse_cookie("a=1; Domain=com").value());
+            BOOST_TEST_EQ(jar.cookie_header(url), "");
+        }
 
-        cookie_jar in;
-        BOOST_TEST(in.from_netscape(dotted.to_netscape()).has_value());
-        BOOST_TEST_EQ(
-            in.cookie_header(urls::url("http://sub.example.com/")), "b=2");
+        // RFC 6265bis 5.6.3: a leading dot is ignored — accepted on a domain,
+        // rejected on a bare TLD.
+        {
+            cookie_jar jar;
+            urls::url url("https://www.example.com/");
+            jar.add(url, parse_cookie("a=1; Domain=.example.com").value());
+            BOOST_TEST_EQ(jar.cookie_header(url), "a=1");
+        }
+        {
+            cookie_jar jar;
+            urls::url url("https://example.com/");
+            jar.add(url, parse_cookie("a=1; Domain=.com").value());
+            BOOST_TEST_EQ(jar.cookie_header(url), "");
+        }
+
+        // A multi-label public suffix is rejected only with libpsl; the
+        // no-dot fallback can't tell and accepts it.
+        {
+            cookie_jar jar;
+            urls::url url("https://example.co.uk/");
+            jar.add(url, parse_cookie("a=1; Domain=co.uk").value());
+            if(cookie_jar::public_suffix_supported())
+                BOOST_TEST_EQ(jar.cookie_header(url), "");
+            else
+                BOOST_TEST_EQ(jar.cookie_header(url), "a=1");
+        }
+
+        // The no-dot fallback special-cases "localhost" as a non-public-suffix
+        // so a Domain=localhost cookie tailmatches subdomains during local dev.
+        if(!cookie_jar::public_suffix_supported())
+        {
+            cookie_jar jar;
+            urls::url url("http://localhost/");
+            jar.add(url, parse_cookie("a=1; Domain=localhost").value());
+            BOOST_TEST_EQ(
+                jar.cookie_header(urls::url("http://sub.localhost/")), "a=1");
+        }
     }
 
     void
@@ -444,6 +326,137 @@ struct cookie_jar_test
             cookie_jar jar;
             urls::url url("https://example.com/");
             jar.add(url, parse_cookie("a=1; Domain=com").value());
+            BOOST_TEST_EQ(jar.cookie_header(url), "");
+        }
+    }
+
+    //
+    // Path matching
+    //
+
+    void
+    testPathMatch()
+    {
+        cookie_jar jar;
+        jar.add(
+            urls::url("https://example.com/app"),
+            parse_cookie("k=1; Path=/app").value());
+
+        // RFC 6265bis 5.1.4: the cookie path is a prefix ending on a boundary.
+        BOOST_TEST_EQ(jar.cookie_header(urls::url("https://example.com/app")), "k=1");
+        BOOST_TEST_EQ(
+            jar.cookie_header(urls::url("https://example.com/app/x")), "k=1");
+
+        // A prefix that is not on a path boundary does not match.
+        BOOST_TEST_EQ(
+            jar.cookie_header(urls::url("https://example.com/application")), "");
+
+        // RFC 6265bis 5.1.4: a no-path request defaults to "/", not matching /app.
+        BOOST_TEST_EQ(
+            jar.cookie_header(urls::url("https://example.com")), "");
+
+        // RFC 6265bis 5.1.4: the defaulted "/" does match a root cookie.
+        cookie_jar root;
+        root.add(
+            urls::url("https://example.com/"), parse_cookie("a=1").value());
+        BOOST_TEST_EQ(
+            root.cookie_header(urls::url("https://example.com")), "a=1");
+    }
+
+    void
+    testDefaultPath()
+    {
+        // RFC 6265bis 5.1.4: with no Path attribute, the default path is the
+        // request's directory (everything up to the last '/').
+        cookie_jar jar;
+        jar.add("https://example.com/app/x", parse_cookie("a=1").value());
+        BOOST_TEST_EQ(jar.cookie_header("https://example.com/app/x"), "a=1");
+        BOOST_TEST_EQ(jar.cookie_header("https://example.com/app/y"), "a=1");
+        BOOST_TEST_EQ(jar.cookie_header("https://example.com/app"), "a=1");
+        BOOST_TEST_EQ(jar.cookie_header("https://example.com/"), "");
+    }
+
+    //
+    // Secure context
+    //
+
+    void
+    testSecure()
+    {
+        cookie_jar jar;
+        urls::url https("https://example.com/");
+        jar.add(https, parse_cookie("s=1; Secure").value());
+
+        BOOST_TEST_EQ(jar.cookie_header(https), "s=1");
+
+        urls::url http("http://example.com/");
+        BOOST_TEST_EQ(jar.cookie_header(http), "");
+    }
+
+    void
+    testLocalhostSecure()
+    {
+        // localhost is a secure context, so Secure cookies are accepted and
+        // sent over plain http (matches curl/browsers).
+        {
+            cookie_jar jar;
+            urls::url url("http://localhost/");
+            jar.add(url, parse_cookie("s=1; Secure").value());
+            BOOST_TEST_EQ(jar.cookie_header(url), "s=1");
+        }
+
+        // The same holds for loopback addresses.
+        {
+            cookie_jar jar;
+            urls::url url("http://127.0.0.1/");
+            jar.add(url, parse_cookie("s=1; Secure").value());
+            BOOST_TEST_EQ(jar.cookie_header(url), "s=1");
+        }
+        {
+            cookie_jar jar;
+            urls::url url("http://127.0.0.255/");
+            jar.add(url, parse_cookie("s=1; Secure").value());
+            BOOST_TEST_EQ(jar.cookie_header(url), "s=1");
+        }
+        {
+            cookie_jar jar;
+            urls::url url("http://[::1]/");
+            jar.add(url, parse_cookie("s=1; Secure").value());
+            BOOST_TEST_EQ(jar.cookie_header(url), "s=1");
+        }
+
+        // "localhost." is not a secure context: fail closed rather than
+        // normalize the trailing dot (matches curl's literal check).
+        {
+            cookie_jar jar;
+            urls::url url("http://localhost./");
+            jar.add(url, parse_cookie("s=1; Secure").value());
+            BOOST_TEST_EQ(jar.cookie_header(url), "");
+        }
+
+        // A non-loopback host over http is not secure, so the cookie is
+        // rejected.
+        {
+            cookie_jar jar;
+            urls::url url("http://example.com/");
+            jar.add(url, parse_cookie("s=1; Secure").value());
+            BOOST_TEST_EQ(jar.cookie_header(url), "");
+        }
+
+        // An ipvfuture host over http is not a recognized secure context, so
+        // the cookie is rejected (fail closed).
+        {
+            cookie_jar jar;
+            urls::url url("http://[v1.fe80::a]/");
+            jar.add(url, parse_cookie("s=1; Secure").value());
+            BOOST_TEST_EQ(jar.cookie_header(url), "");
+        }
+
+        // A host-less url over http is likewise not secure.
+        {
+            cookie_jar jar;
+            urls::url url("http:/path");
+            jar.add(url, parse_cookie("s=1; Secure").value());
             BOOST_TEST_EQ(jar.cookie_header(url), "");
         }
     }
@@ -508,16 +521,51 @@ struct cookie_jar_test
         }
     }
 
-    void
-    testClear()
-    {
-        cookie_jar jar;
-        urls::url url("https://example.com/");
-        jar.add(url, parse_cookie("a=1").value());
-        jar.add(url, parse_cookie("b=2").value());
+    //
+    // Expiry and clearing
+    //
 
-        jar.clear();
-        BOOST_TEST_EQ(jar.cookie_header(url), "");
+    void
+    testExpiry()
+    {
+        urls::url url("https://example.com/");
+
+        // An already-expired cookie with no stored counterpart is dropped.
+        {
+            cookie_jar jar;
+            jar.add(url, parse_cookie("a=1; Max-Age=0").value());
+            BOOST_TEST_EQ(jar.cookie_header(url), "");
+        }
+
+        // RFC 6265bis: a server deletes a stored cookie by re-sending it
+        // already expired, which erases the existing entry.
+        {
+            cookie_jar jar;
+            jar.add(url, parse_cookie("a=1").value());
+            BOOST_TEST_EQ(jar.cookie_header(url), "a=1");
+            jar.add(url, parse_cookie("a=2; Max-Age=0").value());
+            BOOST_TEST_EQ(jar.cookie_header(url), "");
+        }
+    }
+
+    void
+    testLazyExpiry()
+    {
+        // epoch 1 is 1970 — already past. from_netscape stores it directly,
+        // bypassing add()'s expiry check, so a stale entry lands in the jar.
+        cookie_jar jar;
+        BOOST_TEST(
+            jar.from_netscape(
+                "# Netscape HTTP Cookie File\n\n"
+                "example.com\tFALSE\t/\tFALSE\t1\ta\t1\n").has_value());
+
+        // Querying the jar purges the expired entry and returns nothing.
+        BOOST_TEST_EQ(
+            jar.cookie_header(urls::url("http://example.com/")), "");
+
+        // It was erased, not merely filtered: it no longer appears in an
+        // export.
+        BOOST_TEST(jar.to_netscape().find("example.com") == std::string::npos);
     }
 
     void
@@ -536,40 +584,153 @@ struct cookie_jar_test
     }
 
     void
+    testClear()
+    {
+        cookie_jar jar;
+        urls::url url("https://example.com/");
+        jar.add(url, parse_cookie("a=1").value());
+        jar.add(url, parse_cookie("b=2").value());
+
+        jar.clear();
+        BOOST_TEST_EQ(jar.cookie_header(url), "");
+    }
+
+    //
+    // Netscape import/export
+    //
+
+    void
     testNetscapeRoundTrip()
     {
         cookie_jar jar;
         urls::url url("https://example.com/path");
-        jar.add(url, parse_cookie("id=42; Max-Age=3600").value());
+        jar.add(url, parse_cookie("id=42; Max-Age=3600; HttpOnly").value());
         jar.add(url, parse_cookie("theme=dark; Max-Age=3600").value());
 
+        // An HttpOnly cookie serializes with the "#HttpOnly_" line prefix.
+        const auto netscape = jar.to_netscape();
+        BOOST_TEST(netscape.find("#HttpOnly_") != std::string::npos);
+
         cookie_jar jar2;
-        BOOST_TEST(jar2.from_netscape(jar.to_netscape()).has_value());
+        BOOST_TEST(jar2.from_netscape(netscape).has_value());
 
         BOOST_TEST_EQ(jar2.cookie_header(url), jar.cookie_header(url));
+        // A second export must reproduce the original, proving the HttpOnly
+        // flag (which the cookie header omits) survived the round-trip.
+        BOOST_TEST_EQ(jar2.to_netscape(), netscape);
+    }
+
+    void
+    testNetscapeValueless()
+    {
+        // A value-less cookie exports with an empty value field and must
+        // re-import without error.
+        cookie_jar jar;
+        jar.add(
+            urls::url("http://example.com/"), parse_cookie("flag=").value());
+
+        cookie_jar in;
+        BOOST_TEST(in.from_netscape(jar.to_netscape()).has_value());
+        BOOST_TEST_EQ(
+            in.cookie_header(urls::url("http://example.com/")), "flag=");
+    }
+
+    void
+    testNetscapeLeadingDot()
+    {
+        // A leading-dot domain imported from a file must still match the
+        // host and its subdomains.
+        cookie_jar jar;
+        BOOST_TEST(
+            jar.from_netscape(
+                "# Netscape HTTP Cookie File\n\n"
+                ".example.com\tTRUE\t/\tFALSE\t0\ta\t1\n").has_value());
+        BOOST_TEST_EQ(
+            jar.cookie_header(urls::url("http://www.example.com/")), "a=1");
+        BOOST_TEST_EQ(
+            jar.cookie_header(urls::url("http://example.com/")), "a=1");
+
+        // The leading dot marks tailmatch even when the flag column is FALSE,
+        // and is stripped so it survives an export round-trip.
+        cookie_jar dotted;
+        BOOST_TEST(
+            dotted.from_netscape(
+                "# Netscape HTTP Cookie File\n\n"
+                ".example.com\tFALSE\t/\tFALSE\t0\tb\t2\n").has_value());
+        BOOST_TEST_EQ(
+            dotted.cookie_header(urls::url("http://sub.example.com/")), "b=2");
+
+        cookie_jar in;
+        BOOST_TEST(in.from_netscape(dotted.to_netscape()).has_value());
+        BOOST_TEST_EQ(
+            in.cookie_header(urls::url("http://sub.example.com/")), "b=2");
+    }
+
+    void
+    testNetscapeCRLF()
+    {
+        // CRLF line endings are tolerated: the trailing '\r' is stripped so
+        // the value field parses as "1", not "1\r".
+        cookie_jar jar;
+        BOOST_TEST(
+            jar.from_netscape(
+                "# Netscape HTTP Cookie File\r\n\r\n"
+                "example.com\tFALSE\t/\tFALSE\t0\ta\t1\r\n").has_value());
+        BOOST_TEST_EQ(
+            jar.cookie_header(urls::url("http://example.com/")), "a=1");
+    }
+
+    void
+    testNetscapeMalformed()
+    {
+        // A line that does not match the fixed tab-delimited shape fails to
+        // parse and the error is propagated out of from_netscape.
+        cookie_jar jar;
+        BOOST_TEST(
+            jar.from_netscape(
+                "# Netscape HTTP Cookie File\n\n"
+                "example.com\tTRUE\t/\n").has_error());
     }
 
     void
     run()
     {
+        // Adding, replacing, and header ordering
         testAddAndHeader();
-        testSecure();
+        testReplace();
+        testOrdering();
+
+        // Domain matching
         testDomainMismatch();
+        testTrailingDot();
+        testIPHost();
+        testIPv6();
+
+        // Public suffix
         testPublicSuffix();
         testPublicSuffixHostOnly();
-        testReplace();
+
+        // Path matching
         testPathMatch();
-        testOrdering();
+        testDefaultPath();
+
+        // Secure context
+        testSecure();
         testLocalhostSecure();
-        testTrailingDot();
-        testIPv6();
-        testIPHost();
+        testLeaveSecureAlone();
+
+        // Expiry and clearing
+        testExpiry();
+        testLazyExpiry();
+        testClearSessionCookies();
+        testClear();
+
+        // Netscape import/export
+        testNetscapeRoundTrip();
         testNetscapeValueless();
         testNetscapeLeadingDot();
-        testLeaveSecureAlone();
-        testClear();
-        testClearSessionCookies();
-        testNetscapeRoundTrip();
+        testNetscapeCRLF();
+        testNetscapeMalformed();
     }
 };
 

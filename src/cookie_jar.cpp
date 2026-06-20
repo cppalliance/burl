@@ -40,9 +40,6 @@ domain_match(
     if(!tailmatch)
         return host == domain;
 
-    if(domain.starts_with('.'))
-        domain.remove_prefix(1);
-
     if(host.ends_with(domain))
     {
         if(host.size() == domain.size())
