@@ -19,18 +19,11 @@ list(APPEND PFILES
 source_group(TREE ${CMAKE_CURRENT_SOURCE_DIR} PREFIX "" FILES ${PFILES})
 
 add_executable(boost_burl_tests ${PFILES})
-target_link_libraries(
-    boost_burl_tests PRIVATE
+target_link_libraries(boost_burl_tests PRIVATE
     boost_capy_test_suite_main
-    Boost::burl)
-
-if (TARGET Boost::http_zlib)
-    target_link_libraries(boost_burl_tests PRIVATE Boost::http_zlib)
-endif()
-
-if (TARGET Boost::http_brotli)
-    target_link_libraries(boost_burl_tests PRIVATE Boost::http_brotli)
-endif()
+    Boost::burl
+    $<TARGET_NAME_IF_EXISTS:Boost::http_zlib>
+    $<TARGET_NAME_IF_EXISTS:Boost::http_brotli>)
 
 target_include_directories(boost_burl_tests PRIVATE . ../../)
 

@@ -161,10 +161,6 @@ function(boost_burl_setup_properties target)
     target_include_directories(${target} PUBLIC "${PROJECT_SOURCE_DIR}/include")
     target_include_directories(${target} PRIVATE "${PROJECT_SOURCE_DIR}")
     target_link_libraries(${target} PUBLIC ${BOOST_BURL_DEPENDENCIES})
-    # Link corosio_openssl for TLS support when available.
-    # In superproject builds, corosio is processed after burl (alphabetically),
-    # so the target may not exist at configure time. Use $<TARGET_NAME_IF_EXISTS:...>
-    # which evaluates at generation time when all targets exist.
     target_link_libraries(${target} PUBLIC $<TARGET_NAME_IF_EXISTS:Boost::corosio_openssl>)
     target_compile_definitions(${target} PUBLIC BOOST_BURL_NO_LIB)
     target_compile_definitions(${target} PRIVATE BOOST_BURL_SOURCE)

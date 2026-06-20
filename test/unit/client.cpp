@@ -719,7 +719,8 @@ public:
         capy::test::run_blocking()([&]() -> capy::task<>
         {
             auto cfg = net.config();
-            cfg.gzip = true;
+            cfg.gzip    = true;
+            cfg.deflate = true;
             client c(
                 co_await capy::this_coro::executor,
                 corosio::tls_context(),
@@ -736,7 +737,7 @@ public:
         }());
 
         BOOST_TEST(
-            net.written(0).find("Accept-Encoding: gzip\r\n") !=
+            net.written(0).find("Accept-Encoding: deflate, gzip\r\n") !=
             std::string::npos);
     }
 
