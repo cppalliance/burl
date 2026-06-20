@@ -535,7 +535,7 @@ public:
     }
 
     void
-    testSocks5Proxy()
+    testSocks5hProxy()
     {
         corosio::io_context ioc;
         loopback_server server{ ioc };
@@ -544,7 +544,7 @@ public:
         {
             auto s = co_await server.next();
 
-            // socks5 handshake
+            // socks5h handshake
             {
                 // greeting: VER, NMETHODS, METHODS...
                 std::uint8_t greeting[3];
@@ -601,6 +601,86 @@ public:
             for(auto i : { 0, 1 })
             {
                 auto [aec, pc] = co_await pool->acquire("http://example.com");
+                BOOST_TEST(!aec);
+                co_await ping(&pc);
+                pool->release(std::move(pc));
+            }
+        };
+
+        capy::run_async(ioc.get_executor())(server_task());
+        capy::run_async(ioc.get_executor())(client_task());
+        ioc.run();
+    }
+
+    void
+    testSocks5Proxy()
+    {
+        corosio::io_context ioc;
+        loopback_server server{ ioc };
+
+        auto server_task = [&]() -> capy::task<>
+        {
+            auto s = co_await server.next();
+
+            // socks5 handshake
+            {
+                // greeting: VER, NMETHODS, METHODS...
+                std::uint8_t greeting[3];
+                auto [gec, gn] =
+                    co_await capy::read(s, make_buffer(greeting));
+                BOOST_TEST(!gec);
+                BOOST_TEST_EQ(greeting[0], 0x05); // SOCKS5
+                BOOST_TEST_EQ(greeting[1], 0x01); // one method
+                BOOST_TEST_EQ(greeting[2], 0x00); // no authentication
+
+                // reply: VER, METHOD (no authentication)
+                std::uint8_t method[2] = { 0x05, 0x00 };
+                auto [mec, mn] = co_await s.write_some(make_buffer(method));
+                BOOST_TEST(!mec);
+
+                // request head: VER, CMD, RSV, ATYP
+                std::uint8_t head[4];
+                auto [hec, hn] = co_await capy::read(s, make_buffer(head));
+                BOOST_TEST(!hec);
+                BOOST_TEST_EQ(head[0], 0x05); // SOCKS5
+                BOOST_TEST_EQ(head[1], 0x01); // CONNECT
+                BOOST_TEST_EQ(head[3], 0x01); // IPv4 (resolved locally)
+
+                // request tail: 4-byte IPv4 address + port
+                std::uint8_t tail[6];
+                auto [tec, tn] = co_await capy::read(s, make_buffer(tail));
+                BOOST_TEST(!tec);
+                BOOST_TEST_EQ(tail[0], 0x7F); // 127
+                BOOST_TEST_EQ(tail[1], 0x00); // 0
+                BOOST_TEST_EQ(tail[2], 0x00); // 0
+                BOOST_TEST_EQ(tail[3], 0x01); // 1
+                BOOST_TEST_EQ(tail[4], 0x00); // port hi
+                BOOST_TEST_EQ(tail[5], 0x50); // 80
+
+                // reply success: VER, REP, RSV, ATYP, BND.ADDR, BND.PORT
+                std::uint8_t reply[10] = {
+                    0x05, 0x00, 0x00, 0x01, 0, 0, 0, 0, 0, 0 };
+                auto [rec, rn] = co_await s.write_some(make_buffer(reply));
+                BOOST_TEST(!rec);
+            }
+
+            co_await pong(&s);
+            co_await pong(&s);
+        };
+
+        auto client_task = [&]() -> capy::task<>
+        {
+            client::config cfg{};
+            cfg.proxy = server.url("socks5");
+
+            auto pool = std::make_shared<connection_pool>(
+                co_await capy::this_coro::executor,
+                corosio::tls_context{},
+                std::move(cfg));
+
+            for(auto i : { 0, 1 })
+            {
+                auto [aec, pc] = co_await pool->acquire("http://127.0.0.1");
                 BOOST_TEST(!aec);
                 co_await ping(&pc);
                 pool->release(std::move(pc));
@@ -695,6 +775,29 @@ public:
     }
 
     void
+    testUnsupportedUrlScheme()
+    {
+        scripted_net net;
+
+        capy::test::run_blocking()([&]() -> capy::task<>
+        {
+            auto pool = std::make_shared<connection_pool>(
+                co_await capy::this_coro::executor,
+                corosio::tls_context(),
+                net.config());
+
+            for(auto const* url : { "ftp://example.com", "ws://example.com" })
+            {
+                auto [ec, pc] = co_await pool->acquire(url);
+                BOOST_TEST_EQ(ec, error::unsupported_url_scheme);
+                BOOST_TEST(!pc);
+            }
+        }());
+
+        BOOST_TEST_EQ(net.connects(), 0u);
+    }
+
+    void
     run()
     {
         testOriginKeySeparation();
@@ -710,8 +813,10 @@ public:
         testTlsConnectionReuse();
         testTlsHandshakeFailure();
         testSocks5Proxy();
+        testSocks5hProxy();
         testHttpProxy();
         testUnsupportedProxyScheme();
+        testUnsupportedUrlScheme();
     }
 };
 

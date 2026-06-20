@@ -14,8 +14,6 @@
 #include <boost/capy/io_task.hpp>
 #include <boost/url/url_view.hpp>
 
-#include <string_view>
-
 namespace boost
 {
 namespace burl
@@ -26,8 +24,7 @@ namespace detail
 capy::io_task<>
 open_http_tunnel(
     capy::any_stream stream,
-    std::string_view target_host,
-    std::string_view target_port,
+    urls::url_view target,
     urls::url_view proxy);
 
 } // namespace detail

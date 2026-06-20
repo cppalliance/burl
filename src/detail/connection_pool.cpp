@@ -54,11 +54,11 @@ connect_tcp(
     corosio::tcp_socket& socket,
     capy::executor_ref exec,
     const client::config& cfg,
-    std::string_view host,
-    std::string_view port)
+    urls::url_view url)
 {
     corosio::resolver resolver(exec);
-    auto [rec, eps] = co_await resolver.resolve(host, port);
+    auto [rec, eps] = co_await resolver.resolve(
+        url.encoded_host_address(), effective_port(url));
     if(rec)
         co_return rec;
 
@@ -264,6 +264,11 @@ connection_pool::release(pooled_connection pc)
 capy::io_task<std::unique_ptr<connection>>
 connection_pool::connect(urls::url_view url) const
 {
+    using urls::scheme;
+
+    if(url.scheme_id() != scheme::http && url.scheme_id() != scheme::https)
+        co_return { error::unsupported_url_scheme, {} };
+
     if(config_.connect_handler)
     {
         auto [ec, stream] = co_await config_.connect_handler(url);
@@ -273,41 +278,52 @@ connection_pool::connect(urls::url_view url) const
             {}, std::make_unique<stream_connection>(std::move(stream)) };
     }
 
-    auto target_port = effective_port(url);
-    if(target_port.empty())
-        co_return { error::unsupported_url_scheme, {} };
-
     corosio::tcp_socket socket(exec_);
 
     if(config_.proxy)
     {
         auto const& proxy = *config_.proxy;
-        auto proxy_port   = effective_port(proxy);
-        if(proxy_port.empty())
+        if(effective_port(proxy).empty())
             co_return { error::unsupported_proxy_scheme, {} };
 
-        auto [ec] = co_await connect_tcp(
-            socket, exec_, config_, proxy.encoded_host(), proxy_port);
-        if(ec)
+        if(auto [ec] = co_await connect_tcp(socket, exec_, config_, proxy); ec)
             co_return { ec, {} };
 
         if(proxy.scheme() == "http")
         {
             auto [ec] = co_await open_http_tunnel(
-                capy::any_stream(&socket),
-                url.encoded_host(),
-                target_port,
-                proxy);
+                capy::any_stream(&socket), url, proxy);
             if(ec)
                 co_return { ec, {} };
         }
-        else if(proxy.scheme() == "socks5" || proxy.scheme() == "socks5h")
+        else if(proxy.scheme() == "socks5")
+        {
+            urls::url resolved;
+
+            corosio::resolver resolver(exec_);
+            auto [rec, eps] = co_await resolver.resolve(
+                url.encoded_host_address(), effective_port(url));
+            if(rec)
+                co_return { rec, {} };
+
+            auto const& ep = eps.front().get_endpoint();
+            resolved.set_port_number(ep.port());
+            if(ep.is_v4())
+                resolved.set_host_ipv4(
+                    urls::ipv4_address(ep.v4_address().to_bytes()));
+            else
+                resolved.set_host_ipv6(
+                    urls::ipv6_address(ep.v6_address().to_bytes()));
+
+            auto [ec] = co_await open_socks5_tunnel(
+                capy::any_stream(&socket), resolved, proxy);
+            if(ec)
+                co_return { ec, {} };
+        }
+        else if(proxy.scheme() == "socks5h")
         {
             auto [ec] = co_await open_socks5_tunnel(
-                capy::any_stream(&socket),
-                url.encoded_host(),
-                target_port,
-                proxy);
+                capy::any_stream(&socket), url, proxy);
             if(ec)
                 co_return { ec, {} };
         }
@@ -318,13 +334,11 @@ connection_pool::connect(urls::url_view url) const
     }
     else
     {
-        auto [ec] = co_await connect_tcp(
-            socket, exec_, config_, url.encoded_host(), target_port);
-        if(ec)
+        if(auto [ec] = co_await connect_tcp(socket, exec_, config_, url); ec)
             co_return { ec, {} };
     }
 
-    if(url.scheme_id() == urls::scheme::https)
+    if(url.scheme_id() == scheme::https)
     {
         auto tls_ctx = tls_ctx_;
         tls_ctx.set_hostname(url.encoded_host());

@@ -30,14 +30,13 @@ class http_tunnel_test
     static std::error_code
     run(
         capy::test::stream& client,
-        std::string_view host,
-        std::string_view port,
+        urls::url_view target,
         urls::url_view proxy)
     {
         std::error_code ret;
         capy::test::run_blocking(
             [&](capy::io_result<> rs){ ret = rs.ec;})
-                (open_http_tunnel(&client, host, port, proxy));
+                (open_http_tunnel(&client, target, proxy));
         return ret;
     }
 
@@ -50,8 +49,7 @@ public:
 
         auto ec = run(
             client,
-            "example.com",
-            "443",
+            "https://example.com",
             "http://proxy:8080");
 
         BOOST_TEST(!ec);
@@ -75,14 +73,35 @@ public:
 
         auto ec = run(
             client,
-            "example.com",
-            "443",
+            "https://example.com",
             "http://user:pass@proxy:8080");
 
         BOOST_TEST(!ec);
         // Basic base64("user:pass")
         BOOST_TEST(
             server.data().find("Proxy-Authorization: Basic dXNlcjpwYXNz\r\n") !=
+            std::string_view::npos);
+    }
+
+    void
+    testSuccessIPv6Target()
+    {
+        auto [client, server] = capy::test::make_stream_pair();
+        server.provide("HTTP/1.1 200 Connection established\r\n\r\n");
+
+        auto ec = run(
+            client,
+            "https://[2001:db8::1]:8443",
+            "http://proxy:8080");
+
+        BOOST_TEST(!ec);
+
+        auto req = server.data();
+        // IPv6 literals must stay bracketed in the request-target and Host.
+        BOOST_TEST(req.starts_with(
+            "CONNECT [2001:db8::1]:8443 HTTP/1.1\r\n"));
+        BOOST_TEST(
+            req.find("Host: [2001:db8::1]:8443\r\n") !=
             std::string_view::npos);
     }
 
@@ -94,8 +113,7 @@ public:
 
         auto ec = run(
             client,
-            "example.com",
-            "443",
+            "https://example.com",
             "http://proxy:8080");
 
         BOOST_TEST(ec == error::proxy_auth_failed);
@@ -109,8 +127,7 @@ public:
 
         auto ec = run(
             client,
-            "example.com",
-            "443",
+            "https://example.com",
             "http://proxy:8080");
 
         BOOST_TEST(ec == error::proxy_connect_failed);
@@ -124,8 +141,7 @@ public:
 
         auto ec = run(
             client,
-            "example.com",
-            "443",
+            "https://example.com",
             "http://proxy:8080");
 
         BOOST_TEST(ec == error::proxy_connect_failed);
@@ -142,8 +158,7 @@ public:
 
             auto [ec] = co_await open_http_tunnel(
                 &client,
-                "example.com",
-                "443",
+                "https://example.com",
                 "http://proxy:8080");
 
             if(ec)
@@ -160,6 +175,7 @@ public:
     {
         testSuccess();
         testSuccessWithAuth();
+        testSuccessIPv6Target();
         testAuthRequired();
         testConnectFailed();
         testReadError();

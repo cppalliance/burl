@@ -12,6 +12,7 @@
 #include <boost/burl/error.hpp>
 
 #include "base64.hpp"
+#include "effective_port.hpp"
 
 #include <boost/capy/buffers/make_buffer.hpp>
 #include <boost/capy/write.hpp>
@@ -33,13 +34,12 @@ namespace detail
 capy::io_task<>
 open_http_tunnel(
     capy::any_stream stream,
-    std::string_view target_host,
-    std::string_view target_port,
+    urls::url_view target,
     urls::url_view proxy)
 {
-    std::string host_port(target_host);
+    std::string host_port(target.encoded_host());
     host_port += ':';
-    host_port += target_port;
+    host_port += effective_port(target);
 
     http::request req(http::method::connect, host_port);
     req.set(http::field::host, host_port);

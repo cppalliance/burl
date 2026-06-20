@@ -43,14 +43,13 @@ class socks5_tunnel_test
     static std::error_code
     run(
         capy::test::stream& client,
-        std::string_view host,
-        std::string_view port,
+        urls::url_view target,
         urls::url_view proxy)
     {
         std::error_code ret;
         capy::test::run_blocking(
             [&](capy::io_result<> rs){ ret = rs.ec;})
-                (open_socks5_tunnel(&client, host, port, proxy));
+                (open_socks5_tunnel(&client, target, proxy));
         return ret;
     }
 
@@ -63,8 +62,7 @@ public:
 
         auto ec = run(
             client,
-            "example.com",
-            "443",
+            "https://example.com",
             "socks5://proxy:1080");
 
         BOOST_TEST(!ec);
@@ -87,8 +85,7 @@ public:
 
         auto ec = run(
             client,
-            "example.com",
-            "443",
+            "https://example.com",
             "socks5://user:pass@proxy:1080");
 
         BOOST_TEST(!ec);
@@ -112,11 +109,53 @@ public:
 
         auto ec = run(
             client,
-            "example.com",
-            "443",
+            "https://example.com",
             "socks5://proxy:1080");
 
         BOOST_TEST(!ec);
+    }
+
+    void
+    testSuccessIPv4Target()
+    {
+        auto [client, server] = capy::test::make_stream_pair();
+        server.provide(bytes({ 0x05, 0x00 }) + ipv4_reply());
+
+        auto ec = run(
+            client,
+            "https://192.168.0.1",
+            "socks5://proxy:1080");
+
+        BOOST_TEST(!ec);
+
+        std::string expected = bytes({ 0x05, 0x01, 0x00 }); // greeting, no auth
+        // connect, ATYP=IPv4, address bytes, port 443
+        expected += bytes(
+            { 0x05, 0x01, 0x00, 0x01, 0xC0, 0xA8, 0x00, 0x01, 0x01, 0xBB });
+        BOOST_TEST(server.data() == expected);
+    }
+
+    void
+    testSuccessIPv6Target()
+    {
+        auto [client, server] = capy::test::make_stream_pair();
+        server.provide(bytes({ 0x05, 0x00 }) + ipv4_reply());
+
+        auto ec = run(
+            client,
+            "https://[2001:db8::1]",
+            "socks5://proxy:1080");
+
+        BOOST_TEST(!ec);
+
+        std::string expected = bytes({ 0x05, 0x01, 0x00 }); // greeting, no auth
+        // connect, ATYP=IPv6
+        expected += bytes({ 0x05, 0x01, 0x00, 0x04 });
+        expected += bytes(
+            { 0x20, 0x01, 0x0D, 0xB8, 0x00, 0x00, 0x00, 0x00,
+              0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x01 });
+        expected += bytes({ 0x01, 0xBB }); // port 443
+        BOOST_TEST(server.data() == expected);
     }
 
     void
@@ -127,8 +166,7 @@ public:
 
         auto ec = run(
             client,
-            "example.com",
-            "443",
+            "https://example.com",
             "socks5://proxy:1080");
 
         BOOST_TEST(ec == error::proxy_unsupported_version);
@@ -142,8 +180,7 @@ public:
 
         auto ec = run(
             client,
-            "example.com",
-            "443",
+            "https://example.com",
             "socks5://user:pass@proxy:1080");
 
         BOOST_TEST(ec == error::proxy_auth_failed);
@@ -157,8 +194,7 @@ public:
 
         auto ec = run(
             client,
-            "example.com",
-            "443",
+            "https://example.com",
             "socks5://proxy:1080");
 
         BOOST_TEST(ec == error::proxy_auth_failed);
@@ -173,8 +209,7 @@ public:
 
         auto ec = run(
             client,
-            "example.com",
-            "443",
+            "https://example.com",
             "socks5://proxy:1080");
 
         BOOST_TEST(ec == error::proxy_connect_failed);
@@ -192,8 +227,7 @@ public:
 
         auto ec = run(
             client,
-            "example.com",
-            "443",
+            "https://example.com",
             "socks5://proxy:1080");
 
         BOOST_TEST(!ec);
@@ -209,8 +243,7 @@ public:
 
         auto ec = run(
             client,
-            "example.com",
-            "443",
+            "https://example.com",
             "socks5://proxy:1080");
 
         BOOST_TEST(ec == error::proxy_connect_failed);
@@ -227,8 +260,7 @@ public:
 
             auto [ec] = co_await open_socks5_tunnel(
                 &client,
-                "example.com",
-                "443",
+                "https://example.com",
                 "socks5://proxy:1080");
 
             if(ec)
@@ -249,6 +281,8 @@ public:
         testSuccessNoAuth();
         testSuccessWithAuth();
         testSuccessDomainReply();
+        testSuccessIPv4Target();
+        testSuccessIPv6Target();
         testUnsupportedVersion();
         testAuthFailed();
         testNoAcceptableMethods();

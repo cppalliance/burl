@@ -11,11 +11,14 @@
 
 #include <boost/burl/error.hpp>
 
+#include "effective_port.hpp"
+
 #include <boost/capy/buffers/make_buffer.hpp>
 #include <boost/capy/read.hpp>
 #include <boost/capy/write.hpp>
 #include <boost/url/grammar/string_token.hpp>
 
+#include <charconv>
 #include <cstddef>
 #include <cstdint>
 #include <string>
@@ -30,8 +33,7 @@ namespace detail
 capy::io_task<>
 open_socks5_tunnel(
     capy::any_stream stream,
-    std::string_view target_host,
-    std::string_view target_port,
+    urls::url_view target,
     urls::url_view proxy)
 {
     // Greeting: offer username/password auth only when credentials are present.
@@ -97,14 +99,45 @@ open_socks5_tunnel(
         co_return { error::proxy_auth_failed };
     }
 
-    // connection request
-    std::string conn_req = { 0x05, 0x01, 0x00, 0x03 };
+    // connection request: VER, CMD=connect, RSV
+    std::string conn_req = { 0x05, 0x01, 0x00 };
 
-    conn_req.push_back(static_cast<char>(target_host.size()));
-    conn_req.append(target_host);
+    switch(target.host_type())
+    {
+    case urls::host_type::ipv4:
+    {
+        conn_req.push_back(0x01); // ATYP: IPv4 address
+        auto bytes = target.host_ipv4_address().to_bytes();
+        conn_req.append(
+            reinterpret_cast<const char*>(bytes.data()), bytes.size());
+        break;
+    }
+    case urls::host_type::ipv6:
+    {
+        conn_req.push_back(0x04); // ATYP: IPv6 address
+        auto bytes = target.host_ipv6_address().to_bytes();
+        conn_req.append(
+            reinterpret_cast<const char*>(bytes.data()), bytes.size());
+        break;
+    }
+    case urls::host_type::name:
+    {
+        auto host = target.host_address(); // decoded, without brackets
+        if(host.empty() || host.size() > 255)
+            co_return { error::proxy_connect_failed };
+        conn_req.push_back(0x03); // ATYP: domain name
+        conn_req.push_back(static_cast<char>(host.size()));
+        conn_req.append(host);
+        break;
+    }
+    default: // host_type::none or host_type::ipvfuture
+        co_return { error::proxy_connect_failed };
+    }
 
-    auto port =
-        static_cast<std::uint16_t>(std::stoul(std::string(target_port)));
+    std::uint16_t port = 0;
+    auto port_str      = effective_port(target);
+    std::from_chars(
+        port_str.data(), port_str.data() + port_str.size(), port);
     conn_req.push_back(static_cast<char>((port >> 8) & 0xFF));
     conn_req.push_back(static_cast<char>(port & 0xFF));
 

@@ -491,7 +491,7 @@ use_proxy(corosio::tls_context tls_ctx)
     // tag::use_proxy[]
     burl::client::config cfg;
     // SOCKS5 and HTTP proxies are supported
-    cfg.proxy = urls::url("socks5h://user:pass@localhost:8080");
+    cfg.proxy = urls::url("socks5h://user:pass@localhost:1080");
 
     burl::client client(co_await capy::this_coro::executor, tls_ctx, cfg);
 
