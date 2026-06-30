@@ -57,7 +57,7 @@ public:
         json::serializer sr;
         sr.reset(&value_);
 
-        while(!sr.done())
+        for(;;)
         {
             capy::mutable_buffer arr[2];
             auto dst = sink.prepare(arr);
@@ -70,11 +70,15 @@ public:
                 n += sr.read(static_cast<char*>(b.data()), b.size()).size();
             }
 
+            if(sr.done())
+            {
+                auto [ec] = co_await sink.commit_eof(n);
+                co_return { ec };
+            }
+
             if(auto [ec] = co_await sink.commit(n); ec)
                 co_return { ec };
         }
-
-        co_return {};
     }
 };
 

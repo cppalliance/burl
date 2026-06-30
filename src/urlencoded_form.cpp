@@ -80,11 +80,9 @@ public:
     capy::io_task<>
     write(capy::any_buffer_sink& sink) const
     {
-        auto [ec, n] =
-            co_await sink.write(capy::make_buffer(std::string_view(body_)));
-        if(ec)
-            co_return { ec };
-        co_return {};
+        auto [ec, n] = co_await sink.write_eof(
+            capy::make_buffer(std::string_view(body_)));
+        co_return { ec };
     }
 };
 

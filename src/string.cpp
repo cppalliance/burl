@@ -8,6 +8,7 @@
 //
 
 #include <boost/burl/string.hpp>
+#include "detail/util.hpp"
 
 #include <boost/capy/buffers/make_buffer.hpp>
 #include <boost/capy/buffers/string_dynamic_buffer.hpp>
@@ -49,11 +50,10 @@ public:
     capy::io_task<>
     write(capy::any_buffer_sink& sink) const
     {
-        if(auto [ec, n] =
-               co_await sink.write(capy::make_buffer(std::string_view(body_)));
-           ec)
-            co_return { ec };
-        co_return {};
+        auto [ec, n] =
+            co_await sink.write_eof(
+                capy::make_buffer(std::string_view(body_)));
+        co_return { ec };
     }
 };
 
@@ -82,9 +82,9 @@ public:
     capy::io_task<>
     write(capy::any_buffer_sink& sink) const
     {
-        if(auto [ec, n] = co_await sink.write(capy::make_buffer(body_)); ec)
-            co_return { ec };
-        co_return {};
+        auto [ec, n] = co_await sink.write_eof(
+            capy::make_buffer(body_));
+        co_return { ec };
     }
 };
 
@@ -108,7 +108,7 @@ tag_invoke(body_to_tag<std::string>, response& resp)
     std::string ret;
 
     if(auto cl = resp.content_length())
-        ret.reserve(*cl);
+        ret.reserve(detail::clamp(*cl));
 
     auto source = resp.as_read_source();
     auto [ec, n] =

@@ -63,7 +63,7 @@ public:
     capy::io_task<>
     write(capy::any_buffer_sink& sink) const
     {
-        return detail::send_file(sink, path_, size_);
+        return detail::send_file(sink, path_, size_, true);
     }
 };
 

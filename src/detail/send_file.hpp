@@ -34,7 +34,8 @@ capy::io_task<>
 send_file(
     capy::any_buffer_sink& sink,
     std::filesystem::path const& path,
-    std::uint64_t size);
+    std::uint64_t size,
+    bool call_eof = false);
 
 } // namespace detail
 } // namespace burl

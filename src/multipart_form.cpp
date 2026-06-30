@@ -198,10 +198,8 @@ public:
         }
 
         auto const trailer = "--" + form_.boundary_ + "--\r\n";
-        if(auto [ec, n] = co_await sink.write(make_buffer(trailer)); ec)
-            co_return { ec };
-
-        co_return {};
+        auto [ec, n] = co_await sink.write_eof(make_buffer(trailer));
+        co_return { ec };
     }
 };
 

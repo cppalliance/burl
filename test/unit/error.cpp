@@ -59,6 +59,9 @@ struct error_test
         BOOST_TEST_EQ(
             msg(error::proxy_unsupported_version),
             "unsupported proxy protocol version");
+        BOOST_TEST_EQ(
+            msg(error::body_size_mismatch),
+            "request body size did not match content length");
 
         BOOST_TEST_EQ(
             std::error_code(9999, burl_category()).message(),

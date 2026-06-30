@@ -31,7 +31,8 @@ capy::io_task<>
 send_file(
     capy::any_buffer_sink& sink,
     std::filesystem::path const& path,
-    std::uint64_t size)
+    std::uint64_t size,
+    bool call_eof)
 {
     corosio::stream_file f(co_await capy::this_coro::executor);
     // TODO: switch to a non-throwing open() overload once available.
@@ -61,6 +62,11 @@ send_file(
         auto take = clamp(remaining, n);
         if(take)
         {
+            if(call_eof && take == remaining)
+            {
+                if(auto [ec] = co_await sink.commit_eof(take); ec)
+                    co_return { ec };
+            }
             if(auto [ec] = co_await sink.commit(take); ec)
                 co_return { ec };
             remaining -= take;

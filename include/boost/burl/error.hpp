@@ -64,6 +64,14 @@ enum class error
     /** The proxy replied with an unsupported protocol version.
     */
     proxy_unsupported_version,
+
+    /** The request body size did not match its content length.
+
+        The number of bytes produced by the request body
+        differed from the `Content-Length` declared for the
+        request.
+    */
+    body_size_mismatch,
 };
 
 /** Error conditions corresponding to sets of error codes.

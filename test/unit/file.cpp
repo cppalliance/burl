@@ -56,10 +56,7 @@ public:
         BOOST_TEST(cl.has_value());
         BOOST_TEST_EQ(cl.value(), contents.size());
 
-        capy::test::buffer_sink bs;
-        auto ec = check_io_body(body, bs);
-        BOOST_TEST(!ec);
-        BOOST_TEST_EQ(bs.data(), contents);
+        check_io_body(body, contents);
     }
 
     void

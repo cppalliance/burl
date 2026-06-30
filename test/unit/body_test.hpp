@@ -45,24 +45,29 @@ check_body(
             co_return;
 
         BOOST_TEST_EQ(bs.data(), expected);
+        BOOST_TEST(bs.eof_called());
     });
     BOOST_TEST(r.success);
 }
 
-inline std::error_code
+inline void
 check_io_body(
     any_request_body const& body,
-    capy::test::buffer_sink& bs)
+    std::string_view expected)
 {
     corosio::io_context ioc;
-    std::error_code ret;
+    std::error_code ec;
+    capy::test::buffer_sink bs;
     capy::any_buffer_sink sink(&bs);
     capy::run_async(
         ioc.get_executor(),
-        [&](capy::io_result<> res) {ret = res.ec; })
+        [&](capy::io_result<> res) {ec = res.ec; })
             (body.write(sink));
     ioc.run();
-    return ret;
+
+    BOOST_TEST(!ec);
+    BOOST_TEST_EQ(bs.data(), expected);
+    BOOST_TEST(bs.eof_called());
 }
 
 } // namespace burl

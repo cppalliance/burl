@@ -15,6 +15,7 @@
 #include "detail/connection_pool.hpp"
 #include "detail/drain_body.hpp"
 #include "detail/redirect.hpp"
+#include "detail/serializer.hpp"
 
 #include <boost/capy/buffers/make_buffer.hpp>
 #include <boost/capy/ex/execution_context.hpp>
@@ -27,7 +28,6 @@
 #include <boost/http/request.hpp>
 #include <boost/http/response_base.hpp>
 #include <boost/http/response_parser.hpp>
-#include <boost/http/serializer.hpp>
 #include <boost/http/status.hpp>
 #include <boost/http/zlib/inflate.hpp>
 
@@ -231,11 +231,8 @@ client::execute_impl(
     if(!headers.exists(field::accept_encoding))
         set_accept_encoding(parser_cfg, headers, config_);
 
-    http::serializer serializer(http::make_serializer_config({}));
-    serializer.reset();
-    serializer.set_message(headers);
-
-    http::response_parser parser(http::make_parser_config(parser_cfg));
+    http::response_parser parser(
+        http::make_parser_config(parser_cfg));
 
     auto url             = request.url;
     auto trusted         = true;
@@ -269,13 +266,16 @@ client::execute_impl(
 
         if(request.body.has_value())
         {
-            serializer.start_buffers();
-            capy::any_buffer_sink sink(serializer.sink_for(conn));
+            capy::any_write_stream ws(&conn);
+            detail::serializer sr(ws, headers);
+            capy::any_buffer_sink sink(&sr);
             if(auto [wec] = co_await request.body.write(sink); wec)
                 co_return { wec, {} };
-            // The body only writes its bytes; finalize the sink here.
-            if(auto [wec] = co_await sink.write_eof(); wec)
-                co_return { wec, {} };
+            if(!sr.is_done())
+            {
+                if(auto [wec] = co_await sr.write_eof(); wec)
+                    co_return { wec, {} };
+            }
         }
         else
         {

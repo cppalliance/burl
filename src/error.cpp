@@ -50,6 +50,8 @@ error_category::message(int ev) const
         return "proxy authentication failed";
     case error::proxy_unsupported_version:
         return "unsupported proxy protocol version";
+    case error::body_size_mismatch:
+        return "request body size did not match content length";
     default:
         return "unknown error";
     }

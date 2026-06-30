@@ -90,10 +90,7 @@ struct multipart_form_test
         BOOST_TEST(cl.has_value());
         BOOST_TEST_EQ(cl.value(), expected.size());
 
-        capy::test::buffer_sink bs;
-        auto ec = check_io_body(body, bs);
-        BOOST_TEST(!ec);
-        BOOST_TEST_EQ(bs.data(), expected);
+        check_io_body(body, expected);
     }
 
     void
