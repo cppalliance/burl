@@ -264,24 +264,17 @@ client::execute_impl(
 
         // TODO: expect100timeout
 
+        capy::any_write_stream ws(&conn);
+        detail::serializer sr(&ws, &headers, {}, {});
         if(request.body.has_value())
         {
-            capy::any_write_stream ws(&conn);
-            detail::serializer sr(ws, headers);
             capy::any_buffer_sink sink(&sr);
             if(auto [wec] = co_await request.body.write(sink); wec)
                 co_return { wec, {} };
-            if(!sr.is_done())
-            {
-                if(auto [wec] = co_await sr.write_eof(); wec)
-                    co_return { wec, {} };
-            }
         }
-        else
+        if(!sr.is_done())
         {
-            auto [wec, n] =
-                co_await capy::write(conn, capy::make_buffer(headers.buffer()));
-            if(wec)
+            if(auto [wec] = co_await sr.write_eof(); wec)
                 co_return { wec, {} };
         }
 

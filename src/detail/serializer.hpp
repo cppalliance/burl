@@ -10,15 +10,14 @@
 #ifndef BOOST_BURL_SRC_DETAIL_SERIALIZER_HPP
 #define BOOST_BURL_SRC_DETAIL_SERIALIZER_HPP
 
-#include <boost/http/request_base.hpp>
+#include <boost/burl/error.hpp>
 
-#include <boost/capy/buffers.hpp>
 #include <boost/capy/buffers/buffer_copy.hpp>
 #include <boost/capy/buffers/buffer_param.hpp>
-#include <boost/capy/buffers/buffer_slice.hpp>
 #include <boost/capy/io/any_write_stream.hpp>
 #include <boost/capy/io_task.hpp>
 #include <boost/capy/write.hpp>
+#include <boost/http/message_base.hpp>
 
 namespace boost
 {
@@ -30,77 +29,64 @@ namespace detail
 class serializer
 {
 public:
+    struct encoder
+    {
+        std::size_t buffer_size = 8 * 1024;
+        std::size_t threshold   = 4 * 1024;
+
+        struct result
+        {
+            std::size_t consumed;
+            std::size_t produced;
+            std::error_code ec;
+        };
+
+        virtual result
+        process(
+            capy::mutable_buffer out,
+            capy::const_buffer in,
+            bool eof) = 0;
+    };
+
     struct config
     {
         std::size_t buffer_size = 64 * 1024;
-        std::size_t min_prepare = 32 * 1024;
-        std::size_t min_direct  =  8 * 1024;
+        std::size_t min_prepare = 4 * 1024;
+        std::size_t direct_thr  = 2 * 1024;
     };
 
     serializer(
-        capy::any_write_stream& stream,
-        http::request_base& req)
-        : serializer(stream, req, {})
-    {
-    }
-
-    serializer(
-        capy::any_write_stream& stream,
-        http::request_base& req,
+        capy::any_write_stream* stream,
+        http::message_base* msg,
+        encoder* enc,
         config cfg);
+
+    serializer(serializer&& other) noexcept;
+
+    serializer&
+    operator=(serializer&& other) noexcept;
+
+    serializer(const serializer&) = delete;
+
+    serializer&
+    operator=(const serializer&) = delete;
 
     ~serializer();
 
     bool
-    is_done() const noexcept
-    {
-        return done_;
-    }
+    is_done() const noexcept;
 
     template<capy::ConstBufferSequence Buffers>
     capy::io_task<std::size_t>
-    write_some(Buffers buffers)
-    {
-        auto const avail = capy::buffer_size(buffers);
-
-        if(avail < cfg_.min_direct)
-        {
-            if(avail >= capacity())
-                if(auto [ec, _] = co_await drain({}, false); ec)
-                    co_return { ec, 0 };
-            auto n = capy::buffer_copy(writable(), buffers);
-            avail_ += n;
-            co_return { {}, n };
-        }
-
-        capy::const_buffer_param<Buffers> bp(buffers);
-        co_return co_await drain(bp.data(), false);
-    }
+    write_some(Buffers buffers);
 
     template<capy::ConstBufferSequence Buffers>
     capy::io_task<std::size_t>
-    write(Buffers buffers)
-    {
-        return capy::write(*this, std::move(buffers));
-    }
+    write(Buffers buffers);
 
     template<capy::ConstBufferSequence Buffers>
     capy::io_task<std::size_t>
-    write_eof(Buffers buffers)
-    {
-        decide_framing(capy::buffer_size(buffers));
-
-        capy::const_buffer_param<Buffers> bp(buffers);
-
-        if(!bp.more())
-            co_return co_await drain(bp.data(), true);
-
-        auto [ec1, n] = co_await write(buffers);
-        if(ec1)
-            co_return { ec1, n };
-        auto [ec2, _] = co_await drain({}, true);
-        co_return { ec2, n };
-    }
+    write_eof(Buffers buffers);
 
     capy::io_task<>
     write_eof();
@@ -116,29 +102,42 @@ public:
 
 private:
     std::size_t
-    capacity() const noexcept
-    {
-        return cfg_.buffer_size - avail_;
-    }
+    capacity() const noexcept;
 
     capy::mutable_buffer
-    writable() const noexcept
-    {
-        return { storage_ + avail_, capacity() };
-    }
+    do_prepare() noexcept;
+
+    void
+    do_commit(std::size_t n) noexcept;
+
+    bool
+    can_coalesce(std::size_t avail) const noexcept;
+
+    void
+    finalize(std::size_t remaining) noexcept;
 
     void
     decide_framing(std::size_t remaining) noexcept;
 
     capy::io_task<std::size_t>
-    drain(
+    process(
+        std::span<capy::const_buffer const> tail,
+        bool eof);
+
+    capy::io_task<std::size_t>
+    encode(
+        std::span<capy::const_buffer const> tail,
+        bool eof);
+
+    capy::io_task<std::size_t>
+    flush(
         std::span<capy::const_buffer const> tail,
         bool eof);
 
     // TODO: replace this with capy's version
     capy::io_task<std::size_t>
     write_at_least(
-        std::span<capy::const_buffer> buffers,
+        std::span<capy::const_buffer const> buffers,
         std::size_t bytes);
 
     capy::const_buffer
@@ -146,15 +145,61 @@ private:
 
     static constexpr std::size_t margin = 24;
 
-    capy::any_write_stream& stream_;
-    http::request_base& req_;
+    capy::any_write_stream* stream_;
+    http::message_base* msg_;
+    encoder* enc_;
     config cfg_;
-    unsigned char* storage_;
+    unsigned char* buf_;
+    std::size_t out_len_ = 0;
+    std::size_t in_len_ = 0;
     std::uint64_t total_body_ = 0;
-    std::size_t avail_ = 0;
+    bool enc_started_ = false;
+    bool shifted_ = false;
     bool hdr_sent_ = false;
     bool done_ = false;
 };
+
+template<capy::ConstBufferSequence Buffers>
+capy::io_task<std::size_t>
+serializer::
+write_some(Buffers buffers)
+{
+    auto const avail = capy::buffer_size(buffers);
+    if(can_coalesce(avail))
+    {
+        do_commit(capy::buffer_copy(do_prepare(), buffers));
+        co_return { {}, avail };
+    }
+    co_return co_await process(
+        capy::buffer_param(buffers).data(), false);
+}
+
+template<capy::ConstBufferSequence Buffers>
+capy::io_task<std::size_t>
+serializer::
+write(Buffers buffers)
+{
+    return capy::write(*this, std::move(buffers));
+}
+
+template<capy::ConstBufferSequence Buffers>
+capy::io_task<std::size_t>
+serializer::
+write_eof(Buffers buffers)
+{
+    finalize(capy::buffer_size(buffers));
+    capy::buffer_param bp(buffers);
+    std::size_t sum = 0;
+    for(;;)
+    {
+        bool eof = !bp.more();
+        auto [ec, n] = co_await process(bp.data(), eof);
+        sum += n;
+        bp.consume(n);
+        if(ec || eof)
+            co_return { ec, sum };
+    }
+}
 
 } // namespace detail
 } // namespace burl

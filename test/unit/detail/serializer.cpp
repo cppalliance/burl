@@ -12,11 +12,14 @@
 
 #include <boost/burl/error.hpp>
 
+#include <boost/capy/error.hpp>
 #include <boost/capy/test/fuse.hpp>
 #include <boost/capy/test/run_blocking.hpp>
 #include <boost/capy/test/stream.hpp>
 #include <boost/capy/test/write_stream.hpp>
 #include <boost/http/request.hpp>
+
+#include <cstring>
 
 #include "test_suite.hpp"
 
@@ -36,7 +39,7 @@ class serializer_test
     static constexpr serializer::config cfg{
         .buffer_size = 64,
         .min_prepare = 32,
-        .min_direct  = 16 };
+        .direct_thr  = 16 };
 
     static http::request
     make_request()
@@ -54,6 +57,86 @@ class serializer_test
         return req;
     }
 
+    // An encoder that increments every body byte by one, so
+    // encoded output is distinguishable from identity output,
+    // and appends an optional trailer once the input ends. It
+    // consumes and produces as much as the given buffers allow.
+    struct test_encoder : serializer::encoder
+    {
+        std::string trailer;
+        std::error_code fail;
+        std::size_t calls = 0;
+        bool finished = false;
+
+        explicit test_encoder(
+            std::size_t bufsz = 32,
+            std::size_t thr = 8,
+            std::string trl = {})
+            : trailer(std::move(trl))
+        {
+            buffer_size = bufsz;
+            threshold   = thr;
+        }
+
+        result
+        process(
+            capy::mutable_buffer out,
+            capy::const_buffer in,
+            bool eof) override
+        {
+            ++calls;
+            if(fail)
+                return { 0, 0, fail };
+
+            auto* dst = static_cast<unsigned char*>(out.data());
+            auto* src = static_cast<unsigned char const*>(in.data());
+            auto const n = (std::min)(out.size(), in.size());
+            for(std::size_t i = 0; i != n; ++i)
+                dst[i] = static_cast<unsigned char>(src[i] + 1);
+
+            result r{ n, n, {} };
+            if(eof && n == in.size())
+            {
+                auto const t = (std::min)(
+                    out.size() - n, trailer.size() - trailer_pos_);
+                std::memcpy(
+                    dst + n, trailer.data() + trailer_pos_, t);
+                trailer_pos_ += t;
+                r.produced += t;
+                if(trailer_pos_ == trailer.size())
+                {
+                    finished = true;
+                    r.ec = capy::error::eof;
+                }
+            }
+            return r;
+        }
+
+    private:
+        std::size_t trailer_pos_ = 0;
+    };
+
+    // Returns a body with a varied byte pattern so reordered
+    // or duplicated regions cannot go unnoticed.
+    static std::string
+    make_body(std::size_t n)
+    {
+        std::string s(n, '\0');
+        for(std::size_t i = 0; i != n; ++i)
+            s[i] = static_cast<char>('0' + i % 64);
+        return s;
+    }
+
+    // Returns the mock-encoded form of `s`.
+    static std::string
+    encoded(std::string_view s)
+    {
+        std::string r(s);
+        for(auto& c : r)
+            c = static_cast<char>(c + 1);
+        return r;
+    }
+
 public:
     void
     testContentLengthSmallBody()
@@ -64,7 +147,7 @@ public:
         capy::test::run_blocking()([&]() -> capy::task<>
         {
             capy::any_write_stream ws(&client);
-            serializer sr(ws, req, cfg);
+            serializer sr(&ws, &req, {}, cfg);
             BOOST_TEST(!sr.is_done());
 
             auto [ec1, n] = co_await sr.write(
@@ -87,7 +170,7 @@ public:
     testContentLengthLargeBody()
     {
         // A body at the direct-write threshold bypasses staging.
-        std::string const body(cfg.min_direct, 'x');
+        std::string const body(cfg.direct_thr, 'x');
 
         auto req = make_request(body.size());
         auto [client, server] = capy::test::make_stream_pair();
@@ -95,7 +178,7 @@ public:
         capy::test::run_blocking()([&]() -> capy::task<>
         {
             capy::any_write_stream ws(&client);
-            serializer sr(ws, req, cfg);
+            serializer sr(&ws, &req, {}, cfg);
 
             auto [ec1, n] = co_await sr.write(
                 capy::make_buffer(body));
@@ -123,7 +206,7 @@ public:
         capy::test::run_blocking()([&]() -> capy::task<>
         {
             capy::any_write_stream ws(&client);
-            serializer sr(ws, req, cfg);
+            serializer sr(&ws, &req, {}, cfg);
 
             std::array<capy::const_buffer, 2> bufs{
                 capy::make_buffer(b1),
@@ -151,7 +234,7 @@ public:
             capy::test::run_blocking()([&]() -> capy::task<>
             {
                 capy::any_write_stream ws(&client);
-                serializer sr(ws, req, cfg);
+                serializer sr(&ws, &req, {}, cfg);
 
                 auto [ec1, n] = co_await sr.write(
                     capy::const_buffer("hello", 5));
@@ -176,7 +259,7 @@ public:
             capy::test::run_blocking()([&]() -> capy::task<>
             {
                 capy::any_write_stream ws(&client);
-                serializer sr(ws, req, cfg);
+                serializer sr(&ws, &req, {}, cfg);
 
                 auto [ec, n] = co_await sr.write_eof(
                     capy::const_buffer("hello", 5));
@@ -197,9 +280,9 @@ public:
         capy::test::run_blocking()([&]() -> capy::task<>
         {
             capy::any_write_stream ws(&client);
-            serializer sr(ws, req, cfg);
+            serializer sr(&ws, &req, {}, cfg);
 
-            // The body stays below min_direct, so it is fully
+            // The body stays below direct_thr, so it is fully
             // buffered before the header goes out.
             auto [ec1, n] = co_await sr.write(
                 capy::const_buffer("hello world", 11));
@@ -232,7 +315,7 @@ public:
         capy::test::run_blocking()([&]() -> capy::task<>
         {
             capy::any_write_stream ws(&client);
-            serializer sr(ws, req, cfg);
+            serializer sr(&ws, &req, {}, cfg);
 
             auto [ec, n] = co_await sr.write_eof(
                 capy::const_buffer("hello", 5));
@@ -250,7 +333,7 @@ public:
     void
     testChunkedLargeBody()
     {
-        std::string const body(cfg.min_direct, 'x');
+        std::string const body(cfg.direct_thr, 'x');
 
         auto req = make_request();
         auto [client, server] = capy::test::make_stream_pair();
@@ -258,7 +341,7 @@ public:
         capy::test::run_blocking()([&]() -> capy::task<>
         {
             capy::any_write_stream ws(&client);
-            serializer sr(ws, req, cfg);
+            serializer sr(&ws, &req, {}, cfg);
 
             auto [ec1, n1] = co_await sr.write(
                 capy::make_buffer(body));
@@ -295,7 +378,7 @@ public:
         // caller buffers must frame the staged bytes and the
         // caller's bytes as the final chunk and terminate the
         // body with the last-chunk in the same gather.
-        std::string const body(cfg.min_direct, 'x');
+        std::string const body(cfg.direct_thr, 'x');
 
         auto req = make_request();
         auto [client, server] = capy::test::make_stream_pair();
@@ -303,7 +386,7 @@ public:
         capy::test::run_blocking()([&]() -> capy::task<>
         {
             capy::any_write_stream ws(&client);
-            serializer sr(ws, req, cfg);
+            serializer sr(&ws, &req, {}, cfg);
 
             auto [ec1, n1] = co_await sr.write(
                 capy::make_buffer(body));
@@ -335,7 +418,7 @@ public:
         // write_eof() with caller buffers while no bytes are
         // staged must still terminate the body with the
         // last-chunk after the final chunk.
-        std::string const body(cfg.min_direct, 'x');
+        std::string const body(cfg.direct_thr, 'x');
 
         auto req = make_request();
         auto [client, server] = capy::test::make_stream_pair();
@@ -343,7 +426,7 @@ public:
         capy::test::run_blocking()([&]() -> capy::task<>
         {
             capy::any_write_stream ws(&client);
-            serializer sr(ws, req, cfg);
+            serializer sr(&ws, &req, {}, cfg);
 
             auto [ec1, n1] = co_await sr.write(
                 capy::make_buffer(body));
@@ -373,7 +456,7 @@ public:
         capy::test::run_blocking()([&]() -> capy::task<>
         {
             capy::any_write_stream ws(&client);
-            serializer sr(ws, req);
+            serializer sr(&ws, &req, {}, {});
             BOOST_TEST(!sr.is_done());
 
             auto [ec] = co_await sr.write_eof();
@@ -397,7 +480,7 @@ public:
         capy::test::run_blocking()([&]() -> capy::task<>
         {
             capy::any_write_stream ws(&client);
-            serializer sr(ws, req, cfg);
+            serializer sr(&ws, &req, {}, cfg);
 
             capy::mutable_buffer tmp[2];
             auto n = capy::buffer_copy(
@@ -428,7 +511,7 @@ public:
         capy::test::run_blocking()([&]() -> capy::task<>
         {
             capy::any_write_stream ws(&client);
-            serializer sr(ws, req, cfg);
+            serializer sr(&ws, &req, {}, cfg);
 
             capy::mutable_buffer tmp[2];
             auto n = capy::buffer_copy(
@@ -462,7 +545,7 @@ public:
         capy::test::run_blocking()([&]() -> capy::task<>
         {
             capy::any_write_stream ws(&client);
-            serializer sr(ws, req, cfg);
+            serializer sr(&ws, &req, {}, cfg);
 
             capy::mutable_buffer tmp[2];
             auto n = capy::buffer_copy(
@@ -477,7 +560,7 @@ public:
         }());
 
         std::string expected(req.buffer());
-        expected += "3C\r\n" + body + "\r\n";
+        expected += "3c\r\n" + body + "\r\n";
         expected += "0\r\n\r\n";
         BOOST_TEST(req.chunked());
         BOOST_TEST_EQ(server.data(), expected);
@@ -495,7 +578,7 @@ public:
         capy::test::run_blocking()([&]() -> capy::task<>
         {
             capy::any_write_stream ws(&client);
-            serializer sr(ws, req, cfg);
+            serializer sr(&ws, &req, {}, cfg);
 
             capy::mutable_buffer tmp[2];
             auto n = capy::buffer_copy(
@@ -525,7 +608,7 @@ public:
         auto [client, server] = capy::test::make_stream_pair();
 
         capy::any_write_stream ws(&client);
-        serializer sr(ws, req, cfg);
+        serializer sr(&ws, &req, {}, cfg);
 
         BOOST_TEST(sr.prepare({}).empty());
 
@@ -553,7 +636,7 @@ public:
             capy::test::write_stream ws_impl(f);
 
             capy::any_write_stream ws(&ws_impl);
-            serializer sr(ws, req, cfg);
+            serializer sr(&ws, &req, {}, cfg);
 
             capy::mutable_buffer tmp[2];
             auto n = capy::buffer_copy(
@@ -589,7 +672,7 @@ public:
         capy::test::run_blocking()([&]() -> capy::task<>
         {
             capy::any_write_stream ws(&ws_impl);
-            serializer sr(ws, req, cfg);
+            serializer sr(&ws, &req, {}, cfg);
 
             capy::mutable_buffer tmp[2];
             auto n = capy::buffer_copy(
@@ -632,8 +715,8 @@ public:
         // per write: bytes already on the wire may not be sent
         // again, and every call must consume at least one byte
         // of the caller's buffer.
-        std::string const b1(cfg.min_direct, 'x');
-        std::string const b2(cfg.min_direct, 'y');
+        std::string const b1(cfg.direct_thr, 'x');
+        std::string const b2(cfg.direct_thr, 'y');
 
         auto req = make_request(b1.size() + b2.size());
         capy::test::write_stream ws_impl({}, 1);
@@ -641,7 +724,7 @@ public:
         capy::test::run_blocking()([&]() -> capy::task<>
         {
             capy::any_write_stream ws(&ws_impl);
-            serializer sr(ws, req, cfg);
+            serializer sr(&ws, &req, {}, cfg);
 
             // The first drain writes the header in full and
             // exactly one body byte.
@@ -653,7 +736,7 @@ public:
                 ws_impl.data(),
                 std::string(req.buffer()) + "x");
 
-            // The rest of the first buffer is below min_direct
+            // The rest of the first buffer is below direct_thr
             // and is staged without touching the wire.
             auto [ec2, n2] = co_await sr.write(
                 capy::const_buffer(b1.data() + 1, b1.size() - 1));
@@ -702,7 +785,7 @@ public:
         capy::test::run_blocking()([&]() -> capy::task<>
         {
             capy::any_write_stream ws(&ws_impl);
-            serializer sr(ws, req, cfg);
+            serializer sr(&ws, &req, {}, cfg);
 
             capy::mutable_buffer tmp[2];
             auto n = capy::buffer_copy(
@@ -736,7 +819,7 @@ public:
         capy::test::run_blocking()([&]() -> capy::task<>
         {
             capy::any_write_stream ws(&ws_impl);
-            serializer sr(ws, req, cfg);
+            serializer sr(&ws, &req, {}, cfg);
 
             auto [ec1, n] = co_await sr.write(
                 capy::const_buffer("hello", 5));
@@ -763,7 +846,7 @@ public:
         // gather as one chunk with the staged bytes first, even
         // when the stream accepts one byte at a time;
         // 3 + 16 == 0x13.
-        std::string const body(cfg.min_direct, 'x');
+        std::string const body(cfg.direct_thr, 'x');
 
         auto req = make_request();
         capy::test::write_stream ws_impl({}, 1);
@@ -771,7 +854,7 @@ public:
         capy::test::run_blocking()([&]() -> capy::task<>
         {
             capy::any_write_stream ws(&ws_impl);
-            serializer sr(ws, req, cfg);
+            serializer sr(&ws, &req, {}, cfg);
 
             auto [ec1, n1] = co_await sr.write(
                 capy::const_buffer("abc", 3));
@@ -800,7 +883,7 @@ public:
         capy::test::fuse f;
         auto r = f.armed([&](capy::test::fuse&) -> capy::task<>
         {
-            std::string const body(cfg.min_direct, 'x');
+            std::string const body(cfg.direct_thr, 'x');
 
             auto req = make_request();
 
@@ -808,7 +891,7 @@ public:
                 capy::test::make_stream_pair(f);
 
             capy::any_write_stream ws(&client);
-            serializer sr(ws, req, cfg);
+            serializer sr(&ws, &req, {}, cfg);
 
             if(auto [ec, n] = co_await sr.write(
                 capy::make_buffer(body)); ec)
@@ -842,6 +925,804 @@ public:
     }
 
     void
+    testEncoderSmallBodyDropsEncoder()
+    {
+        // A body that stays below the encoder threshold skips
+        // encoding entirely: the encoder is dropped at eof, the
+        // Content-Encoding header is removed, and the identity
+        // body is sent with a Content-Length.
+        auto req = make_request();
+        req.set(http::field::content_encoding, "test");
+        auto [client, server] = capy::test::make_stream_pair();
+        test_encoder enc;
+
+        capy::test::run_blocking()([&]() -> capy::task<>
+        {
+            capy::any_write_stream ws(&client);
+            serializer sr(&ws, &req, &enc, cfg);
+
+            // below the threshold: coalesced into the encoder's
+            // staging buffer without invoking the encoder
+            auto [ec1, n] = co_await sr.write(
+                capy::const_buffer("hello", 5));
+            BOOST_TEST(!ec1);
+            BOOST_TEST_EQ(n, 5u);
+            BOOST_TEST_EQ(enc.calls, 0u);
+            BOOST_TEST(server.data().empty());
+
+            auto [ec2] = co_await sr.write_eof();
+            BOOST_TEST(!ec2);
+            BOOST_TEST(sr.is_done());
+        }());
+
+        BOOST_TEST_EQ(enc.calls, 0u);
+        BOOST_TEST(!req.chunked());
+        BOOST_TEST_EQ(req.payload_size(), 5u);
+        BOOST_TEST(
+            server.data().find("Content-Encoding") ==
+            std::string_view::npos);
+        BOOST_TEST_EQ(
+            server.data(),
+            std::string(req.buffer()) + "hello");
+    }
+
+    void
+    testEncoderEmptyBody()
+    {
+        auto req = make_request();
+        req.set(http::field::content_encoding, "test");
+        auto [client, server] = capy::test::make_stream_pair();
+        test_encoder enc;
+
+        capy::test::run_blocking()([&]() -> capy::task<>
+        {
+            capy::any_write_stream ws(&client);
+            serializer sr(&ws, &req, &enc, cfg);
+
+            auto [ec] = co_await sr.write_eof();
+            BOOST_TEST(!ec);
+            BOOST_TEST(sr.is_done());
+        }());
+
+        // an empty body is below any threshold: the encoder is
+        // dropped and the request converts to Content-Length: 0
+        BOOST_TEST_EQ(enc.calls, 0u);
+        BOOST_TEST(!req.chunked());
+        BOOST_TEST(
+            server.data().find("Content-Length: 0\r\n") !=
+            std::string_view::npos);
+        BOOST_TEST(
+            server.data().find("Content-Encoding") ==
+            std::string_view::npos);
+        BOOST_TEST_EQ(server.data(), req.buffer());
+    }
+
+    void
+    testEncoderPrepareCommitEof()
+    {
+        // With an encoder, prepare() exposes the encoder's
+        // staging buffer rather than the output buffer.
+        auto req = make_request();
+        req.set(http::field::content_encoding, "test");
+        auto [client, server] = capy::test::make_stream_pair();
+        test_encoder enc;
+
+        capy::test::run_blocking()([&]() -> capy::task<>
+        {
+            capy::any_write_stream ws(&client);
+            serializer sr(&ws, &req, &enc, cfg);
+
+            capy::mutable_buffer tmp[2];
+            auto dest = sr.prepare(tmp);
+            BOOST_TEST_EQ(
+                capy::buffer_size(dest), enc.buffer_size);
+
+            auto n = capy::buffer_copy(
+                dest, capy::const_buffer("hello", 5));
+            BOOST_TEST_EQ(n, 5u);
+
+            // below the threshold at eof: the encoder is
+            // dropped and the staged bytes are sent as-is
+            auto [ec] = co_await sr.commit_eof(n);
+            BOOST_TEST(!ec);
+            BOOST_TEST(sr.is_done());
+        }());
+
+        BOOST_TEST_EQ(enc.calls, 0u);
+        BOOST_TEST(!req.chunked());
+        BOOST_TEST_EQ(req.payload_size(), 5u);
+        BOOST_TEST_EQ(
+            server.data(),
+            std::string(req.buffer()) + "hello");
+    }
+
+    void
+    testEncoderThreshold()
+    {
+        // exactly at the threshold: the encoder is kept
+        {
+            std::string const body = make_body(8);
+
+            auto req = make_request();
+            req.set(http::field::content_encoding, "test");
+            auto [client, server] = capy::test::make_stream_pair();
+            test_encoder enc;
+
+            capy::test::run_blocking()([&]() -> capy::task<>
+            {
+                capy::any_write_stream ws(&client);
+                serializer sr(&ws, &req, &enc, cfg);
+
+                auto [ec, n] = co_await sr.write_eof(
+                    capy::make_buffer(body));
+                BOOST_TEST(!ec);
+                BOOST_TEST_EQ(n, body.size());
+                BOOST_TEST(sr.is_done());
+            }());
+
+            // the whole encoded output was buffered before the
+            // header went out, so chunked is replaced with the
+            // encoded length while Content-Encoding is kept
+            BOOST_TEST(enc.finished);
+            BOOST_TEST(!req.chunked());
+            BOOST_TEST_EQ(req.payload_size(), 8u);
+            BOOST_TEST(
+                server.data().find("Content-Encoding: test\r\n") !=
+                std::string_view::npos);
+            BOOST_TEST_EQ(
+                server.data(),
+                std::string(req.buffer()) + encoded(body));
+        }
+
+        // one byte below the threshold: the encoder is dropped
+        {
+            std::string const body = make_body(7);
+
+            auto req = make_request();
+            req.set(http::field::content_encoding, "test");
+            auto [client, server] = capy::test::make_stream_pair();
+            test_encoder enc;
+
+            capy::test::run_blocking()([&]() -> capy::task<>
+            {
+                capy::any_write_stream ws(&client);
+                serializer sr(&ws, &req, &enc, cfg);
+
+                auto [ec, n] = co_await sr.write_eof(
+                    capy::make_buffer(body));
+                BOOST_TEST(!ec);
+                BOOST_TEST_EQ(n, body.size());
+            }());
+
+            BOOST_TEST_EQ(enc.calls, 0u);
+            BOOST_TEST_EQ(req.payload_size(), 7u);
+            BOOST_TEST(
+                server.data().find("Content-Encoding") ==
+                std::string_view::npos);
+            BOOST_TEST_EQ(
+                server.data(),
+                std::string(req.buffer()) + body);
+        }
+    }
+
+    void
+    testEncoderStagedAndTail()
+    {
+        // Staged bytes and the caller's tail together reach the
+        // threshold at eof, so the encoder is kept; it consumes
+        // the staged bytes first, then the tail, and the count
+        // returned to the caller covers only the tail.
+        auto req = make_request();
+        req.set(http::field::content_encoding, "test");
+        auto [client, server] = capy::test::make_stream_pair();
+        test_encoder enc;
+
+        capy::test::run_blocking()([&]() -> capy::task<>
+        {
+            capy::any_write_stream ws(&client);
+            serializer sr(&ws, &req, &enc, cfg);
+
+            auto [ec1, n1] = co_await sr.write(
+                capy::const_buffer("abc", 3));
+            BOOST_TEST(!ec1);
+            BOOST_TEST_EQ(n1, 3u);
+            BOOST_TEST_EQ(enc.calls, 0u);
+
+            auto [ec2, n2] = co_await sr.write_eof(
+                capy::const_buffer("defgh", 5));
+            BOOST_TEST(!ec2);
+            BOOST_TEST_EQ(n2, 5u);
+            BOOST_TEST(sr.is_done());
+        }());
+
+        BOOST_TEST(enc.finished);
+        BOOST_TEST_EQ(req.payload_size(), 8u);
+        BOOST_TEST_EQ(
+            server.data(),
+            std::string(req.buffer()) + encoded("abcdefgh"));
+    }
+
+    void
+    testEncoderLargeBodyChunked()
+    {
+        // A body larger than the output buffer forces the
+        // header out early and streams encoded chunks; once the
+        // encoder has started, even small writes are encoded
+        // rather than coalesced. Chunk payloads hold encoded
+        // bytes; 64 == 0x40.
+        std::string const body = make_body(200);
+
+        auto req = make_request();
+        req.set(http::field::content_encoding, "test");
+        auto [client, server] = capy::test::make_stream_pair();
+        test_encoder enc;
+
+        capy::test::run_blocking()([&]() -> capy::task<>
+        {
+            capy::any_write_stream ws(&client);
+            serializer sr(&ws, &req, &enc, cfg);
+
+            auto [ec1, n] = co_await sr.write(
+                capy::make_buffer(body));
+            BOOST_TEST(!ec1);
+            BOOST_TEST_EQ(n, body.size());
+            BOOST_TEST(!sr.is_done());
+
+            auto [ec2] = co_await sr.write_eof();
+            BOOST_TEST(!ec2);
+            BOOST_TEST(sr.is_done());
+        }());
+
+        auto const enc_body = encoded(body);
+        std::string expected(req.buffer());
+        expected += "40\r\n" + enc_body.substr(0, 64);
+        expected += "\r\n40\r\n" + enc_body.substr(64, 64);
+        expected += "\r\n40\r\n" + enc_body.substr(128, 64);
+        expected += "\r\n8\r\n" + enc_body.substr(192, 8);
+        expected += "\r\n0\r\n\r\n";
+        BOOST_TEST(enc.finished);
+        BOOST_TEST(req.chunked());
+        BOOST_TEST(
+            server.data().find("Content-Encoding: test\r\n") !=
+            std::string_view::npos);
+        BOOST_TEST_EQ(server.data(), expected);
+    }
+
+    void
+    testEncoderCommit()
+    {
+        // commit() stages input for the encoder; a drain is
+        // deferred until the remaining capacity drops below
+        // min_prepare, and encoded bytes stay buffered until
+        // the output buffer needs room.
+        std::string const body = make_body(54);
+
+        auto req = make_request();
+        req.set(http::field::content_encoding, "test");
+        auto [client, server] = capy::test::make_stream_pair();
+        test_encoder enc(64, 8);
+
+        capy::test::run_blocking()([&]() -> capy::task<>
+        {
+            capy::any_write_stream ws(&client);
+            serializer sr(&ws, &req, &enc, cfg);
+
+            capy::mutable_buffer tmp[2];
+
+            // capacity stays >= min_prepare: no drain
+            auto n1 = capy::buffer_copy(
+                sr.prepare(tmp),
+                capy::const_buffer(body.data(), 20));
+            BOOST_TEST_EQ(n1, 20u);
+            auto [ec1] = co_await sr.commit(n1);
+            BOOST_TEST(!ec1);
+            BOOST_TEST_EQ(enc.calls, 0u);
+
+            // capacity drops below min_prepare: the staged
+            // bytes are encoded, but the encoded output still
+            // fits and nothing reaches the wire
+            auto n2 = capy::buffer_copy(
+                sr.prepare(tmp),
+                capy::const_buffer(body.data() + 20, 24));
+            BOOST_TEST_EQ(n2, 24u);
+            auto [ec2] = co_await sr.commit(n2);
+            BOOST_TEST(!ec2);
+            BOOST_TEST_EQ(enc.calls, 1u);
+            BOOST_TEST(server.data().empty());
+
+            // staged bytes present at commit_eof() are encoded
+            // before the encoder is finished
+            auto n3 = capy::buffer_copy(
+                sr.prepare(tmp),
+                capy::const_buffer(body.data() + 44, 10));
+            BOOST_TEST_EQ(n3, 10u);
+            auto [ec3] = co_await sr.commit_eof(n3);
+            BOOST_TEST(!ec3);
+            BOOST_TEST(sr.is_done());
+        }());
+
+        // everything fit before the header went out: chunked
+        // is replaced with the encoded length
+        BOOST_TEST_EQ(enc.calls, 2u);
+        BOOST_TEST(enc.finished);
+        BOOST_TEST(!req.chunked());
+        BOOST_TEST_EQ(req.payload_size(), 54u);
+        BOOST_TEST_EQ(
+            server.data(),
+            std::string(req.buffer()) + encoded(body));
+    }
+
+    void
+    testEncoderCommitTriggersFlush()
+    {
+        // A commit-triggered drain that overflows the output
+        // buffer sends the header and a full chunk mid-commit;
+        // the remainder stays buffered for the final flush;
+        // 64 == 0x40, 32 == 0x20.
+        std::string const body = make_body(96);
+
+        auto req = make_request();
+        req.set(http::field::content_encoding, "test");
+        auto [client, server] = capy::test::make_stream_pair();
+        test_encoder enc(96, 8);
+
+        capy::test::run_blocking()([&]() -> capy::task<>
+        {
+            capy::any_write_stream ws(&client);
+            serializer sr(&ws, &req, &enc, cfg);
+
+            capy::mutable_buffer tmp[2];
+            auto n = capy::buffer_copy(
+                sr.prepare(tmp), capy::make_buffer(body));
+            BOOST_TEST_EQ(n, body.size());
+
+            auto [ec1] = co_await sr.commit(n);
+            BOOST_TEST(!ec1);
+            BOOST_TEST_EQ(
+                server.data(),
+                std::string(req.buffer()) +
+                    "40\r\n" + encoded(body).substr(0, 64));
+
+            auto [ec2] = co_await sr.write_eof();
+            BOOST_TEST(!ec2);
+        }());
+
+        std::string expected(req.buffer());
+        expected += "40\r\n" + encoded(body).substr(0, 64);
+        expected += "\r\n20\r\n" + encoded(body).substr(64, 32);
+        expected += "\r\n0\r\n\r\n";
+        BOOST_TEST(req.chunked());
+        BOOST_TEST_EQ(server.data(), expected);
+    }
+
+    void
+    testEncoderTrailerSpansFlush()
+    {
+        // The encoder finishes over multiple eof calls when its
+        // trailer does not fit in the remaining output space; a
+        // flush runs between the calls; 64 == 0x40.
+        std::string const body = make_body(60);
+
+        auto req = make_request();
+        req.set(http::field::content_encoding, "test");
+        auto [client, server] = capy::test::make_stream_pair();
+        test_encoder enc(32, 8, "0123456789");
+
+        capy::test::run_blocking()([&]() -> capy::task<>
+        {
+            capy::any_write_stream ws(&client);
+            serializer sr(&ws, &req, &enc, cfg);
+
+            auto [ec, n] = co_await sr.write_eof(
+                capy::make_buffer(body));
+            BOOST_TEST(!ec);
+            BOOST_TEST_EQ(n, body.size());
+            BOOST_TEST(sr.is_done());
+        }());
+
+        std::string expected(req.buffer());
+        expected += "40\r\n" + encoded(body) + "0123";
+        expected += "\r\n6\r\n456789";
+        expected += "\r\n0\r\n\r\n";
+        BOOST_TEST_EQ(enc.calls, 2u);
+        BOOST_TEST(enc.finished);
+        BOOST_TEST(req.chunked());
+        BOOST_TEST_EQ(server.data(), expected);
+    }
+
+    void
+    testEncoderContentLength()
+    {
+        // A sized request works with an encoder when the
+        // declared length matches the encoded output (body
+        // plus trailer).
+        std::string const body = make_body(30);
+
+        auto req = make_request(34);
+        req.set(http::field::content_encoding, "test");
+        auto [client, server] = capy::test::make_stream_pair();
+        test_encoder enc(32, 8, "eof!");
+
+        capy::test::run_blocking()([&]() -> capy::task<>
+        {
+            capy::any_write_stream ws(&client);
+            serializer sr(&ws, &req, &enc, cfg);
+
+            auto [ec, n] = co_await sr.write_eof(
+                capy::make_buffer(body));
+            BOOST_TEST(!ec);
+            BOOST_TEST_EQ(n, body.size());
+            BOOST_TEST(sr.is_done());
+        }());
+
+        BOOST_TEST(enc.finished);
+        BOOST_TEST_EQ(
+            server.data(),
+            std::string(req.buffer()) +
+                encoded(body) + "eof!");
+    }
+
+    void
+    testEncoderContentLengthMismatch()
+    {
+        // encoded output exceeds the declared length
+        {
+            std::string const body = make_body(30);
+
+            auto req = make_request(30);
+            req.set(http::field::content_encoding, "test");
+            auto [client, server] = capy::test::make_stream_pair();
+            test_encoder enc(32, 8, "eof!");
+
+            capy::test::run_blocking()([&]() -> capy::task<>
+            {
+                capy::any_write_stream ws(&client);
+                serializer sr(&ws, &req, &enc, cfg);
+
+                auto [ec, n] = co_await sr.write_eof(
+                    capy::make_buffer(body));
+                BOOST_TEST(ec == error::body_size_mismatch);
+                BOOST_TEST(!sr.is_done());
+            }());
+
+            BOOST_TEST(server.data().empty());
+        }
+
+        // encoded output falls short of the declared length
+        {
+            std::string const body = make_body(30);
+
+            auto req = make_request(40);
+            req.set(http::field::content_encoding, "test");
+            auto [client, server] = capy::test::make_stream_pair();
+            test_encoder enc(32, 8, "eof!");
+
+            capy::test::run_blocking()([&]() -> capy::task<>
+            {
+                capy::any_write_stream ws(&client);
+                serializer sr(&ws, &req, &enc, cfg);
+
+                auto [ec, n] = co_await sr.write_eof(
+                    capy::make_buffer(body));
+                BOOST_TEST(ec == error::body_size_mismatch);
+                BOOST_TEST(!sr.is_done());
+            }());
+
+            BOOST_TEST(server.data().empty());
+        }
+    }
+
+    void
+    testEncoderFailure()
+    {
+        // the encoder fails before anything is flushed
+        {
+            std::string const body = make_body(20);
+
+            auto req = make_request();
+            req.set(http::field::content_encoding, "test");
+            auto [client, server] = capy::test::make_stream_pair();
+            test_encoder enc;
+            enc.fail = make_error_code(std::errc::io_error);
+
+            capy::test::run_blocking()([&]() -> capy::task<>
+            {
+                capy::any_write_stream ws(&client);
+                serializer sr(&ws, &req, &enc, cfg);
+
+                auto [ec, n] = co_await sr.write_eof(
+                    capy::make_buffer(body));
+                BOOST_TEST(ec == std::errc::io_error);
+                BOOST_TEST_EQ(n, 0u);
+                BOOST_TEST(!sr.is_done());
+            }());
+
+            BOOST_TEST_EQ(enc.calls, 1u);
+            BOOST_TEST(server.data().empty());
+        }
+
+        // the encoder fails mid-stream, after encoded output
+        // has already been buffered
+        {
+            std::string const body = make_body(64);
+
+            auto req = make_request();
+            req.set(http::field::content_encoding, "test");
+            auto [client, server] = capy::test::make_stream_pair();
+            test_encoder enc;
+
+            capy::test::run_blocking()([&]() -> capy::task<>
+            {
+                capy::any_write_stream ws(&client);
+                serializer sr(&ws, &req, &enc, cfg);
+
+                auto [ec1, n1] = co_await sr.write(
+                    capy::make_buffer(body));
+                BOOST_TEST(!ec1);
+                BOOST_TEST_EQ(n1, body.size());
+                BOOST_TEST(server.data().empty());
+
+                enc.fail = make_error_code(std::errc::io_error);
+                auto [ec2, n2] = co_await sr.write(
+                    capy::const_buffer("more", 4));
+                BOOST_TEST(ec2 == std::errc::io_error);
+                BOOST_TEST_EQ(n2, 0u);
+                BOOST_TEST(!sr.is_done());
+            }());
+
+            // the bytes encoded before the failure were flushed
+            // while making room for more output; 64 == 0x40
+            BOOST_TEST_EQ(
+                server.data(),
+                std::string(req.buffer()) +
+                    "40\r\n" + encoded(body));
+        }
+    }
+
+    void
+    testEncoderMultipleBuffers()
+    {
+        // the encoder walks every caller buffer in order,
+        // including empty ones
+        std::string const b1 = make_body(6);
+        std::string const b2 = make_body(6);
+
+        auto req = make_request();
+        req.set(http::field::content_encoding, "test");
+        auto [client, server] = capy::test::make_stream_pair();
+        test_encoder enc;
+
+        capy::test::run_blocking()([&]() -> capy::task<>
+        {
+            capy::any_write_stream ws(&client);
+            serializer sr(&ws, &req, &enc, cfg);
+
+            std::array<capy::const_buffer, 3> bufs{
+                capy::make_buffer(b1),
+                capy::const_buffer{},
+                capy::make_buffer(b2) };
+
+            auto [ec, n] = co_await sr.write_eof(bufs);
+            BOOST_TEST(!ec);
+            BOOST_TEST_EQ(n, b1.size() + b2.size());
+            BOOST_TEST(sr.is_done());
+        }());
+
+        BOOST_TEST(enc.finished);
+        BOOST_TEST_EQ(req.payload_size(), 12u);
+        BOOST_TEST_EQ(
+            server.data(),
+            std::string(req.buffer()) +
+                encoded(b1) + encoded(b2));
+    }
+
+    void
+    testEncoderWriteEofManyBuffers()
+    {
+        // More caller buffers than fit in one gather window:
+        // write_eof() feeds the encoder window by window, with
+        // eof deferred until the last window.
+        std::string const body = make_body(24);
+
+        auto req = make_request();
+        req.set(http::field::content_encoding, "test");
+        auto [client, server] = capy::test::make_stream_pair();
+        test_encoder enc;
+
+        capy::test::run_blocking()([&]() -> capy::task<>
+        {
+            capy::any_write_stream ws(&client);
+            serializer sr(&ws, &req, &enc, cfg);
+
+            std::array<
+                capy::const_buffer, 24> bufs;
+            for(std::size_t i = 0; i != bufs.size(); ++i)
+                bufs[i] = { body.data() + i, 1 };
+
+            auto [ec, n] = co_await sr.write_eof(bufs);
+            BOOST_TEST(!ec);
+            BOOST_TEST_EQ(n, body.size());
+            BOOST_TEST(sr.is_done());
+        }());
+
+        BOOST_TEST(enc.finished);
+        BOOST_TEST(!req.chunked());
+        BOOST_TEST_EQ(req.payload_size(), 24u);
+        BOOST_TEST_EQ(
+            server.data(),
+            std::string(req.buffer()) + encoded(body));
+    }
+
+    void
+    testEncoderWriteSome()
+    {
+        // A write_some() that would cross the encoder threshold
+        // is not coalesced: the staged bytes are encoded first,
+        // then the caller's bytes, and the returned count covers
+        // only the caller's bytes.
+        auto req = make_request();
+        req.set(http::field::content_encoding, "test");
+        auto [client, server] = capy::test::make_stream_pair();
+        test_encoder enc;
+
+        capy::test::run_blocking()([&]() -> capy::task<>
+        {
+            capy::any_write_stream ws(&client);
+            serializer sr(&ws, &req, &enc, cfg);
+
+            // stays below the threshold: staged, encoder not
+            // started
+            auto [ec1, n1] = co_await sr.write_some(
+                capy::const_buffer("abcd", 4));
+            BOOST_TEST(!ec1);
+            BOOST_TEST_EQ(n1, 4u);
+            BOOST_TEST_EQ(enc.calls, 0u);
+
+            // reaches the threshold: everything goes through
+            // the encoder, and the encoded bytes stay buffered
+            auto [ec2, n2] = co_await sr.write_some(
+                capy::const_buffer("efgh", 4));
+            BOOST_TEST(!ec2);
+            BOOST_TEST_EQ(n2, 4u);
+            BOOST_TEST_EQ(enc.calls, 2u);
+            BOOST_TEST(server.data().empty());
+
+            auto [ec3] = co_await sr.write_eof();
+            BOOST_TEST(!ec3);
+        }());
+
+        BOOST_TEST(enc.finished);
+        BOOST_TEST_EQ(req.payload_size(), 8u);
+        BOOST_TEST_EQ(
+            server.data(),
+            std::string(req.buffer()) + encoded("abcdefgh"));
+    }
+
+    void
+    testEncoderMove()
+    {
+        // moving mid-stream transfers staged input and encoder
+        // state
+        {
+            auto req = make_request();
+            req.set(http::field::content_encoding, "test");
+            auto [client, server] = capy::test::make_stream_pair();
+            test_encoder enc;
+
+            capy::test::run_blocking()([&]() -> capy::task<>
+            {
+                capy::any_write_stream ws(&client);
+                serializer sr1(&ws, &req, &enc, cfg);
+
+                auto [ec1, n1] = co_await sr1.write(
+                    capy::const_buffer("abc", 3));
+                BOOST_TEST(!ec1);
+                BOOST_TEST_EQ(n1, 3u);
+
+                serializer sr2(std::move(sr1));
+                auto [ec2, n2] = co_await sr2.write_eof(
+                    capy::const_buffer("defgh", 5));
+                BOOST_TEST(!ec2);
+                BOOST_TEST_EQ(n2, 5u);
+                BOOST_TEST(sr2.is_done());
+
+                // move-assignment into the moved-from shell
+                sr1 = std::move(sr2);
+                BOOST_TEST(sr1.is_done());
+            }());
+
+            BOOST_TEST_EQ(
+                server.data(),
+                std::string(req.buffer()) +
+                    encoded("abcdefgh"));
+        }
+
+        // moving a serializer whose encoder was dropped must
+        // transfer ownership of the shifted staging buffer;
+        // deallocating at the wrong offset corrupts the heap
+        {
+            auto req = make_request();
+            req.set(http::field::content_encoding, "test");
+            auto [client, server] = capy::test::make_stream_pair();
+            test_encoder enc;
+
+            capy::test::run_blocking()([&]() -> capy::task<>
+            {
+                capy::any_write_stream ws(&client);
+                serializer sr1(&ws, &req, &enc, cfg);
+
+                auto [ec1, n1] = co_await sr1.write(
+                    capy::const_buffer("hello", 5));
+                BOOST_TEST(!ec1);
+
+                // dropping the encoder shifts the internal
+                // buffer
+                auto [ec2] = co_await sr1.write_eof();
+                BOOST_TEST(!ec2);
+
+                serializer sr2(std::move(sr1));
+                BOOST_TEST(sr2.is_done());
+
+                sr1 = std::move(sr2);
+                BOOST_TEST(sr1.is_done());
+
+                // self-move is a no-op
+                auto* self = &sr1;
+                sr1 = std::move(*self);
+                BOOST_TEST(sr1.is_done());
+            }());
+
+            BOOST_TEST_EQ(
+                server.data(),
+                std::string(req.buffer()) + "hello");
+        }
+    }
+
+    void
+    testEncoderErrorInjection()
+    {
+        capy::test::fuse f;
+        auto r = f.armed([&](capy::test::fuse&) -> capy::task<>
+        {
+            std::string const body = make_body(100);
+
+            auto req = make_request();
+            req.set(http::field::content_encoding, "test");
+            test_encoder enc;
+
+            auto [client, server] =
+                capy::test::make_stream_pair(f);
+
+            capy::any_write_stream ws(&client);
+            serializer sr(&ws, &req, &enc, cfg);
+
+            if(auto [ec, n] = co_await sr.write(
+                capy::make_buffer(body)); ec)
+            {
+                BOOST_TEST(!sr.is_done());
+                co_return;
+            }
+
+            if(auto [ec] = co_await sr.write_eof(); ec)
+            {
+                BOOST_TEST(!sr.is_done());
+                co_return;
+            }
+
+            BOOST_TEST(sr.is_done());
+            BOOST_TEST(enc.finished);
+
+            auto const enc_body = encoded(body);
+            std::string expected(req.buffer());
+            expected += "40\r\n" + enc_body.substr(0, 64);
+            expected += "\r\n24\r\n" + enc_body.substr(64, 36);
+            expected += "\r\n0\r\n\r\n";
+            BOOST_TEST_EQ(server.data(), expected);
+        });
+        BOOST_TEST(r.success);
+    }
+
+    void
     run()
     {
         testContentLengthSmallBody();
@@ -866,6 +1747,23 @@ public:
         testShortWriteEofDoesNotTruncate();
         testChunkedPreservesWriteOrder();
         testErrorInjection();
+        testEncoderSmallBodyDropsEncoder();
+        testEncoderEmptyBody();
+        testEncoderPrepareCommitEof();
+        testEncoderThreshold();
+        testEncoderStagedAndTail();
+        testEncoderLargeBodyChunked();
+        testEncoderCommit();
+        testEncoderCommitTriggersFlush();
+        testEncoderTrailerSpansFlush();
+        testEncoderContentLength();
+        testEncoderContentLengthMismatch();
+        testEncoderFailure();
+        testEncoderMultipleBuffers();
+        testEncoderWriteEofManyBuffers();
+        testEncoderWriteSome();
+        testEncoderMove();
+        testEncoderErrorInjection();
     }
 };
 
