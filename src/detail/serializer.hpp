@@ -29,17 +29,16 @@ namespace detail
 class serializer
 {
 public:
-    struct encoder
+    struct encoder_base
     {
-        std::size_t buffer_size = 8 * 1024;
-        std::size_t threshold   = 4 * 1024;
-
         struct result
         {
             std::size_t consumed;
             std::size_t produced;
             std::error_code ec;
         };
+
+        virtual ~encoder_base() = default;
 
         virtual result
         process(
@@ -50,16 +49,16 @@ public:
 
     struct config
     {
-        std::size_t buffer_size = 64 * 1024;
-        std::size_t min_prepare = 4 * 1024;
-        std::size_t direct_thr  = 2 * 1024;
+        std::size_t out_buffer  = 64 * 1024;
+        std::size_t min_prepare =  4 * 1024;
+        std::size_t direct_thr  =  2 * 1024;
+        std::size_t enc_buffer  =  8 * 1024;
+        std::size_t enc_thr     =  4 * 1024;
     };
 
     serializer(
-        capy::any_write_stream* stream,
-        http::message_base* msg,
-        encoder* enc,
-        config cfg);
+        config const& cfg,
+        capy::any_write_stream* stream = nullptr);
 
     serializer(serializer&& other) noexcept;
 
@@ -74,7 +73,45 @@ public:
     ~serializer();
 
     bool
-    is_done() const noexcept;
+    is_done() const noexcept
+    {
+        return done_;
+    }
+
+    capy::any_write_stream*
+    stream() const noexcept
+    {
+        return stream_;
+    }
+
+    http::message_base*
+    message() const noexcept
+    {
+        return msg_;
+    }
+
+    encoder_base*
+    encoder() const noexcept
+    {
+        return enc_;
+    }
+
+    void
+    reset(
+        capy::any_write_stream* stream,
+        http::message_base* msg,
+        encoder_base* enc = nullptr,
+        bool head = false) noexcept;
+
+    void
+    reset(
+        http::message_base* msg,
+        encoder_base* enc = nullptr,
+        bool head = false) noexcept
+    {
+        BOOST_ASSERT(stream_);
+        reset(stream_, msg, enc, head);
+    }
 
     template<capy::ConstBufferSequence Buffers>
     capy::io_task<std::size_t>
@@ -146,15 +183,20 @@ private:
     static constexpr std::size_t margin = 24;
 
     capy::any_write_stream* stream_;
-    http::message_base* msg_;
-    encoder* enc_;
-    config cfg_;
-    unsigned char* buf_;
-    std::size_t out_len_ = 0;
+    http::message_base* msg_ = nullptr;
+    encoder_base* enc_ = nullptr;
+    std::size_t min_prepare_;
+    std::size_t direct_thr_;
+    std::size_t enc_thr_;
+    unsigned char* in_;
+    std::size_t in_cap_;
     std::size_t in_len_ = 0;
+    unsigned char* out_;
+    std::size_t out_cap_;
+    std::size_t out_len_ = 0;
     std::uint64_t total_body_ = 0;
+    bool head_ = false;
     bool enc_started_ = false;
-    bool shifted_ = false;
     bool hdr_sent_ = false;
     bool done_ = false;
 };

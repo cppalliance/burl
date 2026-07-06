@@ -234,6 +234,8 @@ client::execute_impl(
     http::response_parser parser(
         http::make_parser_config(parser_cfg));
 
+    detail::serializer sr({});
+
     auto url             = request.url;
     auto trusted         = true;
     auto followlocation  = request.options.followlocation.value_or(config_.followlocation);
@@ -265,7 +267,7 @@ client::execute_impl(
         // TODO: expect100timeout
 
         capy::any_write_stream ws(&conn);
-        detail::serializer sr(&ws, &headers, {}, {});
+        sr.reset(&ws, &headers);
         if(request.body.has_value())
         {
             capy::any_buffer_sink sink(&sr);

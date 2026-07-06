@@ -13,6 +13,9 @@
 #include <boost/capy/cond.hpp>
 #include <boost/capy/buffers/make_buffer.hpp>
 
+#include <cstring>
+#include <utility>
+
 namespace boost
 {
 namespace burl
@@ -21,18 +24,16 @@ namespace detail
 {
 
 serializer::
-serializer(
-    capy::any_write_stream* stream,
-    http::message_base* msg,
-    encoder* enc,
-    config cfg)
+serializer(config const& cfg, capy::any_write_stream* stream)
     : stream_(stream)
-    , msg_(msg)
-    , enc_(enc)
-    , cfg_(cfg)
-    , buf_(new unsigned char[
-        cfg_.buffer_size +
-        (enc ? enc->buffer_size : 0) + margin] + margin)
+    , min_prepare_(cfg.min_prepare)
+    , direct_thr_(cfg.direct_thr)
+    , enc_thr_(cfg.enc_thr)
+    , in_(new unsigned char[
+        cfg.out_buffer + cfg.enc_buffer + margin] + margin)
+    , in_cap_(cfg.out_buffer)
+    , out_(in_)
+    , out_cap_(cfg.enc_buffer)
 {
 }
 
@@ -41,17 +42,22 @@ serializer(serializer&& other) noexcept
     : stream_(other.stream_)
     , msg_(other.msg_)
     , enc_(other.enc_)
-    , cfg_(other.cfg_)
-    , buf_(other.buf_)
+    , min_prepare_(other.min_prepare_)
+    , direct_thr_(other.direct_thr_)
+    , enc_thr_(other.enc_thr_)
+    , out_(other.out_)
+    , out_cap_(other.out_cap_)
     , out_len_(other.out_len_)
+    , in_(other.in_)
+    , in_cap_(other.in_cap_)
     , in_len_(other.in_len_)
     , total_body_(other.total_body_)
+    , head_(other.head_)
     , enc_started_(other.enc_started_)
-    , shifted_(other.shifted_)
     , hdr_sent_(other.hdr_sent_)
     , done_(other.done_)
 {
-    other.buf_ = nullptr;
+    other.out_ = nullptr;
 }
 
 serializer&
@@ -67,16 +73,37 @@ operator=(serializer&& other) noexcept
 serializer::
 ~serializer()
 {
-    if(buf_)
-        delete[](buf_ -
-            (shifted_ ? cfg_.buffer_size : 0) - margin);
+    if(out_)
+        delete[]((out_ > in_ ? in_ : out_) - margin);
 }
 
-bool
+void
 serializer::
-is_done() const noexcept
+reset(
+    capy::any_write_stream* stream,
+    http::message_base* msg,
+    encoder_base* enc,
+    bool head) noexcept
 {
-    return done_;
+    if(out_ > in_)
+        out_ = in_;
+
+    if(!enc_ && enc)
+    {
+        std::swap(out_cap_, in_cap_);
+        in_ += out_cap_;
+    }
+
+    stream_ = stream;
+    msg_ = msg;
+    enc_ = enc;
+    in_len_ = 0;
+    out_len_ = 0;
+    total_body_ = 0;
+    head_ = head;
+    enc_started_ = false;
+    hdr_sent_ = false;
+    done_ = false;
 }
 
 capy::io_task<>
@@ -102,7 +129,7 @@ commit(std::size_t n)
 {
     BOOST_ASSERT(n <= capacity());
     do_commit(n);
-    if(capacity() >= cfg_.min_prepare)
+    if(capacity() >= min_prepare_)
         co_return {};
     auto [ec, _] = co_await process({}, false);
     co_return { ec };
@@ -123,32 +150,21 @@ std::size_t
 serializer::
 capacity() const noexcept
 {
-    if(enc_)
-        return enc_->buffer_size - in_len_;
-
-    return cfg_.buffer_size - out_len_;
+    return in_cap_ - in_len_;
 }
 
 capy::mutable_buffer
 serializer::
 do_prepare() noexcept
 {
-    if(enc_)
-        return { buf_ + cfg_.buffer_size + in_len_,
-            enc_->buffer_size - in_len_ };
-
-    return { buf_ + out_len_,
-        cfg_.buffer_size - out_len_ };
+    return { in_ + in_len_, in_cap_ - in_len_ };
 }
 
 void
 serializer::
 do_commit(std::size_t n) noexcept
 {
-    if(enc_)
-        in_len_ += n;
-    else
-        out_len_ += n;
+    in_len_ += n;
 }
 
 bool
@@ -158,8 +174,8 @@ can_coalesce(std::size_t avail) const noexcept
     if(avail > capacity())
         return false;
     if(enc_)
-        return !enc_started_ && avail + in_len_ < enc_->threshold;
-    return avail < cfg_.direct_thr;
+        return !enc_started_ && avail + in_len_ < enc_thr_;
+    return avail < direct_thr_;
 }
 
 void
@@ -171,14 +187,13 @@ finalize(std::size_t remaining) noexcept
         if(enc_started_)
             return;
 
-        if(remaining + in_len_ >= enc_->threshold)
+        if(remaining + in_len_ >= enc_thr_)
             return;
 
         msg_->erase(http::field::content_encoding);
         enc_ = nullptr;
-        out_len_ = in_len_;
-        buf_ += cfg_.buffer_size;
-        shifted_ = true;
+        std::swap(out_, in_);
+        std::swap(out_cap_, in_cap_);
     }
     decide_framing(remaining);
 }
@@ -192,7 +207,7 @@ decide_framing(std::size_t remaining) noexcept
 
     BOOST_ASSERT(total_body_ == 0);
     msg_->erase(http::field::transfer_encoding);
-    msg_->set_content_length(out_len_ + remaining);
+    msg_->set_content_length((enc_ ? out_len_ : in_len_) + remaining);
 }
 
 capy::io_task<std::size_t>
@@ -214,7 +229,7 @@ encode(
 {
     std::size_t n = 0;
     std::size_t consumed = 0;
-    capy::const_buffer in = { buf_ + cfg_.buffer_size, in_len_ };
+    capy::const_buffer in = { in_, in_len_ };
     for(;;)
     {
         if(in.size() == 0)
@@ -225,14 +240,14 @@ encode(
                 co_return { {}, consumed };
         }
 
-        if(cfg_.buffer_size - out_len_ == 0)
+        if(out_len_ == out_cap_)
         {
             if(auto [ec, _] = co_await flush({}, false); ec)
                 co_return { ec, consumed };
         }
 
         capy::mutable_buffer out =
-            { buf_ + out_len_, cfg_.buffer_size - out_len_ };
+            { out_ + out_len_, out_cap_ - out_len_ };
 
         auto r = enc_->process(
             out, in, eof && n == tail.size());
@@ -269,6 +284,9 @@ flush(
     std::span<capy::const_buffer const> tail,
     bool eof)
 {
+    if(!enc_)
+        out_len_ = in_len_;
+
     auto const tail_size = capy::buffer_size(tail);
     auto const chunked = msg_->chunked();
     BOOST_ASSERT(eof || out_len_ + tail_size != 0);
@@ -301,7 +319,7 @@ flush(
             co_return { error::body_size_mismatch, 0 };
 
         if(out_len_ != 0)
-            append({ buf_, out_len_ });
+            append({ out_, out_len_ });
     }
 
     auto const owned = sum;
@@ -320,6 +338,8 @@ flush(
     auto const consumed = (std::min)(written - owned, tail_size);
     total_body_ += out_len_ + consumed;
     out_len_ = 0;
+    if(!enc_)
+        in_len_ = 0;
     hdr_sent_ = true;
     done_ = eof;
     co_return { {}, consumed };
@@ -352,7 +372,7 @@ chunk_frame(std::size_t tail_size) noexcept
 {
     static constexpr char hex[] = "0123456789abcdef";
     auto s = out_len_ + tail_size;
-    auto p = buf_;
+    auto p = out_;
 
     *--p = '\n';
     *--p = '\r';
@@ -371,7 +391,7 @@ chunk_frame(std::size_t tail_size) noexcept
     }
 
     return { p, static_cast<std::size_t>(
-        buf_ - p) + out_len_ };
+        out_ - p) + out_len_ };
 }
 
 } // namespace detail
