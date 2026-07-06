@@ -29,11 +29,11 @@ serializer(config const& cfg, capy::any_write_stream* stream)
     , min_prepare_(cfg.min_prepare)
     , direct_thr_(cfg.direct_thr)
     , enc_thr_(cfg.enc_thr)
-    , in_(new unsigned char[
+    , out_(new unsigned char[
         cfg.out_buffer + cfg.enc_buffer + margin] + margin)
-    , in_cap_(cfg.out_buffer)
-    , out_(in_)
     , out_cap_(cfg.enc_buffer)
+    , in_(out_)
+    , in_cap_(cfg.out_buffer)
 {
 }
 
@@ -74,7 +74,7 @@ serializer::
 ~serializer()
 {
     if(out_)
-        delete[]((out_ > in_ ? in_ : out_) - margin);
+        delete[](out_ - margin);
 }
 
 void
@@ -82,16 +82,16 @@ serializer::
 reset(
     capy::any_write_stream* stream,
     http::message_base* msg,
-    encoder_base* enc,
+    encoder* enc,
     bool head) noexcept
 {
-    if(out_ > in_)
-        out_ = in_;
+    if(head)
+        enc = nullptr;
 
-    if(!enc_ && enc)
+    if(!enc == (in_ != out_))
     {
-        std::swap(out_cap_, in_cap_);
-        in_ += out_cap_;
+        std::swap(in_cap_, out_cap_);
+        in_ = enc ? out_ + out_cap_ : out_;
     }
 
     stream_ = stream;
@@ -169,7 +169,7 @@ do_commit(std::size_t n) noexcept
 
 bool
 serializer::
-can_coalesce(std::size_t avail) const noexcept
+should_coalesce(std::size_t avail) const noexcept
 {
     if(avail > capacity())
         return false;
@@ -182,6 +182,9 @@ void
 serializer::
 finalize(std::size_t remaining) noexcept
 {
+    if(head_)
+        return;
+
     if(enc_)
     {
         if(enc_started_)
@@ -192,8 +195,6 @@ finalize(std::size_t remaining) noexcept
 
         msg_->erase(http::field::content_encoding);
         enc_ = nullptr;
-        std::swap(out_, in_);
-        std::swap(out_cap_, in_cap_);
     }
     decide_framing(remaining);
 }
@@ -246,11 +247,11 @@ encode(
                 co_return { ec, consumed };
         }
 
-        capy::mutable_buffer out =
-            { out_ + out_len_, out_cap_ - out_len_ };
-
         auto r = enc_->process(
-            out, in, eof && n == tail.size());
+            { out_ + out_len_, out_cap_ - out_len_ },
+            in,
+            eof && n == tail.size());
+
         enc_started_ = true;
         out_len_ += r.produced;
         in += r.consumed;
@@ -284,12 +285,11 @@ flush(
     std::span<capy::const_buffer const> tail,
     bool eof)
 {
-    if(!enc_)
-        out_len_ = in_len_;
-
-    auto const tail_size = capy::buffer_size(tail);
-    auto const chunked = msg_->chunked();
-    BOOST_ASSERT(eof || out_len_ + tail_size != 0);
+    auto const buf = enc_ ? out_ : in_;
+    auto& len = enc_ ? out_len_ : in_len_;
+    auto const tail_len = capy::buffer_size(tail);
+    auto const chunked = msg_->chunked() && !head_;
+    BOOST_ASSERT(eof || len + tail_len != 0);
     BOOST_ASSERT(tail.size() <= capy::detail::max_iovec_);
 
     capy::const_buffer vec[capy::detail::max_iovec_ + 3];
@@ -306,20 +306,43 @@ flush(
 
     if(chunked)
     {
-        append(chunk_frame(tail_size));
+        static constexpr char hex[] = "0123456789abcdef";
+        auto s = len + tail_len;
+        auto p = buf;
+
+        *--p = '\n';
+        *--p = '\r';
+
+        do
+        {
+            *--p = hex[s & 0xF];
+            s >>= 4;
+        } while(s != 0);
+
+        // prev chunk's CRLF
+        if(total_body_)
+        {
+            *--p = '\n';
+            *--p = '\r';
+        }
+
+        append({ p, static_cast<std::size_t>(buf - p) + len });
     }
     else
     {
-        auto const declared =
-            msg_->payload() == http::payload::size
-                ? msg_->payload_size() : 0;
-        auto const produced = total_body_ + out_len_ + tail_size;
+        auto const decl = [&]()-> std::uint64_t
+        {
+            if(head_ || msg_->payload() != http::payload::size)
+                return 0;
+            return msg_->payload_size();
+        }();
+        auto const prod = total_body_ + len + tail_len;
 
-        if(produced > declared || (eof && produced != declared))
+        if(prod > decl || (eof && prod != decl))
             co_return { error::body_size_mismatch, 0 };
 
-        if(out_len_ != 0)
-            append({ out_, out_len_ });
+        if(len != 0)
+            append({ buf, len });
     }
 
     auto const owned = sum;
@@ -328,18 +351,16 @@ flush(
         append(b);
 
     if(chunked && eof)
-        append({ "\r\n0\r\n\r\n", out_len_ || tail_size ? 7u : 2u });
+        append({ "\r\n0\r\n\r\n", len || tail_len ? 7u : 2u });
 
-    auto const need = chunked || eof ? sum : owned + (tail_size != 0);
+    auto const need = chunked || eof ? sum : owned + !!tail_len;
     auto [ec, written] = co_await write_at_least({ vec, n }, need);
     if(ec)
         co_return { ec, 0 };
 
-    auto const consumed = (std::min)(written - owned, tail_size);
-    total_body_ += out_len_ + consumed;
-    out_len_ = 0;
-    if(!enc_)
-        in_len_ = 0;
+    auto const consumed = (std::min)(written - owned, tail_len);
+    total_body_ += len + consumed;
+    len = 0;
     hdr_sent_ = true;
     done_ = eof;
     co_return { {}, consumed };
@@ -364,34 +385,6 @@ write_at_least(
         slice.remove_prefix(n);
     }
     co_return { {}, written };
-}
-
-capy::const_buffer
-serializer::
-chunk_frame(std::size_t tail_size) noexcept
-{
-    static constexpr char hex[] = "0123456789abcdef";
-    auto s = out_len_ + tail_size;
-    auto p = out_;
-
-    *--p = '\n';
-    *--p = '\r';
-
-    do
-    {
-        *--p = hex[s & 0xF];
-        s >>= 4;
-    } while(s != 0);
-
-    // prev chunk's CRLF
-    if(total_body_ != 0)
-    {
-        *--p = '\n';
-        *--p = '\r';
-    }
-
-    return { p, static_cast<std::size_t>(
-        out_ - p) + out_len_ };
 }
 
 } // namespace detail

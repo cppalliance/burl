@@ -64,7 +64,7 @@ class serializer_test
     // encoded output is distinguishable from identity output,
     // and appends an optional trailer once the input ends. It
     // consumes and produces as much as the given buffers allow.
-    struct test_encoder : serializer::encoder_base
+    struct test_encoder : serializer::encoder
     {
         std::string trailer;
         std::error_code fail;
@@ -236,7 +236,7 @@ public:
             {
                 capy::any_write_stream ws(&client);
                 serializer sr(cfg, &ws);
-            sr.reset(&req);
+                sr.reset(&req);
 
                 auto [ec1, n] = co_await sr.write(
                     capy::const_buffer("hello", 5));
@@ -262,7 +262,7 @@ public:
             {
                 capy::any_write_stream ws(&client);
                 serializer sr(cfg, &ws);
-            sr.reset(&req);
+                sr.reset(&req);
 
                 auto [ec, n] = co_await sr.write_eof(
                     capy::const_buffer("hello", 5));
@@ -1756,7 +1756,6 @@ public:
             sr.reset(&req1, &enc1);
             BOOST_TEST(sr.stream() == &ws1);
             BOOST_TEST(sr.message() == &req1);
-            BOOST_TEST(sr.encoder() == &enc1);
 
             // the small body drops the encoder
             auto [ec1, n1] = co_await sr.write_eof(
@@ -1768,7 +1767,6 @@ public:
             sr.reset(&ws2, &req2, &enc2);
             BOOST_TEST(sr.stream() == &ws2);
             BOOST_TEST(sr.message() == &req2);
-            BOOST_TEST(sr.encoder() == &enc2);
             BOOST_TEST(!sr.is_done());
 
             auto [ec2, n2] = co_await sr.write(
@@ -1801,6 +1799,356 @@ public:
         BOOST_TEST(enc2.finished);
         BOOST_TEST(req2.chunked());
         BOOST_TEST_EQ(server2.data(), expected);
+    }
+
+    void
+    testResetAfterEncoderKept()
+    {
+        // reset() must also restore the layout when the
+        // previous message kept its encoder: a following plain
+        // message must send its own staged body, not the stale
+        // contents of the encoder's output buffer, and
+        // re-adding an encoder afterwards must not shift the
+        // staging buffer out of the allocation.
+        auto req1 = make_request();
+        req1.set(http::field::content_encoding, "test");
+        auto req2 = make_request(5);
+        auto req3 = make_request();
+        req3.set(http::field::content_encoding, "test");
+        std::string const body1 = make_body(20);
+        std::string const body3 = make_body(200);
+
+        auto [client1, server1] = capy::test::make_stream_pair();
+        auto [client2, server2] = capy::test::make_stream_pair();
+        auto [client3, server3] = capy::test::make_stream_pair();
+        test_encoder enc1;
+        test_encoder enc3;
+
+        capy::test::run_blocking()([&]() -> capy::task<>
+        {
+            capy::any_write_stream ws1(&client1);
+            capy::any_write_stream ws2(&client2);
+            capy::any_write_stream ws3(&client3);
+
+            serializer sr(cfg, &ws1);
+            sr.reset(&req1, &enc1);
+
+            // the body crosses the threshold: the encoder is
+            // kept
+            auto [ec1, n1] = co_await sr.write_eof(
+                capy::make_buffer(body1));
+            BOOST_TEST(!ec1);
+            BOOST_TEST_EQ(n1, body1.size());
+            BOOST_TEST(sr.is_done());
+
+            sr.reset(&ws2, &req2);
+            auto [ec2, n2] = co_await sr.write(
+                capy::const_buffer("hello", 5));
+            BOOST_TEST(!ec2);
+            auto [ec3] = co_await sr.write_eof();
+            BOOST_TEST(!ec3);
+            BOOST_TEST(sr.is_done());
+
+            sr.reset(&ws3, &req3, &enc3);
+            auto [ec4, n4] = co_await sr.write(
+                capy::make_buffer(body3));
+            BOOST_TEST(!ec4);
+            BOOST_TEST_EQ(n4, body3.size());
+            auto [ec5] = co_await sr.write_eof();
+            BOOST_TEST(!ec5);
+            BOOST_TEST(sr.is_done());
+        }());
+
+        BOOST_TEST_EQ(
+            server1.data(),
+            std::string(req1.buffer()) + encoded(body1));
+
+        BOOST_TEST_EQ(
+            server2.data(),
+            std::string(req2.buffer()) + "hello");
+
+        // the third request streams encoded chunks sized by the
+        // restored output buffer; 64 == 0x40
+        auto const enc_body = encoded(body3);
+        std::string expected(req3.buffer());
+        expected += "40\r\n" + enc_body.substr(0, 64);
+        expected += "\r\n40\r\n" + enc_body.substr(64, 64);
+        expected += "\r\n40\r\n" + enc_body.substr(128, 64);
+        expected += "\r\n8\r\n" + enc_body.substr(192, 8);
+        expected += "\r\n0\r\n\r\n";
+        BOOST_TEST(req3.chunked());
+        BOOST_TEST_EQ(server3.data(), expected);
+    }
+
+    void
+    testHeadContentLength()
+    {
+        // A head message sends only the header; the declared
+        // Content-Length describes the body a non-head message
+        // would have carried, and stays untouched.
+        auto req = make_request(5);
+        auto req2 = make_request(5);
+
+        auto [client1, server1] = capy::test::make_stream_pair();
+        auto [client2, server2] = capy::test::make_stream_pair();
+
+        capy::test::run_blocking()([&]() -> capy::task<>
+        {
+            capy::any_write_stream ws1(&client1);
+            capy::any_write_stream ws2(&client2);
+
+            serializer sr(cfg, &ws1);
+            sr.reset(&req, nullptr, true);
+            BOOST_TEST(!sr.is_done());
+
+            auto [ec1] = co_await sr.write_eof();
+            BOOST_TEST(!ec1);
+            BOOST_TEST(sr.is_done());
+
+            // the head flag does not stick across reset()
+            sr.reset(&ws2, &req2);
+            auto [ec2, n] = co_await sr.write(
+                capy::const_buffer("hello", 5));
+            BOOST_TEST(!ec2);
+            auto [ec3] = co_await sr.write_eof();
+            BOOST_TEST(!ec3);
+        }());
+
+        BOOST_TEST_EQ(req.payload_size(), 5u);
+        BOOST_TEST_EQ(server1.data(), std::string(req.buffer()));
+        BOOST_TEST_EQ(
+            server2.data(),
+            std::string(req2.buffer()) + "hello");
+    }
+
+    void
+    testHeadChunked()
+    {
+        // A chunked head message keeps Transfer-Encoding in the
+        // header to describe the framing a non-head message
+        // would have used; no framing bytes reach the wire.
+        auto req = make_request();
+        auto [client, server] = capy::test::make_stream_pair();
+
+        capy::test::run_blocking()([&]() -> capy::task<>
+        {
+            capy::any_write_stream ws(&client);
+            serializer sr(cfg, &ws);
+            sr.reset(&req, nullptr, true);
+
+            auto [ec] = co_await sr.write_eof();
+            BOOST_TEST(!ec);
+            BOOST_TEST(sr.is_done());
+        }());
+
+        BOOST_TEST(req.chunked());
+        BOOST_TEST(
+            server.data().find("Content-Length") ==
+            std::string_view::npos);
+        BOOST_TEST_EQ(server.data(), std::string(req.buffer()));
+    }
+
+    void
+    testHeadBodyMismatch()
+    {
+        // buffered body bytes are rejected at eof, even when
+        // they match the declared Content-Length
+        {
+            auto req = make_request(5);
+            auto [client, server] = capy::test::make_stream_pair();
+
+            capy::test::run_blocking()([&]() -> capy::task<>
+            {
+                capy::any_write_stream ws(&client);
+                serializer sr(cfg, &ws);
+                sr.reset(&req, nullptr, true);
+
+                auto [ec1, n] = co_await sr.write(
+                    capy::const_buffer("hello", 5));
+                BOOST_TEST(!ec1);
+                BOOST_TEST_EQ(n, 5u);
+
+                auto [ec2] = co_await sr.write_eof();
+                BOOST_TEST(ec2 == error::body_size_mismatch);
+                BOOST_TEST(!sr.is_done());
+            }());
+
+            BOOST_TEST(server.data().empty());
+        }
+
+        // a direct write is rejected before the header goes out
+        {
+            std::string const body(cfg.direct_thr, 'x');
+
+            auto req = make_request();
+            auto [client, server] = capy::test::make_stream_pair();
+
+            capy::test::run_blocking()([&]() -> capy::task<>
+            {
+                capy::any_write_stream ws(&client);
+                serializer sr(cfg, &ws);
+                sr.reset(&req, nullptr, true);
+
+                auto [ec, n] = co_await sr.write(
+                    capy::make_buffer(body));
+                BOOST_TEST(ec == error::body_size_mismatch);
+                BOOST_TEST(!sr.is_done());
+            }());
+
+            BOOST_TEST(server.data().empty());
+        }
+
+        // write_eof() with caller buffers
+        {
+            auto req = make_request();
+            auto [client, server] = capy::test::make_stream_pair();
+
+            capy::test::run_blocking()([&]() -> capy::task<>
+            {
+                capy::any_write_stream ws(&client);
+                serializer sr(cfg, &ws);
+                sr.reset(&req, nullptr, true);
+
+                auto [ec, n] = co_await sr.write_eof(
+                    capy::const_buffer("hello", 5));
+                BOOST_TEST(ec == error::body_size_mismatch);
+                BOOST_TEST(!sr.is_done());
+            }());
+
+            BOOST_TEST(server.data().empty());
+        }
+
+        // prepare()/commit_eof()
+        {
+            auto req = make_request(5);
+            auto [client, server] = capy::test::make_stream_pair();
+
+            capy::test::run_blocking()([&]() -> capy::task<>
+            {
+                capy::any_write_stream ws(&client);
+                serializer sr(cfg, &ws);
+                sr.reset(&req, nullptr, true);
+
+                capy::mutable_buffer tmp[2];
+                auto n = capy::buffer_copy(
+                    sr.prepare(tmp),
+                    capy::const_buffer("hello", 5));
+                BOOST_TEST_EQ(n, 5u);
+
+                auto [ec] = co_await sr.commit_eof(n);
+                BOOST_TEST(ec == error::body_size_mismatch);
+                BOOST_TEST(!sr.is_done());
+            }());
+
+            BOOST_TEST(server.data().empty());
+        }
+    }
+
+    void
+    testHeadEncoder()
+    {
+        // A head message never invokes its encoder: the header
+        // goes out as-is, with Content-Encoding intact, and the
+        // serializer remains reusable for a plain message.
+        {
+            auto req = make_request();
+            req.set(http::field::content_encoding, "test");
+            auto req2 = make_request(5);
+
+            auto [client1, server1] = capy::test::make_stream_pair();
+            auto [client2, server2] = capy::test::make_stream_pair();
+            test_encoder enc;
+
+            capy::test::run_blocking()([&]() -> capy::task<>
+            {
+                capy::any_write_stream ws1(&client1);
+                capy::any_write_stream ws2(&client2);
+
+                serializer sr(cfg, &ws1);
+                sr.reset(&req, &enc, true);
+
+                auto [ec1] = co_await sr.write_eof();
+                BOOST_TEST(!ec1);
+                BOOST_TEST(sr.is_done());
+
+                sr.reset(&ws2, &req2);
+                auto [ec2, n] = co_await sr.write(
+                    capy::const_buffer("hello", 5));
+                BOOST_TEST(!ec2);
+                auto [ec3] = co_await sr.write_eof();
+                BOOST_TEST(!ec3);
+            }());
+
+            BOOST_TEST_EQ(enc.calls, 0u);
+            BOOST_TEST(req.chunked());
+            BOOST_TEST(
+                server1.data().find("Content-Encoding: test") !=
+                std::string_view::npos);
+            BOOST_TEST_EQ(
+                server1.data(), std::string(req.buffer()));
+            BOOST_TEST_EQ(
+                server2.data(),
+                std::string(req2.buffer()) + "hello");
+        }
+
+        // body bytes staged for the encoder are rejected, and
+        // the encoder is never invoked
+        {
+            auto req = make_request();
+            req.set(http::field::content_encoding, "test");
+            auto [client, server] = capy::test::make_stream_pair();
+            test_encoder enc;
+
+            capy::test::run_blocking()([&]() -> capy::task<>
+            {
+                capy::any_write_stream ws(&client);
+                serializer sr(cfg, &ws);
+                sr.reset(&req, &enc, true);
+
+                // below enc_thr: staged without invoking the
+                // encoder
+                auto [ec1, n] = co_await sr.write(
+                    capy::const_buffer("hello", 5));
+                BOOST_TEST(!ec1);
+                BOOST_TEST_EQ(n, 5u);
+
+                auto [ec2] = co_await sr.write_eof();
+                BOOST_TEST(ec2 == error::body_size_mismatch);
+                BOOST_TEST(!sr.is_done());
+            }());
+
+            BOOST_TEST_EQ(enc.calls, 0u);
+            BOOST_TEST(server.data().empty());
+        }
+
+        // commit() surfaces the mismatch when it triggers a
+        // flush
+        {
+            auto req = make_request();
+            req.set(http::field::content_encoding, "test");
+            auto [client, server] = capy::test::make_stream_pair();
+            test_encoder enc;
+
+            capy::test::run_blocking()([&]() -> capy::task<>
+            {
+                capy::any_write_stream ws(&client);
+                serializer sr(cfg, &ws);
+                sr.reset(&req, &enc, true);
+
+                capy::mutable_buffer tmp[2];
+                auto n = capy::buffer_copy(
+                    sr.prepare(tmp),
+                    capy::const_buffer("x", 1));
+                BOOST_TEST_EQ(n, 1u);
+
+                auto [ec] = co_await sr.commit_eof(n);
+                BOOST_TEST(ec == error::body_size_mismatch);
+                BOOST_TEST(!sr.is_done());
+            }());
+
+            BOOST_TEST_EQ(enc.calls, 0u);
+            BOOST_TEST(server.data().empty());
+        }
     }
 
     void
@@ -1890,6 +2238,11 @@ public:
         testEncoderWriteSome();
         testEncoderMove();
         testReset();
+        testResetAfterEncoderKept();
+        testHeadContentLength();
+        testHeadChunked();
+        testHeadBodyMismatch();
+        testHeadEncoder();
         testEncoderErrorInjection();
     }
 };

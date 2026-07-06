@@ -29,7 +29,7 @@ namespace detail
 class serializer
 {
 public:
-    struct encoder_base
+    struct encoder
     {
         struct result
         {
@@ -38,7 +38,7 @@ public:
             std::error_code ec;
         };
 
-        virtual ~encoder_base() = default;
+        virtual ~encoder() = default;
 
         virtual result
         process(
@@ -90,23 +90,17 @@ public:
         return msg_;
     }
 
-    encoder_base*
-    encoder() const noexcept
-    {
-        return enc_;
-    }
-
     void
     reset(
         capy::any_write_stream* stream,
         http::message_base* msg,
-        encoder_base* enc = nullptr,
+        encoder* enc = nullptr,
         bool head = false) noexcept;
 
     void
     reset(
         http::message_base* msg,
-        encoder_base* enc = nullptr,
+        encoder* enc = nullptr,
         bool head = false) noexcept
     {
         BOOST_ASSERT(stream_);
@@ -148,7 +142,7 @@ private:
     do_commit(std::size_t n) noexcept;
 
     bool
-    can_coalesce(std::size_t avail) const noexcept;
+    should_coalesce(std::size_t avail) const noexcept;
 
     void
     finalize(std::size_t remaining) noexcept;
@@ -177,23 +171,20 @@ private:
         std::span<capy::const_buffer const> buffers,
         std::size_t bytes);
 
-    capy::const_buffer
-    chunk_frame(std::size_t tail_size) noexcept;
-
     static constexpr std::size_t margin = 24;
 
     capy::any_write_stream* stream_;
     http::message_base* msg_ = nullptr;
-    encoder_base* enc_ = nullptr;
+    encoder* enc_ = nullptr;
     std::size_t min_prepare_;
     std::size_t direct_thr_;
     std::size_t enc_thr_;
-    unsigned char* in_;
-    std::size_t in_cap_;
-    std::size_t in_len_ = 0;
     unsigned char* out_;
     std::size_t out_cap_;
     std::size_t out_len_ = 0;
+    unsigned char* in_;
+    std::size_t in_cap_;
+    std::size_t in_len_ = 0;
     std::uint64_t total_body_ = 0;
     bool head_ = false;
     bool enc_started_ = false;
@@ -207,7 +198,7 @@ serializer::
 write_some(Buffers buffers)
 {
     auto const avail = capy::buffer_size(buffers);
-    if(can_coalesce(avail))
+    if(should_coalesce(avail))
     {
         do_commit(capy::buffer_copy(do_prepare(), buffers));
         co_return { {}, avail };
