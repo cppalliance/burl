@@ -7,10 +7,14 @@
 // Official repository: https://github.com/cppalliance/burl
 //
 
-#ifndef BOOST_BURL_SRC_DETAIL_CAN_REUSE_CONN_HPP
-#define BOOST_BURL_SRC_DETAIL_CAN_REUSE_CONN_HPP
+#ifndef BOOST_BURL_SRC_DETAIL_DECODERS_HPP
+#define BOOST_BURL_SRC_DETAIL_DECODERS_HPP
 
-#include <boost/burl/detail/response_parser.hpp>
+#include <boost/burl/detail/parser.hpp>
+
+#include <boost/http/metadata.hpp>
+
+#include <memory>
 
 namespace boost
 {
@@ -19,8 +23,8 @@ namespace burl
 namespace detail
 {
 
-bool
-can_reuse_conn(response_parser& parser) noexcept;
+std::unique_ptr<parser::decoder>
+make_decoder(http::content_coding coding);
 
 } // namespace detail
 } // namespace burl

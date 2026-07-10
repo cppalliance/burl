@@ -224,12 +224,12 @@ connection_pool::acquire(urls::url_view url)
         if(!entry.conn->is_open())
             continue;
 
+        entry.conn->set_io_timeout(config_.io_timeout);
         co_return {
             {},
             { std::move(entry.conn),
               weak_from_this(),
-              std::move(key),
-              config_.io_timeout }
+              std::move(key) }
         };
     }
 
@@ -238,12 +238,12 @@ connection_pool::acquire(urls::url_view url)
     if(ec)
         co_return { ec, {} };
 
+    conn->set_io_timeout(config_.io_timeout);
     co_return {
         {},
         { std::move(conn),
           weak_from_this(),
-          std::move(key),
-          config_.io_timeout }
+          std::move(key) }
     };
 }
 

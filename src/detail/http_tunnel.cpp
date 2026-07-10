@@ -10,6 +10,7 @@
 #include "http_tunnel.hpp"
 
 #include <boost/burl/error.hpp>
+#include <boost/burl/detail/response_parser.hpp>
 
 #include "base64.hpp"
 #include "effective_port.hpp"
@@ -19,7 +20,6 @@
 #include <boost/http/field.hpp>
 #include <boost/http/method.hpp>
 #include <boost/http/request.hpp>
-#include <boost/http/response_parser.hpp>
 #include <boost/http/status.hpp>
 
 #include <string>
@@ -57,11 +57,9 @@ open_http_tunnel(
        ec)
         co_return ec;
 
-    auto parser_cfg = http::make_parser_config(http::parser_config{ false });
-    http::response_parser parser(parser_cfg);
-    parser.reset();
+    detail::response_parser parser({}, &stream);
     parser.start();
-    if(auto [ec] = co_await parser.read_header(stream); ec)
+    if(auto [ec] = co_await parser.read_header(); ec)
         co_return { error::proxy_connect_failed };
 
     auto status = parser.get().status();

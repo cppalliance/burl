@@ -7,8 +7,8 @@
 // Official repository: https://github.com/cppalliance/burl
 //
 
-#ifndef BOOST_BURL_SRC_DETAIL_CIRCULAR_BUFFER_HPP
-#define BOOST_BURL_SRC_DETAIL_CIRCULAR_BUFFER_HPP
+#ifndef BOOST_BURL_DETAIL_CIRCULAR_BUFFER_HPP
+#define BOOST_BURL_DETAIL_CIRCULAR_BUFFER_HPP
 
 #include <boost/capy/buffers.hpp>
 
@@ -31,6 +31,9 @@ struct circular_buffer
 
     bool
     empty() const noexcept;
+
+    bool
+    full() const noexcept;
 
     std::size_t
     size() const noexcept;

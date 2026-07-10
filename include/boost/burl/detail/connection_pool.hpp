@@ -14,6 +14,7 @@
 #include <boost/burl/test/fwd.hpp>
 #include <boost/capy/buffers.hpp>
 #include <boost/capy/detail/buffer_array.hpp>
+#include <boost/capy/io/any_stream.hpp>
 #include <boost/capy/io_task.hpp>
 #include <boost/capy/timeout.hpp>
 
@@ -36,8 +37,11 @@ class connection_pool;
 
 class connection
 {
+    using duration = std::chrono::steady_clock::duration;
+
     capy::detail::buffer_array<8, false> rba_; // TODO
     capy::detail::buffer_array<8, true> wba_;  // TODO
+    std::optional<duration> io_timeout_;
 
 public:
     template<capy::MutableBufferSequence MB>
@@ -45,6 +49,8 @@ public:
     read_some(MB buffers)
     {
         rba_ = buffers;
+        if(io_timeout_)
+            return capy::timeout(do_read_some(rba_), *io_timeout_);
         return do_read_some(rba_);
     }
 
@@ -53,7 +59,15 @@ public:
     write_some(CB buffers)
     {
         wba_ = buffers;
+        if(io_timeout_)
+            return capy::timeout(do_write_some(wba_), *io_timeout_);
         return do_write_some(wba_);
+    }
+
+    void
+    set_io_timeout(std::optional<duration> io_timeout) noexcept
+    {
+        io_timeout_ = io_timeout;
     }
 
     virtual bool
@@ -77,32 +91,17 @@ class pooled_connection
     friend class connection_pool;
     friend class test::response_factory;
 
-    using duration = std::chrono::steady_clock::duration;
-
     std::unique_ptr<connection> conn_;
     std::weak_ptr<connection_pool> pool_;
     std::string key_;
-    std::optional<duration> io_timeout_;
 
 public:
     pooled_connection() = default;
 
-    template<capy::MutableBufferSequence MB>
-    capy::io_task<std::size_t>
-    read_some(MB buffers)
+    capy::any_stream
+    stream() noexcept
     {
-        if(io_timeout_)
-            return capy::timeout(conn_->read_some(buffers), *io_timeout_);
-        return conn_->read_some(buffers);
-    }
-
-    template<capy::ConstBufferSequence CB>
-    capy::io_task<std::size_t>
-    write_some(CB buffers)
-    {
-        if(io_timeout_)
-            return capy::timeout(conn_->write_some(buffers), *io_timeout_);
-        return conn_->write_some(buffers);
+        return conn_.get();
     }
 
     explicit
@@ -119,12 +118,10 @@ private:
     pooled_connection(
         std::unique_ptr<connection> conn,
         std::weak_ptr<connection_pool> pool,
-        std::string key,
-        std::optional<duration> io_timeout = std::nullopt)
+        std::string key)
         : conn_(std::move(conn))
         , pool_(std::move(pool))
         , key_(std::move(key))
-        , io_timeout_(io_timeout)
     {
     }
 };

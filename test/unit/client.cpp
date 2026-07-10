@@ -696,7 +696,10 @@ public:
     testGzipDecode()
     {
 #ifdef BOOST_HTTP_HAS_ZLIB
-        http::zlib::install_inflate_service(capy::get_system_context());
+        if(!capy::get_system_context()
+            .has_service<http::zlib::inflate_service>())
+            http::zlib::install_inflate_service(
+                capy::get_system_context());
 #else
         return;
 #endif
@@ -745,7 +748,10 @@ public:
     testBrotliDecode()
     {
 #ifdef BOOST_HTTP_HAS_BROTLI
-        http::brotli::install_decode_service(capy::get_system_context());
+        if(!capy::get_system_context()
+            .has_service<http::brotli::decode_service>())
+            http::brotli::install_decode_service(
+                capy::get_system_context());
 #else
         return;
 #endif

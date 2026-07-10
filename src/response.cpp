@@ -25,11 +25,13 @@ namespace burl
 response::response(
     urls::url url,
     detail::pooled_connection conn,
-    http::response_parser parser,
+    detail::response_parser parser,
+    std::unique_ptr<detail::parser::decoder> dec,
     std::optional<clock::time_point> deadline)
     : url_(std::move(url))
     , conn_(std::move(conn))
     , parser_(std::move(parser))
+    , decoder_(std::move(dec))
     , deadline_(deadline)
 {
 }
@@ -38,6 +40,7 @@ response::response(response&& other) noexcept
     : url_(std::move(other.url_))
     , conn_(std::move(other.conn_))
     , parser_(std::move(other.parser_))
+    , decoder_(std::move(other.decoder_))
     , deadline_(other.deadline_)
 {
 }
@@ -52,6 +55,7 @@ response::operator=(response&& other) noexcept
         url_      = std::move(other.url_);
         conn_     = std::move(other.conn_);
         parser_   = std::move(other.parser_);
+        decoder_  = std::move(other.decoder_);
         deadline_ = other.deadline_;
     }
     return *this;
@@ -66,24 +70,10 @@ response::~response()
 capy::io_task<std::string_view>
 response::try_as_view() &
 {
-    if(parser_.is_complete())
-        co_return { {}, parser_.body() };
-
     if(deadline_)
-    {
-        auto dur = *deadline_ - clock::now();
-        if(dur <= clock::duration::zero())
-            co_return { capy::error::timeout, {} };
-
-        auto [rec] = co_await capy::timeout(parser_.read(conn_), dur);
-        if(rec)
-            co_return { rec, {} };
-    }
-    else if(auto [rec] = co_await parser_.read(conn_); rec)
-    {
-        co_return { rec, {} };
-    }
-    co_return { {}, parser_.body() };
+        return capy::timeout(
+            parser_.read_body(), *deadline_ - clock::now());
+    return parser_.read_body();
 }
 
 capy::task<std::string_view>
@@ -100,13 +90,13 @@ response::as_view() &
 capy::any_buffer_source
 response::as_buffer_source() &
 {
-    return parser_.source_for(conn_);
+    return capy::any_buffer_source(&parser_);
 }
 
 capy::any_read_source
 response::as_read_source() &
 {
-    return as_buffer_source(); // TODO
+    return capy::any_read_source(&parser_);
 }
 
 } // namespace burl

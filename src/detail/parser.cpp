@@ -7,7 +7,7 @@
 // Official repository: https://github.com/cppalliance/burl
 //
 
-#include "parser.hpp"
+#include <boost/burl/detail/parser.hpp>
 
 #include <boost/assert.hpp>
 #include <boost/capy/error.hpp>
@@ -130,9 +130,9 @@ parser::
 parser(
     config const& cfg,
     http::detail::kind kind,
-    capy::any_read_stream* stream)
+    capy::any_read_stream stream)
     : hdr_limits_(cfg.hdr_limits)
-    , stream_(stream)
+    , stream_(std::move(stream))
 {
     auto* const p = static_cast<char*>(::operator new(
         sizeof(http::static_response) + cfg.in_buffer + cfg.dec_buffer));
@@ -162,6 +162,18 @@ is_complete() const noexcept
     return state_ == state::complete;
 }
 
+bool
+parser::
+has_buffered_data() const noexcept
+{
+    if(is_complete())
+    {
+        if(h_->md.payload == http::payload::size)
+            return in_.size() > h_->md.payload_size - total_body_;
+    }
+    return !in_.empty();
+}
+
 void
 parser::
 start(bool head)
@@ -181,14 +193,14 @@ start(bool head)
 
 void
 parser::
-reset(capy::any_read_stream* stream) noexcept
+reset(capy::any_read_stream stream) noexcept
 {
     auto* const in_ptr =
         reinterpret_cast<char*>(h_.get()) + sizeof(http::static_response);
     in_  = { in_ptr, static_cast<std::size_t>(out_.ptr - in_ptr) };
     out_ = { out_.ptr, out_.cap };
 
-    stream_     = stream;
+    stream_     = std::move(stream);
     dec_        = nullptr;
     chunk_rem_  = 0;
     total_body_ = 0;
@@ -204,7 +216,7 @@ parser::fill_in()
 {
     if(eof_)
         co_return { http::error::incomplete };
-    auto [ec, n] = co_await stream_->read_some(in_.prepare());
+    auto [ec, n] = co_await stream_.read_some(in_.prepare());
     in_.commit(n);
     if(ec == capy::cond::eof)
     {
@@ -367,6 +379,9 @@ read_header()
 
         if(h_->md.payload == http::payload::none || head_)
             state_ = state::complete;
+        // else if(h_->md.payload == http::payload::size &&
+        //     h_->md.payload_size <= in_.size())
+        //     state_ = state::complete;
         else
             state_ = state::body;
 
@@ -379,6 +394,89 @@ parser::
 set_decoder(decoder* dec) noexcept
 {
     dec_ = dec;
+}
+
+capy::io_task<std::string_view>
+parser::
+read_body()
+{
+    if(dec_)
+    {
+        for(;;)
+        {
+            if(is_complete())
+                co_return { {}, { out_.ptr, out_.len } };
+
+            if(out_.full())
+                co_return { http::error::in_place_overflow, {} };
+
+            auto [ec, n] = co_await decode_some(out_.prepare());
+            out_.commit(n);
+            if(ec && ec != capy::cond::eof)
+                co_return { ec, {} };
+        }
+    }
+    else if(h_->md.transfer_encoding.is_chunked)
+    {
+        for(;;)
+        {
+            if(out_.full())
+                co_return { http::error::in_place_overflow, {} };
+            auto copied = out_.size();
+            auto ec = iterate_chunks(
+            [&](capy::const_buffer b, bool)
+                -> capy::io_result<std::size_t>
+            {
+                auto skip = copied < b.size() ? copied : b.size();
+                copied -= skip;
+                b      += skip;
+                auto n = capy::buffer_copy(out_.prepare(), b);
+                out_.commit(n);
+                if(n < b.size())
+                    return { http::error::in_place_overflow , n };
+                return { {}, skip + n };
+            },
+            true);
+            if(ec)
+            {
+                if(ec == http::condition::need_more_input)
+                {
+                    if(auto [ec] = co_await fill_in(); ec)
+                        co_return { ec, { out_.ptr, out_.len } };
+                }
+                else
+                {
+                    co_return { ec, { out_.ptr, out_.len } };
+                }
+            }
+            else
+            {
+                state_ = state::complete;
+                co_return { {}, { out_.ptr, out_.len } };
+            }
+        }
+    }
+    else
+    {
+        for(;;)
+        {  
+            // TODO: eof
+            if(is_complete())
+                co_return { {}, { in_.ptr, in_.len } };
+
+            if(in_.size() >= h_->md.payload_size)
+            {
+                state_ = state::complete;
+                co_return { {}, { in_.ptr, h_->md.payload_size } };
+            }
+
+            if(in_.full())
+                co_return { http::error::in_place_overflow, {} };
+
+            if(auto [ec] = co_await fill_in(); ec)
+                co_return { ec, {} };
+        }
+    }
 }
 
 http::static_response const&
@@ -574,7 +672,7 @@ do_read_some(
         {
             auto rem = h_->md.payload_size - total_body_;
             auto slice = capy::buffer_slice(buffers, 0, rem);
-            auto [ec, n] = co_await stream_->read_some(slice.data());
+            auto [ec, n] = co_await stream_.read_some(slice.data());
             total_body_ += n;
             if(h_->md.payload_size == total_body_)
             {
@@ -589,6 +687,7 @@ do_read_some(
                     co_return { ec, {}};
                 }
                 eof_ = true;
+                co_return { http::error::incomplete, n };
             }
             co_return { {}, n };
         }

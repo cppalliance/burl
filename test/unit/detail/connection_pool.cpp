@@ -321,7 +321,7 @@ public:
             // The connection is still fully usable.
             net.server(0).provide("hello");
             char buf[8];
-            auto [rec, n] = co_await pc.read_some(
+            auto [rec, n] = co_await pc.stream().read_some(
                 capy::mutable_buffer(buf, sizeof(buf)));
             BOOST_TEST(!rec);
             BOOST_TEST_EQ(std::string_view(buf, n), "hello");
@@ -384,11 +384,13 @@ public:
     
             char buf[1] = {};
 
-            auto [rec, n1] = co_await pc.read_some(make_buffer(buf));
+            auto [rec, n1] = co_await pc.stream().read_some(
+                make_buffer(buf));
             BOOST_TEST(rec == capy::error::timeout);
             BOOST_TEST_EQ(n1, 0);
 
-            auto [wec, n2] = co_await pc.write_some(make_buffer(buf));
+            auto [wec, n2] = co_await pc.stream().write_some(
+                make_buffer(buf));
             BOOST_TEST(wec == capy::error::timeout);
             BOOST_TEST_EQ(n2, 0);
         }());
@@ -418,7 +420,7 @@ public:
             {
                 auto [aec, pc] = co_await pool->acquire(server.url("http"));
                 BOOST_TEST(!aec);
-                co_await ping(&pc);
+                co_await ping(pc.stream());
                 pool->release(std::move(pc));
             }
         };
@@ -495,7 +497,7 @@ public:
             {
                 auto [aec, pc] = co_await pool->acquire(server.url("https"));
                 BOOST_TEST(!aec);
-                co_await ping(&pc);
+                co_await ping(pc.stream());
                 pool->release(std::move(pc));
             }
         };
@@ -602,7 +604,7 @@ public:
             {
                 auto [aec, pc] = co_await pool->acquire("http://example.com");
                 BOOST_TEST(!aec);
-                co_await ping(&pc);
+                co_await ping(pc.stream());
                 pool->release(std::move(pc));
             }
         };
@@ -682,7 +684,7 @@ public:
             {
                 auto [aec, pc] = co_await pool->acquire("http://127.0.0.1");
                 BOOST_TEST(!aec);
-                co_await ping(&pc);
+                co_await ping(pc.stream());
                 pool->release(std::move(pc));
             }
         };
@@ -737,7 +739,7 @@ public:
             {
                 auto [aec, pc] = co_await pool->acquire("http://example.com");
                 BOOST_TEST(!aec);
-                co_await ping(&pc);
+                co_await ping(pc.stream());
                 pool->release(std::move(pc));
             }
         };

@@ -8,7 +8,7 @@
 //
 
 // Test that header file is self-contained.
-#include "src/detail/request_parser.hpp"
+#include <boost/burl/detail/request_parser.hpp>
 
 #include <boost/burl/error.hpp>
 

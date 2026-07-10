@@ -13,6 +13,7 @@
 #include "detail/base64.hpp"
 #include "detail/can_reuse_conn.hpp"
 #include "detail/connection_pool.hpp"
+#include "detail/decoders.hpp"
 #include "detail/drain_body.hpp"
 #include "detail/redirect.hpp"
 #include "detail/serializer.hpp"
@@ -20,14 +21,13 @@
 #include <boost/capy/buffers/make_buffer.hpp>
 #include <boost/capy/ex/execution_context.hpp>
 #include <boost/capy/ex/system_context.hpp>
-#include <boost/capy/io/any_stream.hpp>
 #include <boost/capy/timeout.hpp>
 #include <boost/capy/write.hpp>
+#include <boost/burl/detail/response_parser.hpp>
 #include <boost/http/brotli/decode.hpp>
 #include <boost/http/field.hpp>
 #include <boost/http/request.hpp>
 #include <boost/http/response_base.hpp>
-#include <boost/http/response_parser.hpp>
 #include <boost/http/status.hpp>
 #include <boost/http/zlib/inflate.hpp>
 
@@ -46,7 +46,6 @@ namespace
 
 void
 set_accept_encoding(
-    http::parser_config& parser_cfg,
     http::request& headers,
     client::config const& cfg)
 {
@@ -59,22 +58,13 @@ set_accept_encoding(
     };
 
     if(cfg.brotli)
-    {
-        parser_cfg.apply_brotli_decoder = true;
         accept("br");
-    }
 
     if(cfg.deflate)
-    {
-        parser_cfg.apply_deflate_decoder = true;
         accept("deflate");
-    }
 
     if(cfg.gzip)
-    {
-        parser_cfg.apply_gzip_decoder = true;
         accept("gzip");
-    }
 
     if(!accept_encoding.empty())
         headers.set(http::field::accept_encoding, accept_encoding);
@@ -197,9 +187,8 @@ client::execute_impl(
 {
     using field = http::field;
 
-    http::parser_config parser_cfg{ false };
-    parser_cfg.min_buffer = config_.response_inplace_buffer;
-    parser_cfg.body_limit = config_.response_body_limit;
+    // TODO(parser-config): the burl parser does not yet honor
+    // response_inplace_buffer / response_body_limit.
 
     http::request headers(request.method, "/", config_.version);
 
@@ -226,13 +215,11 @@ client::execute_impl(
             headers.set_chunked(true);
     }
 
-    // Advertise codings and enable decoders only when the caller did
-    // not set Accept-Encoding themselves.
-    if(!headers.exists(field::accept_encoding))
-        set_accept_encoding(parser_cfg, headers, config_);
+    auto const auto_decode = !headers.exists(field::accept_encoding);
+    if(auto_decode)
+        set_accept_encoding(headers, config_);
 
-    http::response_parser parser(
-        http::make_parser_config(parser_cfg));
+    detail::response_parser parser({}, {});
 
     detail::serializer sr({});
 
@@ -266,8 +253,8 @@ client::execute_impl(
 
         // TODO: expect100timeout
 
-        capy::any_write_stream ws(&conn);
-        sr.reset(&ws, &headers);
+        auto stream = conn.stream();
+        sr.reset(&stream, &headers);
         if(request.body.has_value())
         {
             capy::any_buffer_sink sink(&sr);
@@ -280,13 +267,10 @@ client::execute_impl(
                 co_return { wec, {} };
         }
 
-        parser.reset();
-        if(headers.method() == http::method::head)
-            parser.start_head_response();
-        else
-            parser.start();
+        parser.reset(std::move(stream));
+        parser.start(headers.method() == http::method::head);
 
-        auto [rec] = co_await parser.read_header(conn);
+        auto [rec] = co_await parser.read_header();
         if(rec)
             co_return { rec, {} };
 
@@ -311,15 +295,24 @@ client::execute_impl(
             if(status_int >= 400)
                 ec = std::error_code(status_int, burl_category());
 
+            std::unique_ptr<detail::parser::decoder> dec;
+            if(auto_decode && !parser.is_complete())
+            {
+                dec = detail::make_decoder(
+                    parser.get().metadata().content_encoding.coding);
+                parser.set_decoder(dec.get());
+            }
+
             co_return {
                 ec,
-                response{ url, std::move(conn), std::move(parser), deadline }
+                response{ url, std::move(conn), std::move(parser),
+                    std::move(dec), deadline }
             };
         }
 
         // Read and discard small bodies so the connection can be reused
         auto [dec, drained] = co_await capy::timeout(
-            detail::drain_body(parser, capy::any_stream(&conn), 1024 * 1024),
+            detail::drain_body(parser, 3),
             std::chrono::seconds(2));
         if(drained && detail::can_reuse_conn(parser))
             conn.return_to_pool();

@@ -17,29 +17,13 @@ namespace detail
 {
 
 bool
-can_reuse_conn(http::response_parser& parser) noexcept
+can_reuse_conn(response_parser& parser) noexcept
 {
     if(!parser.got_header())
         return false;
 
     if(!parser.get().keep_alive())
         return false;
-
-    if(!parser.is_complete())
-    {
-        // The rest of the message may already sit in the
-        // parser's buffer; parsing it needs no I/O and makes
-        // the connection reusable.
-        try
-        {
-            system::error_code ec;
-            parser.parse(ec);
-        }
-        catch(...)
-        {
-            // Brotli decoder may have failed to allocate memory.
-        }
-    }
 
     if(!parser.is_complete())
         return false;

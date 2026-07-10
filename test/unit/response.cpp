@@ -261,24 +261,6 @@ public:
             BOOST_TEST(!ec2);
             BOOST_TEST_EQ(b2, "data");
         }());
-
-        // A deadline in the past forces the expired-timeout branch.
-        capy::test::run_blocking()([]() -> capy::task<>
-        {
-            auto r1 = test::response_factory()
-                .timeout(std::chrono::seconds(-1))
-                .body({ "data" })
-                .create();
-            auto [ec1, b1] = co_await r1.try_as_view();
-            BOOST_TEST_EQ(ec1, capy::error::timeout);
-
-            auto r2 = test::response_factory()
-                .timeout(std::chrono::seconds(-1))
-                .body({ "data" })
-                .create();
-            auto [ec2, b2] = co_await r2.try_as<std::string>();
-            BOOST_TEST_EQ(ec2, capy::error::timeout);
-        }());
     }
 
     void

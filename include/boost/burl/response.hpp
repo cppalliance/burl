@@ -13,6 +13,7 @@
 #include <boost/burl/conversion.hpp>
 #include <boost/burl/detail/config.hpp>
 #include <boost/burl/detail/connection_pool.hpp>
+#include <boost/burl/detail/response_parser.hpp>
 #include <boost/burl/error.hpp>
 #include <boost/burl/test/fwd.hpp>
 #include <boost/capy/io/any_buffer_source.hpp>
@@ -20,13 +21,13 @@
 #include <boost/capy/io_task.hpp>
 #include <boost/http/fields_base.hpp>
 #include <boost/http/metadata.hpp>
-#include <boost/http/response_parser.hpp>
 #include <boost/http/status.hpp>
 #include <boost/http/version.hpp>
 #include <boost/url/url.hpp>
 #include <boost/url/url_view.hpp>
 
 #include <chrono>
+#include <memory>
 #include <optional>
 #include <string_view>
 #include <system_error>
@@ -80,14 +81,16 @@ class response
 
     urls::url url_;
     detail::pooled_connection conn_;
-    http::response_parser parser_;
+    detail::response_parser parser_;
+    std::unique_ptr<detail::parser::decoder> decoder_;
     std::optional<clock::time_point> deadline_;
 
     BOOST_BURL_DECL
     response(
         urls::url url,
         detail::pooled_connection conn,
-        http::response_parser parser,
+        detail::response_parser parser,
+        std::unique_ptr<detail::parser::decoder> dec,
         std::optional<clock::time_point> deadline);
 
 public:

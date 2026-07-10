@@ -7,12 +7,14 @@
 // Official repository: https://github.com/cppalliance/burl
 //
 
-#ifndef BOOST_BURL_SRC_DETAIL_RESPONSE_PARSER_HPP
-#define BOOST_BURL_SRC_DETAIL_RESPONSE_PARSER_HPP
+#ifndef BOOST_BURL_DETAIL_RESPONSE_PARSER_HPP
+#define BOOST_BURL_DETAIL_RESPONSE_PARSER_HPP
 
-#include "parser.hpp"
+#include <boost/burl/detail/parser.hpp>
 
 #include <boost/http/static_response.hpp>
+
+#include <utility>
 
 namespace boost
 {
@@ -25,11 +27,13 @@ class response_parser
     : public parser
 {
 public:
+    response_parser() = default;
+
     explicit
     response_parser(
         config const& cfg,
-        capy::any_read_stream* stream = nullptr)
-        : parser(cfg, http::detail::kind::response, stream)
+        capy::any_read_stream stream = {})
+        : parser(cfg, http::detail::kind::response, std::move(stream))
     {
     }
 

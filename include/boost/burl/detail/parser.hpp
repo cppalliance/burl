@@ -7,12 +7,11 @@
 // Official repository: https://github.com/cppalliance/burl
 //
 
-#ifndef BOOST_BURL_SRC_DETAIL_PARSER_HPP
-#define BOOST_BURL_SRC_DETAIL_PARSER_HPP
+#ifndef BOOST_BURL_DETAIL_PARSER_HPP
+#define BOOST_BURL_DETAIL_PARSER_HPP
 
 #include <boost/burl/error.hpp>
-
-#include "circular_buffer.hpp"
+#include <boost/burl/detail/circular_buffer.hpp>
 
 #include <boost/capy/buffers/buffer_copy.hpp>
 #include <boost/capy/buffers/buffer_param.hpp>
@@ -70,14 +69,20 @@ public:
     bool
     is_complete() const noexcept;
 
+    bool
+    has_buffered_data() const noexcept;
+
     capy::io_task<>
     read_header();
 
     void
-    reset(capy::any_read_stream* stream) noexcept;
+    reset(capy::any_read_stream stream) noexcept;
 
     void
     set_decoder(decoder* dec) noexcept;
+
+    capy::io_task<std::string_view>
+    read_body();
 
     template<capy::MutableBufferSequence Buffers>
     capy::io_task<std::size_t>
@@ -94,10 +99,12 @@ public:
     consume(std::size_t n) noexcept;
 
 protected:
+    parser() = default;
+
     parser(
         config const& cfg,
         http::detail::kind kind,
-        capy::any_read_stream* stream = nullptr);
+        capy::any_read_stream stream = {});
 
     parser(parser&& other) noexcept = default;
 
@@ -161,7 +168,7 @@ private:
         http::detail::header, header_deleter>;
 
     http::header_limits hdr_limits_;
-    capy::any_read_stream* stream_;
+    capy::any_read_stream stream_;
     header_ptr h_;
     decoder * dec_ = nullptr;
     circular_buffer in_;

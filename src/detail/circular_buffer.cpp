@@ -7,9 +7,7 @@
 // Official repository: https://github.com/cppalliance/burl
 //
 
-#include "circular_buffer.hpp"
-
-#include <boost/assert.hpp>
+#include <boost/burl/detail/circular_buffer.hpp>
 
 namespace boost
 {
@@ -23,6 +21,13 @@ circular_buffer::
 empty() const noexcept
 {
     return len == 0;
+}
+
+bool
+circular_buffer::
+full() const noexcept
+{
+    return len == cap;
 }
 
 std::size_t
@@ -60,7 +65,8 @@ void
 circular_buffer::
 commit(std::size_t n) noexcept
 {
-    BOOST_ASSERT(n <= cap - len);
+    if(n > cap - len)
+        n = cap - len;
     len += n;
 }
 

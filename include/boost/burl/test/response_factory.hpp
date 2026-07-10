@@ -11,10 +11,15 @@
 #define BOOST_BURL_TEST_RESPONSE_FACTORY_HPP
 
 #include <boost/burl/detail/connection_pool.hpp>
+#include <boost/burl/detail/response_parser.hpp>
 #include <boost/burl/response.hpp>
 #include <boost/burl/test/detail/buffer_connection.hpp>
 
+#include <boost/capy/task.hpp>
+#include <boost/capy/test/run_blocking.hpp>
 #include <boost/http/response.hpp>
+
+#include <string>
 namespace boost
 {
 namespace burl
@@ -255,19 +260,24 @@ public:
             chunks = body_;
         }
 
-        http::response_parser parser(
-            http::make_parser_config(http::parser_config{ false }));
-        parser.reset();
-        parser.start();
-        drive_header(parser, msg.buffer());
-
         burl::detail::pooled_connection conn(
             std::make_unique<detail::buffer_connection>(
-                std::move(chunks), std::move(fuse)),
+                std::move(chunks),
+                std::move(fuse),
+                msg.buffer()),
             {},
             {});
 
-        return response{ url_, std::move(conn), std::move(parser), deadline_ };
+        burl::detail::response_parser parser({}, conn.stream());
+        parser.start();
+        capy::test::run_blocking()([&]() -> capy::task<>
+        {
+            if(auto [ec] = co_await parser.read_header(); ec)
+                throw system::system_error(ec);
+        }());
+
+        return response{
+            url_, std::move(conn), std::move(parser), {}, deadline_ };
     }
 
 private:
@@ -282,23 +292,6 @@ private:
         out += data;
         out += "\r\n";
         return out;
-    }
-
-    static void
-    drive_header(http::response_parser& parser, core::string_view head)
-    {
-        system::error_code ec;
-        for(parser.parse(ec); !parser.got_header(); parser.parse(ec))
-        {
-            if(ec && ec != http::condition::need_more_input)
-                throw system::system_error(ec);
-
-            auto const n = capy::buffer_copy(
-                parser.prepare(),
-                capy::make_buffer(head.data(), head.size()));
-            parser.commit(n);
-            head.remove_prefix(n);
-        }
     }
 };
 

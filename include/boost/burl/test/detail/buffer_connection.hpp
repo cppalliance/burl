@@ -34,16 +34,20 @@ namespace detail
 
 class buffer_connection final : public burl::detail::connection
 {
+    std::string head_;
     std::vector<std::string> chunks_;
     capy::test::fuse fuse_;
+    std::size_t head_pos_ = 0;
     std::size_t idx_ = 0;
     std::size_t pos_ = 0;
 
 public:
     buffer_connection(
         std::vector<std::string> chunks,
-        capy::test::fuse fuse)
-        : chunks_(std::move(chunks))
+        capy::test::fuse fuse,
+        std::string head = {})
+        : head_(std::move(head))
+        , chunks_(std::move(chunks))
         , fuse_(std::move(fuse))
     {
     }
@@ -64,6 +68,15 @@ private:
     capy::io_task<std::size_t>
     do_read_some(std::span<capy::mutable_buffer const> bufs) override
     {
+        if(head_pos_ < head_.size())
+        {
+            auto const b = capy::make_buffer(head_);
+            auto const n = capy::buffer_copy(
+                bufs, capy::buffer_slice(b, head_pos_).data());
+            head_pos_ += n;
+            co_return { {}, n };
+        }
+
         if(auto ec = fuse_.maybe_fail())
             co_return { ec, 0 };
 
