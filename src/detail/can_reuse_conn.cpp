@@ -25,7 +25,7 @@ can_reuse_conn(response_parser& parser) noexcept
     if(!parser.get().keep_alive())
         return false;
 
-    if(!parser.is_complete())
+    if(!parser.got_body())
         return false;
 
     if(parser.has_buffered_data())

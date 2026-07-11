@@ -47,7 +47,9 @@ public:
             auto [ec] = co_await pr.read_header();
             BOOST_TEST(!ec);
             BOOST_TEST(pr.got_header());
-            BOOST_TEST(!pr.is_complete());
+            // the whole body arrived with the header, so the message
+            // is already complete (arrival semantics)
+            BOOST_TEST(pr.got_body());
 
             BOOST_TEST(pr.get().status() == http::status::ok);
             BOOST_TEST_EQ(pr.get().status_int(), 200);
@@ -81,7 +83,7 @@ public:
             auto [ec] = co_await pr.read_header();
             BOOST_TEST(!ec);
             BOOST_TEST(pr.got_header());
-            BOOST_TEST(pr.is_complete());
+            BOOST_TEST(pr.got_body());
             BOOST_TEST_EQ(pr.get().status_int(), 200);
         }());
     }

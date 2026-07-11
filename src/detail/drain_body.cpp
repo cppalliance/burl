@@ -23,7 +23,7 @@ drain_body(
     response_parser& parser,
     std::size_t attempts)
 {
-    while(!parser.is_complete())
+    while(!parser.got_body())
     {
         if(attempts-- == 0)
             co_return { {}, false };

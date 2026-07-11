@@ -59,15 +59,16 @@ public:
     {
         http::header_limits hdr_limits;
 
-        std::size_t in_buffer   = 64 * 1024;
-        std::size_t dec_buffer  =  8 * 1024;
+        std::size_t in_buffer    = 64 * 1024;
+        std::size_t dec_buffer   =  8 * 1024;
+        std::uint64_t body_limit = std::uint64_t(-1);
     };
 
     bool
     got_header() const noexcept;
 
     bool
-    is_complete() const noexcept;
+    got_body() const noexcept;
 
     bool
     has_buffered_data() const noexcept;
@@ -80,6 +81,9 @@ public:
 
     void
     set_decoder(decoder* dec) noexcept;
+
+    void
+    set_body_limit(std::uint64_t n) noexcept;
 
     capy::io_task<std::string_view>
     read_body();
@@ -128,13 +132,28 @@ protected:
     get_request() const;
 
 private:
+    std::size_t
+    raw_limit_rem() const noexcept;
+
+    std::size_t
+    dec_limit_rem() const noexcept;
+
+    bool
+    payload_sized() const noexcept;
+
+    std::size_t
+    payload_rem() const noexcept;
+
+    std::size_t
+    table_reserve() const noexcept;
+
     capy::io_task<>
-    fill_in();
+    refill();
 
     std::error_code
-    iterate_chunks(
+    walk_chunks(
         compat::function_ref<capy::io_result<std::size_t>(
-            capy::const_buffer, bool)> f,
+            capy::const_buffer, bool last)> f,
         bool dry = false);
 
     capy::io_task<std::size_t>
@@ -143,16 +162,8 @@ private:
 
     capy::io_task<std::size_t>
     do_read_some(
-        std::span<capy::mutable_buffer const> buffers);
-
-    enum class state
-    {
-        failed,
-        start,
-        header,
-        body,
-        complete,
-    };
+        std::span<capy::mutable_buffer const> buffers,
+        bool skip_out = false);
 
     struct header_deleter
     {
@@ -174,12 +185,18 @@ private:
     circular_buffer in_;
     circular_buffer out_;
     std::uint64_t chunk_rem_ = 0;
-    std::uint64_t total_body_ = 0;
-    state state_ = state::start;
+    std::uint64_t transferred_ = 0;
+    std::uint64_t decoded_ = 0;
+    std::uint64_t body_limit_ = 0;
+    std::error_code dec_err_;
+    http::payload payload_ = http::payload::none;
     bool head_ = false;
+    bool started_ = false;
     bool got_header_ = false;
+    bool got_body_ = false;
     bool mid_chunk_ = false;
     bool eof_ = false;
+    bool dec_eof_ = false;
 };
 
 template<capy::MutableBufferSequence Buffers>

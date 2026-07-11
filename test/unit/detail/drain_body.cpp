@@ -59,7 +59,7 @@ class drain_body_test
             auto [dec, drained] = co_await drain_body(pr, attempts);
             if(dec)
                 BOOST_TEST(!drained);
-            rs = { dec, drained, pr.is_complete() };
+            rs = { dec, drained, pr.got_body() };
         });
         BOOST_TEST(r.success);
         return rs;

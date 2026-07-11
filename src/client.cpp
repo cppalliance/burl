@@ -187,9 +187,6 @@ client::execute_impl(
 {
     using field = http::field;
 
-    // TODO(parser-config): the burl parser does not yet honor
-    // response_inplace_buffer / response_body_limit.
-
     http::request headers(request.method, "/", config_.version);
 
     for(auto f : headers_)
@@ -215,12 +212,18 @@ client::execute_impl(
             headers.set_chunked(true);
     }
 
+    auto const head        = headers.method() == http::method::head;
     auto const auto_decode = !headers.exists(field::accept_encoding);
     if(auto_decode)
         set_accept_encoding(headers, config_);
 
-    detail::response_parser parser({}, {});
-
+    detail::response_parser parser(
+        {
+            .in_buffer  = config_.response_inplace_buffer,
+            .dec_buffer = config_.response_inplace_buffer,
+            .body_limit = config_.response_body_limit
+        },
+        {});
     detail::serializer sr({});
 
     auto url             = request.url;
@@ -268,7 +271,7 @@ client::execute_impl(
         }
 
         parser.reset(std::move(stream));
-        parser.start(headers.method() == http::method::head);
+        parser.start(head);
 
         auto [rec] = co_await parser.read_header();
         if(rec)
@@ -296,10 +299,10 @@ client::execute_impl(
                 ec = std::error_code(status_int, burl_category());
 
             std::unique_ptr<detail::parser::decoder> dec;
-            if(auto_decode && !parser.is_complete())
+            if(auto_decode && !head)
             {
-                dec = detail::make_decoder(
-                    parser.get().metadata().content_encoding.coding);
+                auto const& md = parser.get().metadata();
+                dec = detail::make_decoder(md.content_encoding.coding);
                 parser.set_decoder(dec.get());
             }
 

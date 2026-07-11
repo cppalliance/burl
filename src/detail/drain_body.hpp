@@ -25,7 +25,7 @@ namespace detail
 capy::io_task<bool>
 drain_body(
     response_parser& parser,
-    std::uint64_t attempts);
+    std::size_t attempts);
 
 } // namespace detail
 } // namespace burl
