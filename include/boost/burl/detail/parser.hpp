@@ -195,8 +195,8 @@ private:
     bool got_header_ = false;
     bool got_body_ = false;
     bool mid_chunk_ = false;
+    bool fin_chunk_ = false;
     bool eof_ = false;
-    bool dec_eof_ = false;
 };
 
 template<capy::MutableBufferSequence Buffers>

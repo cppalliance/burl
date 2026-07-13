@@ -39,7 +39,6 @@ using http::condition::need_more_input;
 using header  = http::detail::header;
 using payload = http::payload;
 
-
 namespace
 {
 
@@ -170,6 +169,14 @@ move_leftovers(
     } while(an);
 }
 
+auto
+prefix(
+    auto buf,
+    std::size_t n) noexcept -> decltype(buf)
+{
+    return { buf.data(), clamp(buf.size(), n) };
+};
+
 } // namespace
 
 parser::
@@ -276,7 +283,6 @@ parser::
 start(bool head)
 {
     BOOST_ASSERT(!started_ || got_body_);
-    BOOST_ASSERT(!dec_err_);
 
     if(payload_sized() && got_body_)
         in_.consume(payload_rem());
@@ -298,13 +304,14 @@ start(bool head)
     chunk_rem_   = 0;
     transferred_ = 0;
     decoded_     = 0;
+    dec_err_     = {};
     payload_     = payload::none;
     head_        = head;
     started_     = true;
     got_header_  = false;
     got_body_    = false;
     mid_chunk_   = false;
-    dec_eof_     = false;
+    fin_chunk_   = false;
 }
 
 void
@@ -330,8 +337,8 @@ reset(capy::any_read_stream stream) noexcept
     got_header_  = false;
     got_body_    = false;
     mid_chunk_   = false;
+    fin_chunk_   = false;
     eof_         = false;
-    dec_eof_     = false;
 }
 
 capy::io_task<>
@@ -366,7 +373,7 @@ walk_chunks(
         capy::const_buffer, bool)> f,
     bool dry)
 {
-    if(got_body_ && chunk_rem_ == 0)
+    if(fin_chunk_)
         return f({}, true).ec;
 
     chained_sequence cs = in_.data();
@@ -390,7 +397,7 @@ walk_chunks(
         return need_data;
     };
 
-    if(len != 0 || mid_chunk_)
+    if(mid_chunk_)
         goto invoke;
 
 loop:
@@ -438,10 +445,11 @@ loop:
             if(auto ec = skip_to_eol(); ec)
                 return ec;
         }
+        got_body_ = true;
         if(!dry)
         {
+            fin_chunk_ = true;
             in_.consume(in_.size() - cs.size());
-            got_body_ = true;
         }
         return f({}, true).ec;
     }
@@ -457,8 +465,9 @@ invoke:
         if(!dry)
         {
             in_.consume(in_.size() - cs.size());
-            mid_chunk_ = true;
             chunk_rem_ = len;
+            transferred_ += n;
+            mid_chunk_ = true;
         }
         if(ec || n < b.size())
             return ec;
@@ -478,10 +487,10 @@ capy::io_task<>
 parser::
 read_header()
 {
+    BOOST_ASSERT(started_);
+
     if(got_header_)
         co_return {};
-
-    BOOST_ASSERT(started_);
 
     for(;;)
     {
@@ -532,6 +541,7 @@ void
 parser::
 set_decoder(decoder* dec) noexcept
 {
+    BOOST_ASSERT(transferred_ == 0);
     dec_ = dec;
 }
 
@@ -583,7 +593,8 @@ read_body()
         {
             if(out_.full())
                 co_return { in_place_overflow, {} };
-            auto [ec, n] = co_await do_read_some(out_.prepare(), true);
+            auto [ec, n] = co_await do_read_some(
+                out_.prepare(), true);
             out_.commit(n);
             if(ec)
             {
@@ -629,20 +640,16 @@ http::static_response const&
 parser::
 get_response() const
 {
-    if(!got_header_)
-        http::detail::throw_logic_error();
-
-    return reinterpret_cast<http::static_response const&>(*h_);
+    return reinterpret_cast<
+        http::static_response const&>(*h_);
 }
 
 http::static_request const&
 parser::
 get_request() const
 {
-    if(!got_header_)
-        http::detail::throw_logic_error();
-
-    return reinterpret_cast<http::static_request const&>(*h_);
+    return reinterpret_cast<
+        http::static_request const&>(*h_);
 }
 
 capy::io_task<std::size_t>
@@ -650,59 +657,50 @@ parser::
 decode_some(
     std::span<capy::mutable_buffer const> buffers)
 {
-    if(dec_err_)
-        co_return { dec_err_, 0 };
+    if(capy::buffer_empty(buffers))
+        co_return { {}, 0 };
 
-    std::size_t lim = dec_limit_rem();
     auto slice = capy::buffer_slice(buffers);
-
-    auto const prefix = [](auto buf, std::size_t n)
-        -> decltype(buf)
-    {
-        return { buf.data(), clamp(buf.size(), n) };
-    };
-
-    std::size_t prod = 0;
-    auto const pump = [&](capy::const_buffer in)
+    auto prod  = std::size_t(0);
+    auto pump  = [&](capy::const_buffer in, bool last)
         -> capy::io_result<std::size_t>
     {
-        if(dec_eof_)
+        if(dec_err_)
         {
-            if(!got_body_ || in.size() != 0)
-                return { bad_payload, 0 };
-            return { capy::error::eof, 0 };
+            if(dec_err_ == capy::cond::eof)
+            {
+                if(!last || in.size() != 0)
+                    return { bad_payload, 0 };
+            }
+            return { dec_err_, 0 };
         }
         std::size_t cons = 0;
         for(;;)
         {
-            auto const out = prefix(capy::front(slice.data()), lim);
+            auto const lim = dec_limit_rem();
+            auto const out = capy::front(slice.data());
             if(out.size() == 0)
                 return { {}, cons };
             if(lim == 0)
                 return { body_too_large, cons };
-            auto const res = dec_->process(out, in, got_body_);
-            in += res.consumed;
-            cons += res.consumed;
-            transferred_ += res.consumed;
-            prod += res.produced;
-            decoded_ += res.produced;
-            lim -= res.produced;
-            slice.remove_prefix(res.produced);
-            if(res.ec)
+            auto const r = dec_->process(
+                prefix(out, lim), in, last);
+            in += r.consumed;
+            cons += r.consumed;
+            transferred_ += r.consumed;
+            prod += r.produced;
+            decoded_ += r.produced;
+            slice.remove_prefix(r.produced);
+            if(r.ec)
             {
-                if(res.ec == capy::cond::eof)
-                {
-                    dec_eof_ = true;
-                    return { {}, cons };
-                }
-                dec_err_ = res.ec;
+                dec_err_ = r.ec;
                 return { {}, cons };
             }
-            if(res.produced == 0 && res.consumed == 0)
+            if(r.produced == 0 && r.consumed == 0)
             {
                 // TODO: dedicated error code
                 dec_err_ = bad_payload;
-                return { dec_err_, cons };
+                return { {}, cons };
             }
             if(in.size() == 0)
                 return { {}, cons };
@@ -720,22 +718,13 @@ decode_some(
     {
         for(;;)
         {
-            auto ec = walk_chunks(
-            [&](capy::const_buffer in, bool last)
-                -> capy::io_result<std::size_t>
-            {
-                return pump(in);
-            });
+            auto ec = walk_chunks(pump);
             if(prod != 0)
                 co_return { {}, prod };
-            if(ec == need_more_input)
-            {
-                if(auto [fec] = co_await refill(); fec)
-                    co_return { fec, 0 };
-                continue;
-            }
-            if(ec)
+            if(ec != need_more_input)
                 co_return { ec, 0 };
+            if(auto [fec] = co_await refill(); fec)
+                co_return { fec, 0 };
         }
     }
     case payload::size:
@@ -743,19 +732,15 @@ decode_some(
     {
         for(;;)
         {
-            auto const in = prefix(
-                in_.data()[0],
-                payload_sized() ? payload_rem() : std::size_t(-1));
-            if(in.size() == 0)
+            auto const rem = payload_sized() ? payload_rem() : in_.size();
+            auto const in  = prefix(in_.data()[0], rem);
+            if(in.size() == 0 && !got_body_)
             {
-                if(!got_body_)
-                {
-                    if(auto [ec] = co_await refill(); ec)
-                        co_return { ec, 0 };
-                    continue;
-                }
+                if(auto [fec] = co_await refill(); fec)
+                    co_return { fec, 0 };
+                continue;
             }
-            auto [ec, cons] = pump(in);
+            auto [ec, cons] = pump(in, got_body_ && in.size() == rem);
             in_.consume(cons);
             if(prod != 0)
                 co_return { {}, prod };
@@ -785,7 +770,7 @@ do_read_some(
     if(dec_)
         co_return co_await decode_some(buffers);
 
-    auto copy_form_in = [&](std::size_t at_most)
+    auto copy = [&](std::size_t at_most)
     {
         auto const n = capy::buffer_copy(
             buffers, in_.data(), at_most);
@@ -817,7 +802,6 @@ do_read_some(
                 auto const n = capy::buffer_copy(
                     slice.data(), b, take);
                 read += n;
-                transferred_ += n;
                 slice.remove_prefix(n);
                 if(take < b.size())
                     return { body_too_large, n };
@@ -841,13 +825,13 @@ do_read_some(
     case payload::size:
     {
         auto const rem = payload_rem();
-        auto const lim = raw_limit_rem();
         if(rem == 0)
             co_return { capy::error::eof, 0 };
+        auto const lim = raw_limit_rem();
         if(lim == 0)
             co_return { body_too_large, 0 };
         if(!in_.empty())
-            co_return { {}, copy_form_in(clamp(rem, lim)) };
+            co_return { {}, copy(clamp(rem, lim)) };
         if(eof_)
             co_return { incomplete, 0 };
         auto [ec, n] = co_await stream_.read_some(
@@ -865,13 +849,13 @@ do_read_some(
     }
     case payload::to_eof:
     {
+        if(eof_)
+            co_return { capy::error::eof, 0 };
         auto const lim = raw_limit_rem();
         if(lim == 0)
             co_return { body_too_large, 0 };
         if(!in_.empty())
-            co_return { {}, copy_form_in(lim) };
-        if(eof_)
-            co_return { capy::error::eof, 0 };
+            co_return { {}, copy(lim) };
         auto [ec, n] = co_await stream_.read_some(
             capy::buffer_slice(buffers, 0, lim).data());
         transferred_ += n;
@@ -992,31 +976,20 @@ consume(std::size_t n) noexcept
 
     switch(payload_)
     {
-    case payload::error:
-    case payload::none:
-    {
-        return;
-    }
     case payload::chunked:
-    {
         walk_chunks(
         [&](capy::const_buffer b, bool)
             -> capy::io_result<std::size_t>
         {
-            auto const k = n < b.size() ? n : b.size();
-            n -= k;
-            transferred_ += k;
-            return { {}, k };
+            auto const take = clamp(b.size(), n);
+            n -= take;
+            return { {}, take };
         });
         return;
-    }
-    case payload::size:
-    case payload::to_eof:
-    {
+    default:
         in_.consume(n);
         transferred_ += n;
         return;
-    }
     }
 }
 
