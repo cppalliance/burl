@@ -156,6 +156,9 @@ private:
             capy::const_buffer, bool last)> f,
         bool dry = false);
 
+    std::error_code
+    flatten_chunks();
+
     capy::io_task<std::size_t>
     decode_some(
         std::span<capy::mutable_buffer const> buffers);

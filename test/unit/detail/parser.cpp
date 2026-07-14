@@ -956,6 +956,96 @@ public:
     }
 
     void
+    testChunkedReadBodyByteByByte()
+    {
+        // one octet per read exercises every resume point of the
+        // in-place flattening walk: split chunk-size line, split
+        // extension, split chunk data, split closing CRLF, and
+        // split trailers
+        capy::test::read_stream server({}, 1);
+        capy::any_read_stream stream(&server);
+        test_parser pr({}, &stream);
+
+        capy::test::run_blocking()([&]() -> capy::task<>
+        {
+            server.provide(
+                "HTTP/1.1 200 OK\r\n"
+                "Transfer-Encoding: chunked\r\n"
+                "\r\n"
+                "5;ext=1\r\nhello\r\n"
+                "6\r\n world\r\n"
+                "0\r\n"
+                "X-Trailer: v\r\n"
+                "\r\n");
+
+            pr.start();
+            auto [ec, body] = co_await pr.read_body();
+            BOOST_TEST(!ec);
+            BOOST_TEST(body == "hello world");
+            BOOST_TEST(pr.got_body());
+            BOOST_TEST(!pr.has_buffered_data());
+        }());
+    }
+
+    void
+    testChunkedReadBodySplitMidChunk()
+    {
+        // a chunk larger than the transport's read size needs several
+        // refills; the missing bytes must land in position without
+        // corrupting the already-flattened prefix
+        capy::test::read_stream server({}, 4);
+        capy::any_read_stream stream(&server);
+        test_parser pr({}, &stream);
+
+        capy::test::run_blocking()([&]() -> capy::task<>
+        {
+            server.provide(
+                "HTTP/1.1 200 OK\r\n"
+                "Transfer-Encoding: chunked\r\n"
+                "\r\n"
+                "1a\r\nabcdefghijklmnopqrstuvwxyz\r\n"
+                "0\r\n\r\n");
+
+            pr.start();
+            auto [ec, body] = co_await pr.read_body();
+            BOOST_TEST(!ec);
+            BOOST_TEST(body == "abcdefghijklmnopqrstuvwxyz");
+            BOOST_TEST(pr.got_body());
+            BOOST_TEST(!pr.has_buffered_data());
+        }());
+    }
+
+    void
+    testChunkedReadBodyPipelined()
+    {
+        capy::test::read_stream server;
+        capy::any_read_stream stream(&server);
+        test_parser pr({}, &stream);
+
+        capy::test::run_blocking()([&]() -> capy::task<>
+        {
+            server.provide(
+                "HTTP/1.1 200 OK\r\n"
+                "Transfer-Encoding: chunked\r\n"
+                "\r\n"
+                "5\r\nhello\r\n"
+                "6\r\n world\r\n"
+                "0\r\n\r\n"
+                "NEXT");
+
+            pr.start();
+            auto [ec, body] = co_await pr.read_body();
+            BOOST_TEST(!ec);
+            BOOST_TEST(body == "hello world");
+            BOOST_TEST(pr.got_body());
+
+            // the pipelined octets survive the compaction and sit
+            // right past the body view
+            BOOST_TEST(pr.has_buffered_data());
+        }());
+    }
+
+    void
     testChunkedTrailersAndExtensions()
     {
         capy::test::read_stream server;
@@ -1278,19 +1368,23 @@ public:
     void
     testChunkedReadBodyOverflowThenStream()
     {
+        constexpr std::string_view hdr =
+            "HTTP/1.1 200 OK\r\n"
+            "Transfer-Encoding: chunked\r\n"
+            "\r\n";
+
         // dec_buffer smaller than the dechunked body
         parser::config cfg;
-        cfg.dec_buffer = 8;
+        cfg.hdr_limits.max_size = hdr.size();
+        cfg.in_buffer = 5;
         capy::test::read_stream server;
         capy::any_read_stream stream(&server);
         test_parser pr(cfg, &stream);
 
         capy::test::run_blocking()([&]() -> capy::task<>
         {
+            server.provide(hdr);
             server.provide(
-                "HTTP/1.1 200 OK\r\n"
-                "Transfer-Encoding: chunked\r\n"
-                "\r\n"
                 "5\r\nhello\r\n"
                 "6\r\n world\r\n"
                 "0\r\n\r\n");
@@ -2648,6 +2742,9 @@ public:
         testChunkedReadSome();
         testChunkedPullConsume();
         testChunkedReadBody();
+        testChunkedReadBodyByteByByte();
+        testChunkedReadBodySplitMidChunk();
+        testChunkedReadBodyPipelined();
         testChunkedTrailersAndExtensions();
         testChunkedBadFraming();
         testChunkedBadFramingWithData();

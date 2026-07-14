@@ -58,6 +58,14 @@ public:
     {
     }
 
+    chained_sequence(char const* p, std::size_t n)
+        : pos_(p)
+        , end_(p + n)
+        , begin_b_(end_)
+        , end_b_(end_)
+    {
+    }
+
     char const*
     next() noexcept
     {
@@ -97,7 +105,7 @@ public:
     }
 
     bool
-    is_empty() const noexcept
+    empty() const noexcept
     {
         return pos_ == end_;
     }
@@ -106,6 +114,12 @@ public:
     value() const noexcept
     {
         return *pos_;
+    }
+
+    char const *
+    pos() const noexcept
+    {
+        return pos_;
     }
 
     std::size_t
@@ -124,6 +138,83 @@ public:
         return { { { pos_, na }, { begin_b_, nb } } };
     }
 };
+
+std::error_code
+parse_chunk_size(
+    chained_sequence& cs,
+    std::uint64_t& size) noexcept
+{
+    size = 0;
+    for(auto const start = cs.size();;)
+    {
+        if(cs.empty())
+            return need_data;
+        auto const n = urls::grammar::hexdig_value(cs.value());
+        if(n < 0)
+        {
+            if(start == cs.size())
+                return bad_payload;
+            return {};
+        }
+        // at least 4 significant bits are free
+        if(size > (std::numeric_limits<std::uint64_t>::max)() >> 4)
+            return bad_payload;
+        size = (size << 4) | static_cast<std::uint64_t>(n);
+        cs.next();
+    }
+}
+
+std::error_code
+skip_to_eol(chained_sequence& cs) noexcept
+{
+    while(!cs.empty())
+    {
+        if(cs.value() == '\r')
+        {
+            if(!cs.next())
+                break;
+            if(cs.value() != '\n')
+                return bad_payload;
+            cs.next();
+            return {};
+        }
+        cs.next();
+    }
+    return need_data;
+}
+
+std::error_code
+skip_trailer(chained_sequence& cs) noexcept
+{
+    for(;;)
+    {
+        if(cs.empty())
+            return need_data;
+        if(cs.value() == '\r')
+        {
+            if(!cs.next())
+                return need_data;
+            if(cs.value() != '\n')
+                return bad_payload;
+            cs.next();
+            return {};
+        }
+        // skip to the end of the field
+        if(auto ec = skip_to_eol(cs); ec)
+            return ec;
+    }
+}
+
+std::error_code
+skip_crlf(chained_sequence& cs) noexcept
+{
+    if(cs.size() < 2)
+        return need_data;
+    if(cs.value() != '\r' || *cs.next() != '\n')
+        return bad_payload;
+    cs.next();
+    return {};
+}
 
 std::span<capy::const_buffer>
 collect(
@@ -223,9 +314,10 @@ bool
 parser::
 has_buffered_data() const noexcept
 {
-    BOOST_ASSERT(got_body_);
     switch(payload_)
     {
+    case payload::chunked:
+        return in_.size() > chunk_rem_;
     case payload::size:
         return in_.size() > payload_rem();
     case payload::to_eof:
@@ -373,78 +465,39 @@ walk_chunks(
         capy::const_buffer, bool)> f,
     bool dry)
 {
-    if(fin_chunk_)
-        return f({}, true).ec;
-
     chained_sequence cs = in_.data();
-    std::uint64_t len   = chunk_rem_;
+    std::uint64_t size  = chunk_rem_;
 
-    auto skip_to_eol = [&]() -> std::error_code
+    if(fin_chunk_)
     {
-        while(!cs.is_empty())
+        // from flatten_chunks
+        auto const b = prefix(
+            in_.data()[0], clamp(chunk_rem_));
+        auto const [ec, n] = f(b, true);
+        if(!dry)
         {
-            if(cs.value() == '\r')
-            {
-                if(!cs.next())
-                    break;
-                if(cs.value() != '\n')
-                    return bad_payload;
-                cs.next();
-                return {};
-            }
-            cs.next();
+            in_.consume(n);
+            chunk_rem_   -= n;
+            transferred_ += n;
         }
-        return need_data;
-    };
+        return ec;
+    }
 
     if(mid_chunk_)
         goto invoke;
 
 loop:
-    // chunk header
-    for(auto hdr_start = cs.size();;)
-    {
-        if(cs.is_empty())
-            return need_data;
-        auto n = urls::grammar::hexdig_value(cs.value());
-        if(n < 0)
-        {
-            if(hdr_start == cs.size())
-                return bad_payload;
-            break;
-        }
-        // at least 4 significant bits are free
-        if(len > (std::numeric_limits<std::uint64_t>::max)() >> 4)
-            return bad_payload;
-        len = (len << 4) | static_cast<std::uint64_t>(n);
-        cs.next();
-    }
+    if(auto ec = parse_chunk_size(cs, size); ec)
+        return ec;
 
-    // skip chunk exts
-    if(auto ec = skip_to_eol(); ec)
+    if(auto ec = skip_to_eol(cs); ec)
         return ec;
 
     // final chunk
-    if(len == 0)
+    if(size == 0)
     {
-        // skip trailer headers
-        for(;;)
-        {
-            if(cs.is_empty())
-                return need_data;
-            if(cs.value() == '\r')
-            {
-                if(!cs.next())
-                    return need_data;
-                if(cs.value() != '\n')
-                    return bad_payload;
-                cs.next();
-                break;
-            }
-            // skip to the end of the field
-            if(auto ec = skip_to_eol(); ec)
-                return ec;
-        }
+        if(auto ec = skip_trailer(cs); ec)
+            return ec;
         got_body_ = true;
         if(!dry)
         {
@@ -455,32 +508,91 @@ loop:
     }
 
 invoke:
-    for(const auto& b : cs.prefix(clamp(len)))
+    for(const auto& b : cs.prefix(clamp(size)))
     {
         if(b.size() == 0)
             break;
         auto const [ec, n] = f(b, false);
         cs.advance(n);
-        len -= n;
+        size -= n;
         if(!dry)
         {
             in_.consume(in_.size() - cs.size());
-            chunk_rem_ = len;
+            chunk_rem_   = size;
             transferred_ += n;
-            mid_chunk_ = true;
+            mid_chunk_   = true;
         }
         if(ec || n < b.size())
             return ec;
     }
 
-    // CRLF
-    if(cs.size() < 2)
-        return need_data;
-    if(cs.value() != '\r' || *cs.next() != '\n')
-        return bad_payload;
-    cs.next();
+    if(auto ec = skip_crlf(cs); ec)
+        return ec;
 
     goto loop;
+}
+
+std::error_code
+parser::
+flatten_chunks()
+{
+    if(fin_chunk_)
+        return {};
+
+    BOOST_ASSERT(in_.pos == 0);
+
+    std::size_t flat = clamp(chunk_rem_, in_.len);
+    char const* keep = in_.ptr + flat;
+    chained_sequence cs(keep, in_.len - flat);
+
+    auto bail = [&](std::error_code ec)
+    {
+        auto const tail = static_cast<std::size_t>(
+            in_.ptr + in_.len - keep);
+        std::memmove(in_.ptr + flat, keep, tail);
+        in_.len = flat + tail;
+        return ec;
+    };
+
+    for(;;)
+    {
+        if(mid_chunk_)
+        {
+            if(auto ec = skip_crlf(cs); ec)
+                return bail(ec);
+        }
+
+        std::uint64_t size;
+        if(auto ec = parse_chunk_size(cs, size); ec)
+            return bail(ec);
+
+        if(auto ec = skip_to_eol(cs); ec)
+            return bail(ec);
+
+        if(size == 0)
+        {
+            if(auto ec = skip_trailer(cs); ec)
+                return bail(ec);
+            got_body_  = true;
+            fin_chunk_ = true;
+            keep = cs.pos();
+            return bail({});
+        }
+
+        if(size > in_.cap - flat)
+            return bail(in_place_overflow);
+
+        chunk_rem_ = flat + size;
+        mid_chunk_ = true;
+
+        auto const n = clamp(size, cs.size());
+        std::memmove(in_.ptr + flat, cs.pos(), n);
+        flat += n;
+        cs.advance(n);
+        keep = cs.pos();
+        if(n < size)
+            return bail(need_data);
+    }
 }
 
 capy::io_task<>
@@ -578,6 +690,9 @@ read_body()
         }
     }
 
+    if(transferred_ != 0)
+        co_return { incomplete, {} };
+
     switch(payload_)
     {
     case payload::error:
@@ -587,27 +702,23 @@ read_body()
     }
     case payload::chunked:
     {
-        if(transferred_ != out_.size())
-            co_return { incomplete, {} };
         for(;;)
         {
-            if(out_.full())
-                co_return { in_place_overflow, {} };
-            auto [ec, n] = co_await do_read_some(
-                out_.prepare(), true);
-            out_.commit(n);
-            if(ec)
+            if(chunk_rem_ > raw_limit_rem())
+                co_return { body_too_large, {} };
+            if(fin_chunk_)
+                co_return { {}, { in_.ptr, clamp(chunk_rem_) } };
+            if(auto ec = flatten_chunks(); ec)
             {
-                if(ec == capy::cond::eof)
-                    co_return { {}, { out_.ptr, out_.len } };
-                co_return { ec, {} };
+                if(ec != need_more_input)
+                    co_return { ec, {} };
+                if(auto [fec] = co_await refill(); fec)
+                    co_return { fec, {} };
             }
         }
     }
     case payload::size:
     {
-        if(transferred_ != 0)
-            co_return { incomplete, {} };
         auto const rem = payload_rem();
         if(rem > raw_limit_rem())
             co_return { body_too_large, {} };
@@ -615,22 +726,20 @@ read_body()
         {
             if(got_body_)
                 co_return { {}, { in_.ptr, clamp(in_.len, rem) } };
-            if(auto [ec] = co_await refill(); ec)
-                co_return { ec, {} };
+            if(auto [fec] = co_await refill(); fec)
+                co_return { fec, {} };
         }
     }
     case payload::to_eof:
     {
-        if(transferred_ != 0)
-            co_return { incomplete, {} };
         for(;;)
         {
             if(in_.size() > raw_limit_rem())
                 co_return { body_too_large, {} };
             if(got_body_)
                 co_return { {}, { in_.ptr, in_.len } };
-            if(auto [ec] = co_await refill(); ec)
-                co_return { ec, {} };
+            if(auto [fec] = co_await refill(); fec)
+                co_return { fec, {} };
         }
     }
     }
@@ -816,7 +925,7 @@ do_read_some(
                     co_return { fec, 0 };
                 continue;
             }
-            if(ec)
+            else if(ec)
                 co_return { ec, 0 };
             BOOST_ASSERT(got_body_);
             co_return { capy::error::eof, 0 };
@@ -907,7 +1016,7 @@ pull(std::span<capy::const_buffer> dest)
             [&](capy::const_buffer b, bool last)
                 -> capy::io_result<std::size_t>
             {
-                if(last)
+                if(last && b.size() == 0)
                     return { capy::error::eof, 0 };
                 auto const take = clamp(b.size(), lim);
                 if(take == 0 || n == dest.size())
@@ -919,17 +1028,14 @@ pull(std::span<capy::const_buffer> dest)
             true);
             if(n != 0)
                 co_return { {}, dest.first(n) };
-            if(ec == need_more_input)
-            {
-                if(auto [fec] = co_await refill(); fec)
-                    co_return { fec, {} };
-            }
-            else
+            if(ec != need_more_input)
             {
                 if(ec == capy::error::eof)
                     consume(0); // chunk trailer
                 co_return { ec, {} };
             }
+            if(auto [fec] = co_await refill(); fec)
+                co_return { fec, {} };
         }
     }
     case payload::size:
@@ -945,8 +1051,8 @@ pull(std::span<capy::const_buffer> dest)
             if(!in_.empty())
                 co_return { {}, collect(
                     dest, in_.data(), clamp(rem, lim)) };
-            if(auto [ec] = co_await refill(); ec)
-                co_return { ec, {} };
+            if(auto [fec] = co_await refill(); fec)
+                co_return { fec, {} };
         }
     }
     case payload::to_eof:
@@ -960,8 +1066,8 @@ pull(std::span<capy::const_buffer> dest)
                 co_return { {}, collect(dest, in_.data(), lim) };
             if(eof_)
                 co_return { capy::error::eof, {} };
-            if(auto [ec] = co_await refill(); ec)
-                co_return { ec, {} };
+            if(auto [fec] = co_await refill(); fec)
+                co_return { fec, {} };
         }
     }
     }
