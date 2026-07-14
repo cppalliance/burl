@@ -20,16 +20,13 @@
 
 #include <boost/capy/buffers/make_buffer.hpp>
 #include <boost/capy/ex/execution_context.hpp>
-#include <boost/capy/ex/system_context.hpp>
 #include <boost/capy/timeout.hpp>
 #include <boost/capy/write.hpp>
 #include <boost/burl/detail/response_parser.hpp>
-#include <boost/http/brotli/decode.hpp>
 #include <boost/http/field.hpp>
 #include <boost/http/request.hpp>
 #include <boost/http/response_base.hpp>
 #include <boost/http/status.hpp>
-#include <boost/http/zlib/inflate.hpp>
 
 #include <chrono>
 #include <optional>
@@ -66,6 +63,9 @@ set_accept_encoding(
     if(cfg.gzip)
         accept("gzip");
 
+    if(cfg.zstd)
+        accept("zstd");
+
     if(!accept_encoding.empty())
         headers.set(http::field::accept_encoding, accept_encoding);
 }
@@ -96,12 +96,16 @@ client::client(
           std::make_shared<detail::connection_pool>(
               exec, std::move(tls_ctx), cfg))
 {
-    // Disable codings whose decoder service is unavailable.
-    auto const& ctx = capy::get_system_context();
-    if(!ctx.has_service<http::brotli::decode_service>())
-        config_.brotli = false;
-    if(!ctx.has_service<http::zlib::inflate_service>())
-        config_.deflate = config_.gzip = false;
+    // Disable codings whose decoder was not compiled in.
+#ifndef BOOST_BURL_HAS_BROTLI
+    config_.brotli = false;
+#endif
+#ifndef BOOST_BURL_HAS_ZLIB
+    config_.deflate = config_.gzip = false;
+#endif
+#ifndef BOOST_BURL_HAS_ZSTD
+    config_.zstd = false;
+#endif
 }
 
 void

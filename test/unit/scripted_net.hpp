@@ -51,6 +51,7 @@ struct scripted_net
         cfg.brotli  = false;
         cfg.deflate = false;
         cfg.gzip    = false;
+        cfg.zstd    = false;
         cfg.connect_handler =
             [this](urls::url_view url) -> capy::io_task<capy::any_stream>
         {

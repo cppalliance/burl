@@ -1965,12 +1965,12 @@ public:
                 // the raw side ended and the decoder stalls: this
                 // must be an error, not a hang on the socket
                 auto [ec, n] = co_await pr.read_some(capy::make_buffer(buf));
-                BOOST_TEST(ec == http::error::bad_payload);
+                BOOST_TEST(ec == error::decode_error);
                 BOOST_TEST_EQ(n, 0);
             }
             {
                 auto [ec, n] = co_await pr.read_some(capy::make_buffer(buf));
-                BOOST_TEST(ec == http::error::bad_payload);
+                BOOST_TEST(ec == error::decode_error);
                 BOOST_TEST_EQ(n, 0);
             }
         }());

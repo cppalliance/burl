@@ -17,8 +17,6 @@
 #include <boost/capy/ex/system_context.hpp>
 #include <boost/capy/ex/this_coro.hpp>
 #include <boost/capy/io/any_stream.hpp>
-#include <boost/http/brotli/decode.hpp>
-#include <boost/http/zlib/inflate.hpp>
 #include <boost/capy/task.hpp>
 #include <boost/capy/test/fuse.hpp>
 #include <boost/capy/test/run_blocking.hpp>
@@ -695,15 +693,7 @@ public:
     void
     testGzipDecode()
     {
-#ifdef BOOST_HTTP_HAS_ZLIB
-        if(!capy::get_system_context()
-            .has_service<http::zlib::inflate_service>())
-            http::zlib::install_inflate_service(
-                capy::get_system_context());
-#else
-        return;
-#endif
-
+#ifdef BOOST_BURL_HAS_ZLIB
         // gzip("hello world"), mtime=0.
         static char const gz[] =
             "\x1f\x8b\x08\x00\x00\x00\x00\x00\x02\xff\xcb\x48"
@@ -742,20 +732,13 @@ public:
         BOOST_TEST(
             net.written(0).find("Accept-Encoding: deflate, gzip\r\n") !=
             std::string::npos);
+#endif
     }
 
     void
     testBrotliDecode()
     {
-#ifdef BOOST_HTTP_HAS_BROTLI
-        if(!capy::get_system_context()
-            .has_service<http::brotli::decode_service>())
-            http::brotli::install_decode_service(
-                capy::get_system_context());
-#else
-        return;
-#endif
-
+#ifdef BOOST_BURL_HAS_BROTLI
         // brotli("hello world").
         static char const br[] =
             "\x0b\x05\x80\x68\x65\x6c\x6c\x6f\x20\x77\x6f\x72"
@@ -792,6 +775,50 @@ public:
         BOOST_TEST(
             net.written(0).find("Accept-Encoding: br\r\n") !=
             std::string::npos);
+#endif
+    }
+
+    void
+    testZstdDecode()
+    {
+#ifdef BOOST_BURL_HAS_ZSTD
+        // zstd("hello world").
+        static char const zs[] =
+            "\x28\xb5\x2f\xfd\x20\x0b\x59\x00\x00\x68\x65\x6c"
+            "\x6c\x6f\x20\x77\x6f\x72\x6c\x64";
+        auto const body = std::string(zs, sizeof(zs) - 1);
+
+        scripted_net net;
+        net.scripts = { std::string(
+            "HTTP/1.1 200 OK\r\n"
+            "Content-Encoding: zstd\r\n"
+            "Content-Length: " +
+            std::to_string(body.size()) +
+            "\r\n\r\n" + body) };
+
+        capy::test::run_blocking()([&]() -> capy::task<>
+        {
+            auto cfg = net.config();
+            cfg.zstd = true;
+            client c(
+                co_await capy::this_coro::executor,
+                corosio::tls_context(),
+                cfg);
+
+            auto [ec, r] = co_await c
+                .get("http://example.com/z")
+                .send();
+            BOOST_TEST(!ec);
+
+            auto [ec2, text] = co_await r.try_as_view();
+            BOOST_TEST(!ec2);
+            BOOST_TEST_EQ(text, "hello world");
+        }());
+
+        BOOST_TEST(
+            net.written(0).find("Accept-Encoding: zstd\r\n") !=
+            std::string::npos);
+#endif
     }
 
     void
@@ -1025,6 +1052,7 @@ public:
         testHeadNoBody();
         testGzipDecode();
         testBrotliDecode();
+        testZstdDecode();
         testTimeoutHeader();
         testTimeoutBody();
         testTimeoutOverride();

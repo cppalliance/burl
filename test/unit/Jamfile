@@ -8,11 +8,15 @@
 #
 
 import testing ;
+import ac ;
+
+using brotli ;
 
 project
     : requirements
       $(c20-requires)
       <library>/boost/burl//boost_burl
+      [ ac.check-library /brotli//brotlienc : <library>/brotli//brotlienc : ]
       <source>../../../capy/extra/test_suite/test_main.cpp
       <source>../../../capy/extra/test_suite/test_suite.cpp
       <include>.

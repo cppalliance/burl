@@ -140,31 +140,6 @@ public:
 };
 
 std::error_code
-parse_chunk_size(
-    chained_sequence& cs,
-    std::uint64_t& size) noexcept
-{
-    size = 0;
-    for(auto const start = cs.size();;)
-    {
-        if(cs.empty())
-            return need_data;
-        auto const n = urls::grammar::hexdig_value(cs.value());
-        if(n < 0)
-        {
-            if(start == cs.size())
-                return bad_payload;
-            return {};
-        }
-        // at least 4 significant bits are free
-        if(size > (std::numeric_limits<std::uint64_t>::max)() >> 4)
-            return bad_payload;
-        size = (size << 4) | static_cast<std::uint64_t>(n);
-        cs.next();
-    }
-}
-
-std::error_code
 skip_to_eol(chained_sequence& cs) noexcept
 {
     while(!cs.empty())
@@ -181,6 +156,31 @@ skip_to_eol(chained_sequence& cs) noexcept
         cs.next();
     }
     return need_data;
+}
+
+std::error_code
+parse_chunk_header(
+    chained_sequence& cs,
+    std::uint64_t& size) noexcept
+{
+    for(auto const start = cs.size();;)
+    {
+        if(cs.empty())
+            return need_data;
+        auto const n = urls::grammar::hexdig_value(cs.value());
+        if(n < 0)
+        {
+            if(start == cs.size())
+                return bad_payload;
+            // skip chunk header's exts
+            return skip_to_eol(cs);
+        }
+        // at least 4 significant bits are free
+        if(size > (std::numeric_limits<std::uint64_t>::max)() >> 4)
+            return bad_payload;
+        size = (size << 4) | static_cast<std::uint64_t>(n);
+        cs.next();
+    }
 }
 
 std::error_code
@@ -487,10 +487,7 @@ walk_chunks(
         goto invoke;
 
 loop:
-    if(auto ec = parse_chunk_size(cs, size); ec)
-        return ec;
-
-    if(auto ec = skip_to_eol(cs); ec)
+    if(auto ec = parse_chunk_header(cs, size); ec)
         return ec;
 
     // final chunk
@@ -562,11 +559,8 @@ flatten_chunks()
                 return bail(ec);
         }
 
-        std::uint64_t size;
-        if(auto ec = parse_chunk_size(cs, size); ec)
-            return bail(ec);
-
-        if(auto ec = skip_to_eol(cs); ec)
+        std::uint64_t size = 0;
+        if(auto ec = parse_chunk_header(cs, size); ec)
             return bail(ec);
 
         if(size == 0)
@@ -749,6 +743,7 @@ http::static_response const&
 parser::
 get_response() const
 {
+    BOOST_ASSERT(h_);
     return reinterpret_cast<
         http::static_response const&>(*h_);
 }
@@ -757,6 +752,7 @@ http::static_request const&
 parser::
 get_request() const
 {
+    BOOST_ASSERT(h_);
     return reinterpret_cast<
         http::static_request const&>(*h_);
 }
@@ -770,8 +766,9 @@ decode_some(
         co_return { {}, 0 };
 
     auto slice = capy::buffer_slice(buffers);
-    auto prod  = std::size_t(0);
-    auto pump  = [&](capy::const_buffer in, bool last)
+    std::size_t prod = 0;
+    auto decode =
+    [&](capy::const_buffer in, bool last)
         -> capy::io_result<std::size_t>
     {
         if(dec_err_)
@@ -786,10 +783,10 @@ decode_some(
         std::size_t cons = 0;
         for(;;)
         {
-            auto const lim = dec_limit_rem();
             auto const out = capy::front(slice.data());
             if(out.size() == 0)
                 return { {}, cons };
+            auto const lim = dec_limit_rem();
             if(lim == 0)
                 return { body_too_large, cons };
             auto const r = dec_->process(
@@ -807,8 +804,7 @@ decode_some(
             }
             if(r.produced == 0 && r.consumed == 0)
             {
-                // TODO: dedicated error code
-                dec_err_ = bad_payload;
+                dec_err_ = error::decode_error;
                 return { {}, cons };
             }
             if(in.size() == 0)
@@ -827,7 +823,7 @@ decode_some(
     {
         for(;;)
         {
-            auto ec = walk_chunks(pump);
+            auto ec = walk_chunks(decode);
             if(prod != 0)
                 co_return { {}, prod };
             if(ec != need_more_input)
@@ -849,7 +845,7 @@ decode_some(
                     co_return { fec, 0 };
                 continue;
             }
-            auto [ec, cons] = pump(in, got_body_ && in.size() == rem);
+            auto [ec, cons] = decode(in, got_body_ && in.size() == rem);
             in_.consume(cons);
             if(prod != 0)
                 co_return { {}, prod };
@@ -863,21 +859,21 @@ decode_some(
 capy::io_task<std::size_t>
 parser::
 do_read_some(
-    std::span<capy::mutable_buffer const> buffers,
-    bool skip_out)
+    std::span<capy::mutable_buffer const> buffers)
 {
     if(auto [ec] = co_await read_header(); ec)
         co_return { ec, 0 };
 
-    if(!out_.empty() && !skip_out)
-    {
-        auto const n = capy::buffer_copy(buffers, out_.data());
-        out_.consume(n);
-        co_return { {}, n };
-    }
-
     if(dec_)
+    {
+        if(!out_.empty())
+        {
+            auto const n = capy::buffer_copy(buffers, out_.data());
+            out_.consume(n);
+            co_return { {}, n };
+        }
         co_return co_await decode_some(buffers);
+    }
 
     auto copy = [&](std::size_t at_most)
     {
@@ -985,11 +981,10 @@ pull(std::span<capy::const_buffer> dest)
     if(auto [ec] = co_await read_header(); ec)
         co_return { ec, {} };
 
-    if(!out_.empty())
-        co_return { {}, collect(dest, out_.data()) };
-
     if(dec_)
     {
+        if(!out_.empty())
+            co_return { {}, collect(dest, out_.data()) };
         auto [ec, n] = co_await decode_some(out_.prepare());
         out_.commit(n);
         if(ec && n == 0)
@@ -1077,7 +1072,7 @@ void
 parser::
 consume(std::size_t n) noexcept
 {
-    if(dec_ || !out_.empty())
+    if(dec_)
         return out_.consume(n);
 
     switch(payload_)

@@ -10,14 +10,6 @@
 add_executable(burl_example_usage usage.cpp)
 target_link_libraries(burl_example_usage PRIVATE Boost::burl Boost::hash2)
 
-if (TARGET Boost::http_zlib)
-    target_link_libraries(burl_example_usage PRIVATE Boost::http_zlib)
-endif()
-
-if (TARGET Boost::http_brotli)
-    target_link_libraries(burl_example_usage PRIVATE Boost::http_brotli)
-endif()
-
 find_package(nlohmann_json QUIET)
 if (nlohmann_json_FOUND)
     add_executable(burl_example_nlohmann_json nlohmann_json.cpp)

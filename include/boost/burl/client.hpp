@@ -140,11 +140,11 @@ public:
             When enabled, `br` is included in the
             `Accept-Encoding` header and response
             bodies are decoded transparently.
-            Effective only when the Brotli decode
-            service is installed in the system
-            context. Not applied when the request
-            carries an explicit `Accept-Encoding`
-            header.
+            Effective only when the library was built
+            with Brotli support
+            (`BOOST_BURL_HAS_BROTLI`). Not applied
+            when the request carries an explicit
+            `Accept-Encoding` header.
         */
         bool brotli = true;
 
@@ -154,9 +154,9 @@ public:
             the `Accept-Encoding` header and
             response bodies are decoded
             transparently. Effective only when the
-            zlib inflate service is installed in the
-            system context. Not applied when the
-            request carries an explicit
+            library was built with zlib support
+            (`BOOST_BURL_HAS_ZLIB`). Not applied when
+            the request carries an explicit
             `Accept-Encoding` header.
         */
         bool deflate = true;
@@ -166,13 +166,26 @@ public:
             When enabled, `gzip` is included in the
             `Accept-Encoding` header and response
             bodies are decoded transparently.
-            Effective only when the zlib inflate
-            service is installed in the system
-            context. Not applied when the request
-            carries an explicit `Accept-Encoding`
-            header.
+            Effective only when the library was built
+            with zlib support
+            (`BOOST_BURL_HAS_ZLIB`). Not applied when
+            the request carries an explicit
+            `Accept-Encoding` header.
         */
         bool gzip = true;
+
+        /** Advertise and decode the zstd content coding.
+
+            When enabled, `zstd` is included in the
+            `Accept-Encoding` header and response
+            bodies are decoded transparently.
+            Effective only when the library was built
+            with zstd support
+            (`BOOST_BURL_HAS_ZSTD`). Not applied when
+            the request carries an explicit
+            `Accept-Encoding` header.
+        */
+        bool zstd = true;
 
         /** Maximum allowed size of a response body.
 

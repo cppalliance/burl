@@ -165,8 +165,7 @@ private:
 
     capy::io_task<std::size_t>
     do_read_some(
-        std::span<capy::mutable_buffer const> buffers,
-        bool skip_out = false);
+        std::span<capy::mutable_buffer const> buffers);
 
     struct header_deleter
     {

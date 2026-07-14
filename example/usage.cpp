@@ -11,8 +11,6 @@
 #include <boost/burl.hpp>
 #include <boost/capy.hpp>
 #include <boost/corosio.hpp>
-#include <boost/http/brotli.hpp>
-#include <boost/http/zlib.hpp>
 #include <boost/json.hpp>
 #include <boost/hash2/sha2.hpp>
 
@@ -568,13 +566,6 @@ main(int argc, char* argv[])
 
     corosio::io_context ioc;
     corosio::tls_context tls_ctx;
-
-#ifdef BOOST_HTTP_HAS_BROTLI
-    http::brotli::install_decode_service(capy::get_system_context());
-#endif
-#ifdef BOOST_HTTP_HAS_ZLIB
-    http::zlib::install_inflate_service(capy::get_system_context());
-#endif
 
     capy::run_async(
         ioc.get_executor(),
