@@ -20,6 +20,7 @@
 
 #include <cstring>
 #include <new>
+#include <type_traits>
 #include <utility>
 
 namespace boost
@@ -270,6 +271,32 @@ prefix(
 
 } // namespace
 
+struct parser::chunk_fn
+{
+    void* obj_;
+    capy::io_result<std::size_t> (*invoke_)(
+        void*, capy::const_buffer, bool);
+
+    template<class F>
+    chunk_fn(F&& f) noexcept
+        : obj_(std::addressof(f))
+        , invoke_(
+            [](void* obj, capy::const_buffer b, bool last)
+                -> capy::io_result<std::size_t>
+            {
+                return (*static_cast<
+                    std::remove_reference_t<F>*>(obj))(b, last);
+            })
+    {
+    }
+
+    capy::io_result<std::size_t>
+    operator()(capy::const_buffer b, bool last) const
+    {
+        return invoke_(obj_, b, last);
+    }
+};
+
 parser::
 parser(
     config const& cfg,
@@ -460,10 +487,7 @@ parser::refill()
 
 std::error_code
 parser::
-walk_chunks(
-    compat::function_ref<capy::io_result<std::size_t>(
-        capy::const_buffer, bool)> f,
-    bool dry)
+walk_chunks(chunk_fn f, bool dry)
 {
     chained_sequence cs = in_.data();
     std::uint64_t size  = chunk_rem_;

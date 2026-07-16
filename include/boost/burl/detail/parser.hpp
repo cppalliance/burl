@@ -23,7 +23,6 @@
 #include <boost/http/header_limits.hpp>
 #include <boost/http/static_response.hpp>
 #include <boost/http/static_request.hpp>
-#include <boost/compat/function_ref.hpp>
 
 #include <memory>
 
@@ -132,6 +131,8 @@ protected:
     get_request() const;
 
 private:
+    struct chunk_fn;
+
     std::size_t
     raw_limit_rem() const noexcept;
 
@@ -151,10 +152,7 @@ private:
     refill();
 
     std::error_code
-    walk_chunks(
-        compat::function_ref<capy::io_result<std::size_t>(
-            capy::const_buffer, bool last)> f,
-        bool dry = false);
+    walk_chunks(chunk_fn f, bool dry = false);
 
     std::error_code
     flatten_chunks();
