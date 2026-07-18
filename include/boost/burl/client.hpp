@@ -13,6 +13,7 @@
 #include <boost/burl/cookie_jar.hpp>
 #include <boost/burl/detail/config.hpp>
 #include <boost/burl/detail/connection_pool.hpp>
+#include <boost/burl/fields.hpp>
 #include <boost/burl/request.hpp>
 #include <boost/burl/response.hpp>
 
@@ -21,8 +22,6 @@
 #include <boost/capy/io_task.hpp>
 #include <boost/corosio/endpoint.hpp>
 #include <boost/corosio/tls_context.hpp>
-#include <boost/http/field.hpp>
-#include <boost/http/fields.hpp>
 #include <boost/url/url.hpp>
 #include <boost/url/url_view.hpp>
 
@@ -315,7 +314,7 @@ public:
 private:
     config config_;
     std::shared_ptr<detail::connection_pool> pool_;
-    http::fields headers_;
+    fields headers_;
     burl::cookie_jar cookie_jar_;
 
 public:
@@ -388,7 +387,7 @@ public:
         c.headers().set(http::field::user_agent, "BoostBurl/1.0");
         @endcode
     */
-    http::fields&
+    fields_base&
     headers() noexcept
     {
         return headers_;
@@ -401,7 +400,7 @@ public:
         precedence over default headers with the
         same name.
     */
-    const http::fields&
+    const fields_base&
     headers() const noexcept
     {
         return headers_;

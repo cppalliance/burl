@@ -11,13 +11,13 @@
 #include "src/detail/serializer.hpp"
 
 #include <boost/burl/error.hpp>
+#include <boost/burl/request_head.hpp>
 
 #include <boost/capy/error.hpp>
 #include <boost/capy/test/fuse.hpp>
 #include <boost/capy/test/run_blocking.hpp>
 #include <boost/capy/test/stream.hpp>
 #include <boost/capy/test/write_stream.hpp>
-#include <boost/http/request.hpp>
 
 #include <cstring>
 
@@ -44,18 +44,18 @@ class serializer_test
         .enc_buffer  = 32,
         .enc_thr     = 8 };
 
-    static http::request
+    static request_head
     make_request()
     {
-        http::request req;
+        request_head req;
         req.set_chunked(true);
         return req;
     }
 
-    static http::request
+    static request_head
     make_request(std::size_t cl)
     {
-        http::request req;
+        request_head req;
         req.set_content_length(cl);
         return req;
     }
@@ -301,7 +301,7 @@ public:
         // flushed, so chunked encoding is replaced with
         // Content-Length and the body is sent unframed.
         BOOST_TEST(!req.chunked());
-        BOOST_TEST_EQ(req.payload_size(), 11u);
+        BOOST_TEST_EQ(req.content_length().value(), 11u);
         BOOST_TEST(
             server.data().find("Transfer-Encoding") ==
             std::string_view::npos);
@@ -329,7 +329,7 @@ public:
         }());
 
         BOOST_TEST(!req.chunked());
-        BOOST_TEST_EQ(req.payload_size(), 5u);
+        BOOST_TEST_EQ(req.content_length().value(), 5u);
         BOOST_TEST_EQ(
             server.data(),
             std::string(req.buffer()) + "hello");
@@ -979,7 +979,7 @@ public:
 
         BOOST_TEST_EQ(enc.calls, 0u);
         BOOST_TEST(!req.chunked());
-        BOOST_TEST_EQ(req.payload_size(), 5u);
+        BOOST_TEST_EQ(req.content_length().value(), 5u);
         BOOST_TEST(
             server.data().find("Content-Encoding") ==
             std::string_view::npos);
@@ -1054,7 +1054,7 @@ public:
 
         BOOST_TEST_EQ(enc.calls, 0u);
         BOOST_TEST(!req.chunked());
-        BOOST_TEST_EQ(req.payload_size(), 5u);
+        BOOST_TEST_EQ(req.content_length().value(), 5u);
         BOOST_TEST_EQ(
             server.data(),
             std::string(req.buffer()) + "hello");
@@ -1090,7 +1090,7 @@ public:
             // encoded length while Content-Encoding is kept
             BOOST_TEST(enc.finished);
             BOOST_TEST(!req.chunked());
-            BOOST_TEST_EQ(req.payload_size(), 8u);
+            BOOST_TEST_EQ(req.content_length().value(), 8u);
             BOOST_TEST(
                 server.data().find("Content-Encoding: test\r\n") !=
                 std::string_view::npos);
@@ -1121,7 +1121,7 @@ public:
             }());
 
             BOOST_TEST_EQ(enc.calls, 0u);
-            BOOST_TEST_EQ(req.payload_size(), 7u);
+            BOOST_TEST_EQ(req.content_length().value(), 7u);
             BOOST_TEST(
                 server.data().find("Content-Encoding") ==
                 std::string_view::npos);
@@ -1163,7 +1163,7 @@ public:
         }());
 
         BOOST_TEST(enc.finished);
-        BOOST_TEST_EQ(req.payload_size(), 8u);
+        BOOST_TEST_EQ(req.content_length().value(), 8u);
         BOOST_TEST_EQ(
             server.data(),
             std::string(req.buffer()) + encoded("abcdefgh"));
@@ -1279,7 +1279,7 @@ public:
         BOOST_TEST_EQ(enc.calls, 2u);
         BOOST_TEST(enc.finished);
         BOOST_TEST(!req.chunked());
-        BOOST_TEST_EQ(req.payload_size(), 54u);
+        BOOST_TEST_EQ(req.content_length().value(), 54u);
         BOOST_TEST_EQ(
             server.data(),
             std::string(req.buffer()) + encoded(body));
@@ -1555,7 +1555,7 @@ public:
         }());
 
         BOOST_TEST(enc.finished);
-        BOOST_TEST_EQ(req.payload_size(), 12u);
+        BOOST_TEST_EQ(req.content_length().value(), 12u);
         BOOST_TEST_EQ(
             server.data(),
             std::string(req.buffer()) +
@@ -1594,7 +1594,7 @@ public:
 
         BOOST_TEST(enc.finished);
         BOOST_TEST(!req.chunked());
-        BOOST_TEST_EQ(req.payload_size(), 24u);
+        BOOST_TEST_EQ(req.content_length().value(), 24u);
         BOOST_TEST_EQ(
             server.data(),
             std::string(req.buffer()) + encoded(body));
@@ -1640,7 +1640,7 @@ public:
         }());
 
         BOOST_TEST(enc.finished);
-        BOOST_TEST_EQ(req.payload_size(), 8u);
+        BOOST_TEST_EQ(req.content_length().value(), 8u);
         BOOST_TEST_EQ(
             server.data(),
             std::string(req.buffer()) + encoded("abcdefgh"));
@@ -1914,7 +1914,7 @@ public:
             BOOST_TEST(!ec3);
         }());
 
-        BOOST_TEST_EQ(req.payload_size(), 5u);
+        BOOST_TEST_EQ(req.content_length().value(), 5u);
         BOOST_TEST_EQ(server1.data(), std::string(req.buffer()));
         BOOST_TEST_EQ(
             server2.data(),

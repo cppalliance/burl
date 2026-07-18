@@ -11,6 +11,7 @@
 #define BOOST_BURL_DETAIL_PARSER_HPP
 
 #include <boost/burl/error.hpp>
+#include <boost/burl/head_parser.hpp>
 #include <boost/burl/detail/circular_buffer.hpp>
 
 #include <boost/capy/buffers/buffer_copy.hpp>
@@ -19,10 +20,7 @@
 #include <boost/capy/io_task.hpp>
 #include <boost/capy/read.hpp>
 #include <boost/http/concept/buffer_source.hpp>
-#include <boost/http/message_base.hpp>
-#include <boost/http/header_limits.hpp>
-#include <boost/http/static_response.hpp>
-#include <boost/http/static_request.hpp>
+#include <boost/http/metadata.hpp>
 
 #include <memory>
 
@@ -56,7 +54,7 @@ public:
 
     struct config
     {
-        http::header_limits hdr_limits;
+        header_limits hdr_limits;
 
         std::size_t in_buffer    = 64 * 1024;
         std::size_t dec_buffer   =  8 * 1024;
@@ -106,7 +104,7 @@ protected:
 
     parser(
         config const& cfg,
-        http::detail::kind kind,
+        bool is_request,
         capy::any_read_stream stream = {});
 
     parser(parser&& other) noexcept = default;
@@ -124,10 +122,10 @@ protected:
     void
     start(bool head);
 
-    http::static_response const&
+    burl::response_head_base const&
     get_response() const;
 
-    http::static_request const&
+    burl::request_head_base const&
     get_request() const;
 
 private:
@@ -144,9 +142,6 @@ private:
 
     std::size_t
     payload_rem() const noexcept;
-
-    std::size_t
-    table_reserve() const noexcept;
 
     capy::io_task<>
     refill();
@@ -165,22 +160,9 @@ private:
     do_read_some(
         std::span<capy::mutable_buffer const> buffers);
 
-    struct header_deleter
-    {
-        void
-        operator()(
-            http::detail::header* h) const noexcept
-        {
-            ::operator delete(h);
-        }
-    };
-
-    using header_ptr = std::unique_ptr<
-        http::detail::header, header_deleter>;
-
-    http::header_limits hdr_limits_;
     capy::any_read_stream stream_;
-    header_ptr h_;
+    std::unique_ptr<char[]> buf_;
+    head_parser hp_;
     decoder * dec_ = nullptr;
     circular_buffer in_;
     circular_buffer out_;
@@ -188,8 +170,10 @@ private:
     std::uint64_t transferred_ = 0;
     std::uint64_t decoded_ = 0;
     std::uint64_t body_limit_ = 0;
+    std::uint64_t payload_size_ = 0;
     std::error_code dec_err_;
     http::payload payload_ = http::payload::none;
+    bool is_req_ = true;
     bool head_ = false;
     bool started_ = false;
     bool got_header_ = false;

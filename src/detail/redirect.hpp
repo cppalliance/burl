@@ -11,8 +11,8 @@
 #define BOOST_BURL_SRC_DETAIL_REDIRECT_HPP
 
 #include <boost/burl/client.hpp>
+#include <boost/burl/fields_base.hpp>
 
-#include <boost/http/response_base.hpp>
 #include <boost/http/status.hpp>
 #include <boost/url/url.hpp>
 #include <boost/url/url_view.hpp>
@@ -37,7 +37,7 @@ is_redirect(
 
 urls::url
 resolve_location(
-    http::response_base const& response,
+    fields_base const& response,
     const urls::url_view& base);
 
 } // namespace detail

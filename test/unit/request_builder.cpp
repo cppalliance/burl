@@ -107,7 +107,7 @@ public:
         auto req = c.get("http://example.com")
             .header(http::field::accept_language, "en")
             .build();
-        BOOST_TEST(req.headers.exists(http::field::accept_language));
+        BOOST_TEST(req.headers.contains(http::field::accept_language));
         BOOST_TEST_EQ(req.headers.at(http::field::accept_language), "en");
 
         // Setting the same field again replaces the previous value.
@@ -127,7 +127,7 @@ public:
         auto req = c.get("http://example.com")
             .header("X-Debug", "1")
             .build();
-        BOOST_TEST(req.headers.exists("X-Debug"));
+        BOOST_TEST(req.headers.contains("X-Debug"));
         BOOST_TEST_EQ(req.headers.at("X-Debug"), "1");
 
         // Setting the same name again replaces the previous value.

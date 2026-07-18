@@ -112,7 +112,8 @@ public:
     void
     testVersion()
     {
-        auto r = test::response_factory({}, http::version::http_1_0)
+        auto r = test::response_factory(
+                http::status::ok, http::version::http_1_0)
             .create();
         BOOST_TEST(r.version() == http::version::http_1_0);
     }

@@ -68,10 +68,10 @@ inspect_response(corosio::tls_context tls_ctx)
     if(ec)
         throw std::system_error(ec);
 
-    std::cout << "status:  " << r.status_int() << '\n';
-    std::cout << "reason:  " << r.reason() << '\n';
-    std::cout << "headers: " << r.headers() << '\n';
-    std::cout << "body:    " << co_await r.as<std::string>() << '\n';
+    std::cout << "status:  "  << r.status_int() << '\n';
+    std::cout << "reason:  "  << r.reason() << '\n';
+    std::cout << "headers:\n" << r.headers();
+    std::cout << "body:    "  << co_await r.as<std::string>() << '\n';
     // end::inspect_response[]
 }
 

@@ -18,7 +18,6 @@
 #include <boost/burl/test/fwd.hpp>
 #include <boost/capy/io_task.hpp>
 #include <boost/corosio/timeout.hpp>
-#include <boost/http/fields_base.hpp>
 #include <boost/http/io/any_buffer_source.hpp>
 #include <boost/http/io/any_read_source.hpp>
 #include <boost/http/metadata.hpp>
@@ -66,7 +65,7 @@ namespace burl
         throw std::system_error(ec);
 
     std::cout << "status: " << r.status_int() << '\n';
-    std::cout << "headers: " << r.headers() << '\n';
+    std::cout << "headers: " << r.headers().buffer() << '\n';
     std::cout << "body: " << co_await r.as<std::string>() << '\n';
     @endcode
 
@@ -225,7 +224,7 @@ public:
 
     /** Return the response headers.
     */
-    const http::fields_base&
+    const fields_base&
     headers() const noexcept
     {
         return parser_.get();
@@ -233,17 +232,17 @@ public:
 
     /** Return the payload size, if known.
 
-        Returns the size of the message payload when
-        it is determined by the message metadata.
-        Otherwise returns an empty optional, such as
-        for chunked messages.
+        Returns the value stated by the
+        Content-Length field. Otherwise returns an
+        empty optional, such as for chunked
+        messages. A response to a HEAD request
+        states the size of the representation even
+        though no payload follows.
     */
     std::optional<std::uint64_t>
     content_length() const noexcept
     {
-        if(parser_.get().payload() == http::payload::size)
-            return parser_.get().payload_size();
-        return std::nullopt;
+        return parser_.get().content_length();
     }
 
     /** Asynchronously read the entire body in place.

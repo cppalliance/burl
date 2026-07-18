@@ -9,10 +9,12 @@
 
 #include <boost/burl/client.hpp>
 #include <boost/burl/error.hpp>
+#include <boost/burl/request_head.hpp>
 
 #include "detail/base64.hpp"
 #include "detail/can_reuse_conn.hpp"
 #include "detail/connection_pool.hpp"
+#include "detail/content_coding.hpp"
 #include "detail/decoders.hpp"
 #include "detail/drain_body.hpp"
 #include "detail/redirect.hpp"
@@ -23,10 +25,6 @@
 #include <boost/capy/write.hpp>
 #include <boost/corosio/timeout.hpp>
 #include <boost/burl/detail/response_parser.hpp>
-#include <boost/http/field.hpp>
-#include <boost/http/request.hpp>
-#include <boost/http/response_base.hpp>
-#include <boost/http/status.hpp>
 
 #include <chrono>
 #include <optional>
@@ -43,7 +41,7 @@ namespace
 
 void
 set_accept_encoding(
-    http::request& headers,
+    request_head& head,
     client::config const& cfg)
 {
     std::string accept_encoding;
@@ -67,17 +65,17 @@ set_accept_encoding(
         accept("zstd");
 
     if(!accept_encoding.empty())
-        headers.set(http::field::accept_encoding, accept_encoding);
+        head.set(http::field::accept_encoding, accept_encoding);
 }
 
 void
-set_target(http::request& headers, const urls::url_view& url)
+set_target(request_head& head, const urls::url_view& url)
 {
     auto target = url.encoded_target();
     if(url.path().empty())
-        headers.set_target("/" + std::string(target));
+        head.set_target("/" + std::string(target));
     else
-        headers.set_target(target);
+        head.set_target(target);
 }
 
 } // namespace
@@ -192,38 +190,39 @@ client::execute_impl(
 {
     using field = http::field;
 
-    http::request headers(request.method, "/", config_.version);
+    request_head head(request.method, "/", config_.version);
 
     for(auto f : headers_)
-        if(!request.headers.exists(f.name))
-            headers.append(f.name, f.value);
+        if(!request.headers.contains(f.name))
+            head.append(f.name, f.value);
 
     for(auto f : request.headers)
-        headers.append(f.name, f.value);
+        head.append(f.name, f.value);
 
     if(request.body.has_value())
     {
         // Use the body's content type only if the caller did not set one.
-        if(!headers.exists(field::content_type))
+        if(!head.contains(field::content_type))
         {
             if(auto ct = request.body.content_type())
-                headers.set(field::content_type, ct.value());
+                head.set(field::content_type, ct.value());
         }
 
         // Content length is always derived from the body.
         if(auto cl = request.body.content_length())
-            headers.set_content_length(cl.value());
+            head.set_content_length(cl.value());
         else
-            headers.set_chunked(true);
+            head.set_chunked(true);
     }
 
-    auto const head        = headers.method() == http::method::head;
-    auto const auto_decode = !headers.exists(field::accept_encoding);
+    auto const is_head      = head.method() == http::method::head;
+    auto const auto_decode = !head.contains(field::accept_encoding);
     if(auto_decode)
-        set_accept_encoding(headers, config_);
+        set_accept_encoding(head, config_);
 
     detail::response_parser parser(
         {
+            .hdr_limits = {},
             .in_buffer  = config_.response_inplace_buffer,
             .dec_buffer = config_.response_inplace_buffer,
             .body_limit = config_.response_body_limit
@@ -238,21 +237,21 @@ client::execute_impl(
     auto request_cookies = request.headers.value_or(field::cookie, "");
     for(;;)
     {
-        set_target(headers, url);
-        headers.set(field::host, url.encoded_host_and_port());
+        set_target(head, url);
+        head.set(field::host, url.encoded_host_and_port());
 
         // set cookies
-        headers.erase(field::cookie);
+        head.erase(field::cookie);
         if(!request_cookies.empty())
         {
             if(trusted)
-                headers.set(field::cookie, request_cookies);
+                head.set(field::cookie, request_cookies);
         }
         else if(config_.cookies)
         {
             auto cookies = cookie_jar_.cookie_header(url);
             if(!cookies.empty())
-                headers.set(field::cookie, cookies);
+                head.set(field::cookie, cookies);
         }
 
         auto [cec, conn] = co_await pool_->acquire(url);
@@ -262,7 +261,7 @@ client::execute_impl(
         // TODO: expect100timeout
 
         auto stream = conn.stream();
-        sr.reset(&stream, &headers);
+        sr.reset(&stream, &head);
         if(request.body.has_value())
         {
             http::any_buffer_sink sink(&sr);
@@ -276,7 +275,7 @@ client::execute_impl(
         }
 
         parser.reset(std::move(stream));
-        parser.start(head);
+        parser.start(is_head);
 
         auto [rec] = co_await parser.read_header();
         if(rec)
@@ -304,10 +303,10 @@ client::execute_impl(
                 ec = std::error_code(status_int, burl_category());
 
             std::unique_ptr<detail::parser::decoder> dec;
-            if(auto_decode && !head)
+            if(auto_decode && !is_head)
             {
-                auto const& md = parser.get().metadata();
-                dec = detail::make_decoder(md.content_encoding.coding);
+                dec = detail::make_decoder(
+                    detail::content_coding(parser.get()));
                 parser.set_decoder(dec.get());
             }
 
@@ -334,7 +333,7 @@ client::execute_impl(
             auto referer = url;
             referer.remove_userinfo();
             referer.remove_fragment();
-            headers.set(field::referer, referer);
+            head.set(field::referer, referer.buffer());
         }
 
         // Prepare the next request to follow the redirect
@@ -343,14 +342,14 @@ client::execute_impl(
             co_return { error::bad_redirect_response, {} };
 
         // Change the method according to RFC 9110, Section 15.4.4.
-        if(need_method_change && headers.method() != http::method::head)
+        if(need_method_change && head.method() != http::method::head)
         {
-            headers.set_method(http::method::get);
-            headers.erase(field::content_length);
-            headers.erase(field::transfer_encoding);
-            headers.erase(field::content_encoding);
-            headers.erase(field::content_type);
-            headers.erase(field::expect);
+            head.set_method(http::method::get);
+            head.erase(field::content_length);
+            head.erase(field::transfer_encoding);
+            head.erase(field::content_encoding);
+            head.erase(field::content_type);
+            head.erase(field::expect);
             request.body = {}; // drop the body
         }
 
@@ -359,8 +358,8 @@ client::execute_impl(
 
         if(!trusted)
         {
-            headers.erase(field::authorization);
-            headers.erase(field::proxy_authorization);
+            head.erase(field::authorization);
+            head.erase(field::proxy_authorization);
             // cookies are removed on each iteration
         }
     }

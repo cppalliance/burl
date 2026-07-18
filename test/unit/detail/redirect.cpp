@@ -12,8 +12,8 @@
 
 #include "test_suite.hpp"
 
+#include <boost/burl/fields.hpp>
 #include <boost/http/field.hpp>
-#include <boost/http/response.hpp>
 #include <boost/http/status.hpp>
 #include <boost/url/url.hpp>
 #include <boost/url/url_view.hpp>
@@ -33,7 +33,7 @@ class redirect_test
     static std::string
     resolve(std::string_view location, urls::url_view base)
     {
-        http::response response;
+        fields response;
         response.set(http::field::location, location);
         return resolve_location(response, base).buffer();
     }
@@ -147,7 +147,7 @@ public:
     void
     testResolveNoLocation()
     {
-        http::response response;
+        fields response;
         BOOST_TEST(
             resolve_location(response, "http://a.test/").empty());
     }

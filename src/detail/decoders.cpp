@@ -128,7 +128,7 @@ public:
     process(
         capy::mutable_buffer out,
         capy::const_buffer in,
-        bool eof) override
+        bool) override
     {
         auto* next_in = static_cast<std::uint8_t const*>(in.data());
         auto available_in = in.size();
@@ -184,7 +184,7 @@ public:
     process(
         capy::mutable_buffer out,
         capy::const_buffer in,
-        bool eof) override
+        bool) override
     {
         ZSTD_inBuffer in_buf{ in.data(), in.size(), 0 };
         ZSTD_outBuffer out_buf{ out.data(), out.size(), 0 };

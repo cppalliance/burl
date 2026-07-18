@@ -11,13 +11,13 @@
 #define BOOST_BURL_SRC_DETAIL_SERIALIZER_HPP
 
 #include <boost/burl/error.hpp>
+#include <boost/burl/message_head_base.hpp>
 
 #include <boost/capy/buffers/buffer_copy.hpp>
 #include <boost/capy/buffers/buffer_param.hpp>
 #include <boost/capy/io/any_write_stream.hpp>
 #include <boost/capy/io_task.hpp>
 #include <boost/capy/write.hpp>
-#include <boost/http/message_base.hpp>
 
 namespace boost
 {
@@ -84,7 +84,7 @@ public:
         return stream_;
     }
 
-    http::message_base*
+    message_head_base*
     message() const noexcept
     {
         return msg_;
@@ -93,13 +93,13 @@ public:
     void
     reset(
         capy::any_write_stream* stream,
-        http::message_base* msg,
+        message_head_base* msg,
         encoder* enc = nullptr,
         bool head = false) noexcept;
 
     void
     reset(
-        http::message_base* msg,
+        message_head_base* msg,
         encoder* enc = nullptr,
         bool head = false) noexcept
     {
@@ -168,7 +168,7 @@ private:
     static constexpr std::size_t margin = 24;
 
     capy::any_write_stream* stream_;
-    http::message_base* msg_ = nullptr;
+    message_head_base* msg_ = nullptr;
     encoder* enc_ = nullptr;
     std::size_t min_prepare_;
     std::size_t direct_thr_;

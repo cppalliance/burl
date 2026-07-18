@@ -12,8 +12,6 @@
 
 #include <boost/burl/detail/parser.hpp>
 
-#include <boost/http/static_response.hpp>
-
 #include <utility>
 
 namespace boost
@@ -33,7 +31,7 @@ public:
     response_parser(
         config const& cfg,
         capy::any_read_stream stream = {})
-        : parser(cfg, http::detail::kind::response, std::move(stream))
+        : parser(cfg, false, std::move(stream))
     {
     }
 
@@ -48,7 +46,7 @@ public:
         parser::start(head);
     }
 
-    http::static_response const&
+    burl::response_head_base const&
     get() const
     {
         return get_response();

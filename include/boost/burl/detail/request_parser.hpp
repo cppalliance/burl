@@ -12,8 +12,6 @@
 
 #include <boost/burl/detail/parser.hpp>
 
-#include <boost/http/static_request.hpp>
-
 #include <utility>
 
 namespace boost
@@ -33,7 +31,7 @@ public:
     request_parser(
         config const& cfg,
         capy::any_read_stream stream = {})
-        : parser(cfg, http::detail::kind::request, std::move(stream))
+        : parser(cfg, true, std::move(stream))
     {
     }
 
@@ -48,7 +46,7 @@ public:
         parser::start(false);
     }
 
-    http::static_request const&
+    burl::request_head_base const&
     get() const
     {
         return get_request();

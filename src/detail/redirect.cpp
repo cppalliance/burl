@@ -45,7 +45,7 @@ is_redirect(
 
 urls::url
 resolve_location(
-    http::response_base const& response,
+    fields_base const& response,
     const urls::url_view& base)
 {
     auto it = response.find(http::field::location);

@@ -36,7 +36,7 @@ struct test_parser : parser
     test_parser(
         config const& cfg,
         capy::any_read_stream* stream = nullptr)
-        : parser(cfg, http::detail::kind::response, stream)
+        : parser(cfg, false, stream)
     {
     }
 
@@ -46,7 +46,7 @@ struct test_parser : parser
         parser::start(head);
     }
 
-    http::static_response const&
+    response_head_base const&
     get() const
     {
         return get_response();
@@ -309,8 +309,10 @@ public:
 
         capy::test::run_blocking()([&]() -> capy::task<>
         {
-            // Content-Length together with Transfer-Encoding makes
-            // the payload undefined
+            // Content-Length together with Transfer-Encoding
+            // makes the payload undefined; the header parser
+            // rejects it as the second of the two is parsed,
+            // so the header never completes
             server.provide(
                 "HTTP/1.1 200 OK\r\n"
                 "Content-Length: 5\r\n"
@@ -321,11 +323,7 @@ public:
             pr.start();
             auto [ec] = co_await pr.read_header();
             BOOST_TEST(ec == http::error::bad_payload);
-
-            // the parsed header stays accessible
-            BOOST_TEST(pr.got_header());
-            BOOST_TEST_EQ(pr.get().status_int(), 200);
-            BOOST_TEST(!pr.get().keep_alive());
+            BOOST_TEST(!pr.got_header());
             BOOST_TEST(!pr.got_body());
         }());
     }
@@ -1373,10 +1371,15 @@ public:
             "Transfer-Encoding: chunked\r\n"
             "\r\n";
 
-        // dec_buffer smaller than the dechunked body
+        // the input region holds the first chunk's data
+        // but not the whole dechunked body, so the second
+        // chunk overflows the in-place decode and falls
+        // back to streaming; max_fields leaves no table
+        // reserve to reclaim
         parser::config cfg;
         cfg.hdr_limits.max_size = hdr.size();
-        cfg.in_buffer = 5;
+        cfg.hdr_limits.max_fields = 1;
+        cfg.in_buffer = 9;
         capy::test::read_stream server;
         capy::any_read_stream stream(&server);
         test_parser pr(cfg, &stream);
@@ -1440,7 +1443,7 @@ public:
             pr.start();
             auto [ec] = co_await pr.read_header();
             BOOST_TEST(!ec);
-            BOOST_TEST(pr.get().metadata().payload ==
+            BOOST_TEST(pr.get().payload() ==
                 http::payload::to_eof);
             BOOST_TEST(!pr.got_body());
 
@@ -2510,7 +2513,7 @@ public:
             }
 
             // move-construct mid-body: pr2 must adopt the in-progress state
-            // (and the static_response the buffer points to), and the
+            // (and the parsed header the buffer points to), and the
             // moved-from pr must remain safely destructible.
             test_parser pr2(std::move(pr));
             BOOST_TEST(pr2.got_header());

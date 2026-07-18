@@ -12,8 +12,8 @@
 
 #include <boost/burl/any_request_body.hpp>
 #include <boost/burl/detail/config.hpp>
+#include <boost/burl/fields.hpp>
 
-#include <boost/http/fields.hpp>
 #include <boost/http/method.hpp>
 #include <boost/url/url.hpp>
 
@@ -90,7 +90,7 @@ struct request
         default headers of the @ref client with the
         same name.
     */
-    http::fields headers;
+    fields headers;
 
     /** The request body.
 

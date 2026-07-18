@@ -11,16 +11,13 @@
 
 #include <boost/burl/error.hpp>
 #include <boost/burl/detail/response_parser.hpp>
+#include <boost/burl/request_head.hpp>
 
 #include "base64.hpp"
 #include "effective_port.hpp"
 
 #include <boost/capy/buffers/make_buffer.hpp>
 #include <boost/capy/write.hpp>
-#include <boost/http/field.hpp>
-#include <boost/http/method.hpp>
-#include <boost/http/request.hpp>
-#include <boost/http/status.hpp>
 
 #include <string>
 
@@ -41,7 +38,7 @@ open_http_tunnel(
     host_port += ':';
     host_port += effective_port(target);
 
-    http::request req(http::method::connect, host_port);
+    request_head req(http::method::connect, host_port);
     req.set(http::field::host, host_port);
     req.set(http::field::proxy_connection, "keep-alive");
 

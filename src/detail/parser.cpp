@@ -21,7 +21,6 @@
 #include <boost/url/grammar/hexdig_chars.hpp>
 
 #include <cstring>
-#include <new>
 #include <type_traits>
 #include <utility>
 
@@ -32,14 +31,14 @@ namespace burl
 namespace detail
 {
 
+using http::condition::need_more_input;
 using http::error::bad_payload;
 using http::error::body_too_large;
+using http::error::end_of_stream;
 using http::error::in_place_overflow;
 using http::error::incomplete;
 using http::error::need_data;
-using http::condition::need_more_input;
 
-using header  = http::detail::header;
 using payload = http::payload;
 
 namespace
@@ -302,27 +301,19 @@ struct parser::chunk_fn
 parser::
 parser(
     config const& cfg,
-    http::detail::kind kind,
+    bool is_request,
     capy::any_read_stream stream)
-    : hdr_limits_(cfg.hdr_limits)
-    , stream_(std::move(stream))
+    : stream_(std::move(stream))
     , body_limit_(cfg.body_limit)
+    , is_req_(is_request)
 {
-    constexpr auto align = alignof(header::entry);
-    auto const h_cap = hdr_limits_.valid_space_needed() +
-        align * ((cfg.in_buffer + align - 1) / align);
-    auto* const p = static_cast<char*>(::operator new(
-        sizeof(http::static_response) + h_cap + cfg.dec_buffer));
-    in_  = { p + sizeof(http::static_response), h_cap - table_reserve() };
-    out_ = { in_.ptr + h_cap, cfg.dec_buffer };
-    if(kind == http::detail::kind::request)
-        h_.reset(reinterpret_cast<header*>(
-            ::new(static_cast<void*>(p))
-                http::static_request(in_.ptr, h_cap)));
-    else
-        h_.reset(reinterpret_cast<header*>(
-            ::new(static_cast<void*>(p))
-                http::static_response(in_.ptr, h_cap)));
+    auto const h_cap = head_parser::bytes_needed(
+        cfg.hdr_limits, cfg.in_buffer);
+    buf_ = std::make_unique_for_overwrite<char[]>(
+        h_cap + cfg.dec_buffer);
+    hp_  = { is_req_, buf_.get(), h_cap, cfg.hdr_limits };
+    in_  = { buf_.get(), 0 };
+    out_ = { buf_.get() + h_cap, cfg.dec_buffer };
 }
 
 bool
@@ -388,15 +379,7 @@ parser::
 payload_rem() const noexcept
 {
     BOOST_ASSERT(payload_sized());
-    return clamp(h_->md.payload_size - transferred_);
-}
-
-std::size_t
-parser::
-table_reserve() const noexcept
-{
-    return header::table_space(
-        hdr_limits_.max_fields);
+    return clamp(payload_size_ - transferred_);
 }
 
 void
@@ -408,58 +391,47 @@ start(bool head)
     if(payload_sized() && got_body_)
         in_.consume(payload_rem());
 
-    auto* const base =
-        reinterpret_cast<char*>(h_.get())
-            + sizeof(http::static_response);
-    move_leftovers(base, in_.data());
-    in_  = { base, static_cast<std::size_t>(
-        out_.ptr - base) - table_reserve(), 0, in_.size() };
-    out_ = { out_.ptr, out_.cap };
+    move_leftovers(buf_.get(), in_.data());
+    hp_.reset(in_.size()); // pass leftovers
+    in_ = { buf_.get(), 0 };
 
-    *h_ = header{ http::detail::empty{ h_->kind } };
-    h_->buf  = in_.ptr;
-    h_->cbuf = in_.ptr;
-    h_->cap  = in_.cap + table_reserve();
-
-    dec_         = nullptr;
-    chunk_rem_   = 0;
-    transferred_ = 0;
-    decoded_     = 0;
-    dec_err_     = {};
-    payload_     = payload::none;
-    head_        = head;
-    started_     = true;
-    got_header_  = false;
-    got_body_    = false;
-    mid_chunk_   = false;
-    fin_chunk_   = false;
+    dec_          = nullptr;
+    chunk_rem_    = 0;
+    transferred_  = 0;
+    decoded_      = 0;
+    payload_size_ = 0;
+    dec_err_      = {};
+    payload_      = payload::none;
+    head_         = head;
+    started_      = true;
+    got_header_   = false;
+    got_body_     = false;
+    mid_chunk_    = false;
+    fin_chunk_    = false;
 }
 
 void
 parser::
 reset(capy::any_read_stream stream) noexcept
 {
-    auto* const base =
-        reinterpret_cast<char*>(h_.get())
-            + sizeof(http::static_response);
-    in_  = { base, static_cast<std::size_t>(
-        out_.ptr - base) - table_reserve() };
-    out_ = { out_.ptr, out_.cap };
+    hp_.reset();
+    in_ = { buf_.get(), 0 };
 
-    stream_      = std::move(stream);
-    dec_         = nullptr;
-    chunk_rem_   = 0;
-    transferred_ = 0;
-    decoded_     = 0;
-    dec_err_     = {};
-    payload_     = payload::none;
-    head_        = false;
-    started_     = false;
-    got_header_  = false;
-    got_body_    = false;
-    mid_chunk_   = false;
-    fin_chunk_   = false;
-    eof_         = false;
+    stream_       = std::move(stream);
+    dec_          = nullptr;
+    chunk_rem_    = 0;
+    transferred_  = 0;
+    decoded_      = 0;
+    payload_size_ = 0;
+    dec_err_      = {};
+    payload_      = payload::none;
+    head_         = false;
+    started_      = false;
+    got_header_   = false;
+    got_body_     = false;
+    mid_chunk_    = false;
+    fin_chunk_    = false;
+    eof_          = false;
 }
 
 capy::io_task<>
@@ -626,25 +598,38 @@ read_header()
     for(;;)
     {
         system::error_code ec;
-        h_->parse(in_.size(), hdr_limits_, ec);
+        hp_.parse(ec);
         if(ec)
         {
             if(ec != need_more_input)
                 co_return { ec };
-            if(eof_ && in_.empty())
-                co_return { http::error::end_of_stream };
-            if(auto [rec] = co_await refill(); rec)
-                co_return rec;
+            if(eof_)
+            {
+                if(!hp_.got_some())
+                    co_return { end_of_stream };
+                co_return { incomplete };
+            }
+            auto [rec, n] = co_await stream_.read_some(hp_.prepare());
+            hp_.commit(n);
+            if(rec == capy::cond::eof)
+                eof_ = true;
+            else if(rec)
+                co_return { rec };
             continue;
         }
 
         // TODO: resize out_ based on payload and decoder
-        in_.ptr += h_->size;
-        in_.len -= h_->size;
-        in_.cap -= h_->size;
+        auto const leftovers = hp_.leftovers();
+        in_ = {
+            static_cast<char*>(leftovers.data()),
+            leftovers.size() + hp_.prepare().size(),
+            0,
+            leftovers.size() };
 
-        payload_ = head_ ? payload::none : h_->md.payload;
-        got_header_ = true;    
+        auto const& h = hp_.message_head();
+        got_header_   = true;
+        payload_      = head_ ? payload::none : h.payload();
+        payload_size_ = h.content_length().value_or(0);
 
         switch(payload_)
         {
@@ -764,22 +749,18 @@ read_body()
     }
 }
 
-http::static_response const&
+burl::response_head_base const&
 parser::
 get_response() const
 {
-    BOOST_ASSERT(h_);
-    return reinterpret_cast<
-        http::static_response const&>(*h_);
+    return hp_.response_head();
 }
 
-http::static_request const&
+burl::request_head_base const&
 parser::
 get_request() const
 {
-    BOOST_ASSERT(h_);
-    return reinterpret_cast<
-        http::static_request const&>(*h_);
+    return hp_.request_head();
 }
 
 capy::io_task<std::size_t>

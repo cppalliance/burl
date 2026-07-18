@@ -357,7 +357,7 @@ public:
             co_return { {}, capy::any_stream(std::move(cli)) };
         };
 
-        capy::run_async(ioc.get_executor())([&]() -> capy::task<>
+        auto client_task = [&]() -> capy::task<>
         {
             auto pool = std::make_shared<connection_pool>(
                 co_await capy::this_coro::executor,
@@ -366,7 +366,9 @@ public:
 
             auto [ec, pc] = co_await pool->acquire("http://example.com/");
             BOOST_TEST_EQ(ec, capy::error::timeout);
-        }());
+        };
+
+        capy::run_async(ioc.get_executor())(client_task());
         ioc.run();
     }
 
@@ -381,7 +383,7 @@ public:
             co_return { {}, capy::any_stream{ slow_stream{} } };
         };
 
-        capy::run_async(ioc.get_executor())([&]() -> capy::task<>
+        auto client_task = [&]() -> capy::task<>
         {
             auto pool = std::make_shared<connection_pool>(
                 co_await capy::this_coro::executor,
@@ -402,7 +404,9 @@ public:
                 make_buffer(buf));
             BOOST_TEST(wec == capy::error::timeout);
             BOOST_TEST_EQ(n2, 0);
-        }());
+        };
+
+        capy::run_async(ioc.get_executor())(client_task());
         ioc.run();
     }
 
@@ -426,7 +430,7 @@ public:
                 corosio::tls_context{},
                 client::config{});
 
-            for(auto i : { 0, 1 })
+            for(auto _ : { 0, 1 })
             {
                 auto [aec, pc] = co_await pool->acquire(server.url("http"));
                 BOOST_TEST(!aec);
@@ -503,7 +507,7 @@ public:
                 corosio::tls_context{},
                 client::config{});
 
-            for(auto i : { 0, 1 })
+            for(auto _ : { 0, 1 })
             {
                 auto [aec, pc] = co_await pool->acquire(server.url("https"));
                 BOOST_TEST(!aec);
@@ -610,7 +614,7 @@ public:
                 corosio::tls_context{},
                 std::move(cfg));
 
-            for(auto i : { 0, 1 })
+            for(auto _ : { 0, 1 })
             {
                 auto [aec, pc] = co_await pool->acquire("http://example.com");
                 BOOST_TEST(!aec);
@@ -690,7 +694,7 @@ public:
                 corosio::tls_context{},
                 std::move(cfg));
 
-            for(auto i : { 0, 1 })
+            for(auto _ : { 0, 1 })
             {
                 auto [aec, pc] = co_await pool->acquire("http://127.0.0.1");
                 BOOST_TEST(!aec);
@@ -744,7 +748,7 @@ public:
                 corosio::tls_context{},
                 std::move(cfg));
 
-            for(auto i : { 0, 1 })
+            for(auto _ : { 0, 1 })
             {
                 auto [aec, pc] = co_await pool->acquire("http://example.com");
                 BOOST_TEST(!aec);
@@ -766,7 +770,7 @@ public:
 
         for(auto const scheme : { "ftp", "https" })
         {
-            capy::run_async(ioc.get_executor())([&]() -> capy::task<>
+            auto client_task = [&]() -> capy::task<>
             {
                 client::config cfg;
                 cfg.proxy = server.url(scheme);
@@ -779,7 +783,9 @@ public:
                     co_await pool->acquire("http://example.com");
                 BOOST_TEST_EQ(ec, error::unsupported_proxy_scheme);
                 BOOST_TEST(!pc);
-            }());
+            };
+
+            capy::run_async(ioc.get_executor())(client_task());
             ioc.run();
             ioc.restart();
         }

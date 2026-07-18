@@ -82,7 +82,7 @@ void
 serializer::
 reset(
     capy::any_write_stream* stream,
-    http::message_base* msg,
+    message_head_base* msg,
     encoder* enc,
     bool head) noexcept
 {
@@ -333,9 +333,9 @@ flush(
     {
         auto const decl = [&]()-> std::uint64_t
         {
-            if(head_ || msg_->payload() != http::payload::size)
+            if(head_)
                 return 0;
-            return msg_->payload_size();
+            return msg_->content_length().value_or(0);
         }();
         auto const prod = total_body_ + len + tail_len;
 

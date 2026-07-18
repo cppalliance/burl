@@ -13,11 +13,12 @@
 #include <boost/burl/detail/connection_pool.hpp>
 #include <boost/burl/detail/response_parser.hpp>
 #include <boost/burl/response.hpp>
+#include <boost/burl/response_head.hpp>
 #include <boost/burl/test/detail/buffer_connection.hpp>
 
 #include <boost/capy/task.hpp>
 #include <boost/capy/test/run_blocking.hpp>
-#include <boost/http/response.hpp>
+#include <boost/url/url.hpp>
 
 #include <string>
 namespace boost
@@ -68,7 +69,7 @@ class response_factory
 {
     using clock = std::chrono::steady_clock;
 
-    http::response msg_;
+    response_head head_;
     std::vector<std::string> body_;
     urls::url url_;
     std::optional<clock::time_point> deadline_;
@@ -89,7 +90,7 @@ public:
     response_factory(
         http::status sc = http::status::ok,
         http::version v = http::version::http_1_1)
-        : msg_(sc, v)
+        : head_(sc, v)
     {
     }
 
@@ -109,7 +110,7 @@ public:
     response_factory&
     header(http::field field, core::string_view value)
     {
-        msg_.append(field, value);
+        head_.append(field, value);
         return *this;
     }
 
@@ -127,7 +128,7 @@ public:
     response_factory&
     header(core::string_view name, core::string_view value)
     {
-        msg_.append(name, value);
+        head_.append(name, value);
         return *this;
     }
 
@@ -167,7 +168,7 @@ public:
     response_factory&
     content_length(std::uint64_t value)
     {
-        msg_.set_content_length(value);
+        head_.set_content_length(value);
         return *this;
     }
 
@@ -186,7 +187,7 @@ public:
     response_factory&
     chunked(bool value)
     {
-        msg_.set_chunked(value);
+        head_.set_chunked(value);
         return *this;
     }
 
@@ -240,9 +241,9 @@ public:
     response
     create(capy::test::fuse fuse = {}) const
     {
-        auto msg = msg_;
+        auto head = head_;
         std::vector<std::string> chunks;
-        if(msg.chunked())
+        if(head.chunked())
         {
             for(auto const& piece : body_)
                 chunks.push_back(frame_chunk(piece));
@@ -250,12 +251,12 @@ public:
         }
         else
         {
-            if(msg.payload() != http::payload::size)
+            if(head.payload() != http::payload::size)
             {
                 std::uint64_t content_length = 0;
                 for(auto const& piece : body_)
                     content_length += piece.size();
-                msg.set_content_length(content_length);
+                head.set_content_length(content_length);
             }
             chunks = body_;
         }
@@ -264,7 +265,7 @@ public:
             std::make_unique<detail::buffer_connection>(
                 std::move(chunks),
                 std::move(fuse),
-                msg.buffer()),
+                std::string{ head.buffer() }),
             {},
             {});
 

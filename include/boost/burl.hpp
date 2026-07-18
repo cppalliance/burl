@@ -11,15 +11,26 @@
 #define BOOST_BURL_HPP
 
 #include <boost/burl/any_request_body.hpp>
-#include <boost/burl/conversion.hpp>
 #include <boost/burl/client.hpp>
+#include <boost/burl/conversion.hpp>
 #include <boost/burl/error.hpp>
+#include <boost/burl/fields.hpp>
+#include <boost/burl/fields_base.hpp>
 #include <boost/burl/file.hpp>
+#include <boost/burl/head_parser.hpp>
 #include <boost/burl/json.hpp>
+#include <boost/burl/message_head_base.hpp>
 #include <boost/burl/multipart_form.hpp>
 #include <boost/burl/request.hpp>
 #include <boost/burl/request_body.hpp>
+#include <boost/burl/request_head.hpp>
+#include <boost/burl/request_head_base.hpp>
 #include <boost/burl/response.hpp>
+#include <boost/burl/response_head.hpp>
+#include <boost/burl/response_head_base.hpp>
+#include <boost/burl/static_fields.hpp>
+#include <boost/burl/static_request_head.hpp>
+#include <boost/burl/static_response_head.hpp>
 #include <boost/burl/string.hpp>
 #include <boost/burl/urlencoded_form.hpp>
 
