@@ -495,8 +495,7 @@ walk_chunks(chunk_fn f, bool dry)
     if(fin_chunk_)
     {
         // from flatten_chunks
-        auto const b = prefix(
-            in_.data()[0], clamp(chunk_rem_));
+        auto const b = in_.first(clamp(chunk_rem_));
         auto const [ec, n] = f(b, true);
         if(!dry)
         {
@@ -862,7 +861,7 @@ decode_some(
         for(;;)
         {
             auto const rem = payload_sized() ? payload_rem() : in_.size();
-            auto const in  = prefix(in_.data()[0], rem);
+            auto const in  = in_.first(rem);
             if(in.size() == 0 && !got_body_)
             {
                 if(auto [fec] = co_await refill(); fec)

@@ -41,6 +41,9 @@ struct circular_buffer
     std::array<capy::const_buffer, 2>
     data() const noexcept;
 
+    capy::const_buffer
+    first(std::size_t n) const noexcept;
+
     std::array<capy::mutable_buffer, 2>
     prepare() const noexcept;
 

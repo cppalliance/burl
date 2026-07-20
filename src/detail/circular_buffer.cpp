@@ -9,6 +9,8 @@
 
 #include <boost/burl/detail/circular_buffer.hpp>
 
+#include "util.hpp"
+
 namespace boost
 {
 namespace burl
@@ -45,6 +47,14 @@ data() const noexcept
         return { { { ptr + pos, len }, { ptr, 0 } } };
     return { { { ptr + pos, cap - pos },
         { ptr, len - (cap - pos) } } };
+}
+
+capy::const_buffer
+circular_buffer::
+first(std::size_t n) const noexcept
+{
+    auto const k = (pos + len <= cap) ? len : cap - pos;
+    return { ptr + pos, clamp(k, n) };
 }
 
 std::array<capy::mutable_buffer, 2>
