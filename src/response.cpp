@@ -87,16 +87,16 @@ response::as_view() &
     co_return std::move(body);
 }
 
-capy::any_buffer_source
+http::any_buffer_source
 response::as_buffer_source() &
 {
-    return capy::any_buffer_source(&parser_);
+    return http::any_buffer_source(&parser_);
 }
 
-capy::any_read_source
+http::any_read_source
 response::as_read_source() &
 {
-    return capy::any_read_source(&parser_);
+    return http::any_read_source(&parser_);
 }
 
 } // namespace burl

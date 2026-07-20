@@ -10,7 +10,7 @@
 #include <boost/burl/urlencoded_form.hpp>
 
 #include <boost/capy/buffers/make_buffer.hpp>
-#include <boost/capy/io/any_buffer_sink.hpp>
+#include <boost/http/io/any_buffer_sink.hpp>
 #include <boost/url/encode.hpp>
 #include <boost/url/encoding_opts.hpp>
 #include <boost/url/rfc/unreserved_chars.hpp>
@@ -78,7 +78,7 @@ public:
     }
 
     capy::io_task<>
-    write(capy::any_buffer_sink& sink) const
+    write(http::any_buffer_sink& sink) const
     {
         auto [ec, n] = co_await sink.write_eof(
             capy::make_buffer(std::string_view(body_)));

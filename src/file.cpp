@@ -12,8 +12,8 @@
 #include "detail/send_file.hpp"
 
 #include <boost/capy/ex/this_coro.hpp>
-#include <boost/capy/io/any_buffer_source.hpp>
-#include <boost/capy/io/push_to.hpp>
+#include <boost/http/io/any_buffer_source.hpp>
+#include <boost/http/io/push_to.hpp>
 #include <boost/corosio/file_base.hpp>
 #include <boost/corosio/stream_file.hpp>
 #include <boost/http/server/mime_types.hpp>
@@ -61,7 +61,7 @@ public:
     }
 
     capy::io_task<>
-    write(capy::any_buffer_sink& sink) const
+    write(http::any_buffer_sink& sink) const
     {
         return detail::send_file(sink, path_, size_, true);
     }
@@ -94,7 +94,7 @@ tag_invoke(
     }
 
     auto src = resp.as_buffer_source();
-    auto [ec, n] = co_await capy::push_to(src, f);
+    auto [ec, n] = co_await http::push_to(src, f);
     co_return { ec, std::move(dest) };
 }
 

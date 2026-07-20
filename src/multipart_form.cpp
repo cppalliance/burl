@@ -13,7 +13,7 @@
 
 #include <boost/capy/buffers.hpp>
 #include <boost/capy/buffers/make_buffer.hpp>
-#include <boost/capy/io/any_buffer_sink.hpp>
+#include <boost/http/io/any_buffer_sink.hpp>
 #include <boost/http/server/mime_types.hpp>
 
 #include <cstdint>
@@ -173,7 +173,7 @@ public:
     }
 
     capy::io_task<>
-    write(capy::any_buffer_sink& sink) const
+    write(http::any_buffer_sink& sink) const
     {
         using capy::make_buffer;
 

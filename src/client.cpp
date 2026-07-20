@@ -265,7 +265,7 @@ client::execute_impl(
         sr.reset(&stream, &headers);
         if(request.body.has_value())
         {
-            capy::any_buffer_sink sink(&sr);
+            http::any_buffer_sink sink(&sr);
             if(auto [wec] = co_await request.body.write(sink); wec)
                 co_return { wec, {} };
         }

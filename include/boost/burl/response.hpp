@@ -16,8 +16,8 @@
 #include <boost/burl/detail/response_parser.hpp>
 #include <boost/burl/error.hpp>
 #include <boost/burl/test/fwd.hpp>
-#include <boost/capy/io/any_buffer_source.hpp>
-#include <boost/capy/io/any_read_source.hpp>
+#include <boost/http/io/any_buffer_source.hpp>
+#include <boost/http/io/any_read_source.hpp>
 #include <boost/capy/io_task.hpp>
 #include <boost/corosio/timeout.hpp>
 #include <boost/http/fields_base.hpp>
@@ -416,7 +416,7 @@ public:
         @see @ref as_read_source.
     */
     BOOST_BURL_DECL
-    capy::any_buffer_source
+    http::any_buffer_source
     as_buffer_source() &;
 
     /** Return a read source for reading the body.
@@ -431,7 +431,7 @@ public:
         @see @ref as_buffer_source.
     */
     BOOST_BURL_DECL
-    capy::any_read_source
+    http::any_read_source
     as_read_source() &;
 };
 

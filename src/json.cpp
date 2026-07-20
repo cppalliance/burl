@@ -52,7 +52,7 @@ public:
     }
 
     capy::io_task<>
-    write(capy::any_buffer_sink& sink) const
+    write(http::any_buffer_sink& sink) const
     {
         json::serializer sr;
         sr.reset(&value_);

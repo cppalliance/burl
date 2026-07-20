@@ -14,7 +14,7 @@
 #include <boost/burl/error.hpp>
 #include <boost/capy/cond.hpp>
 #include <boost/capy/ex/this_coro.hpp>
-#include <boost/capy/io/any_buffer_sink.hpp>
+#include <boost/http/io/any_buffer_sink.hpp>
 #include <boost/corosio/file_base.hpp>
 #include <boost/corosio/stream_file.hpp>
 
@@ -29,7 +29,7 @@ namespace detail
 
 capy::io_task<>
 send_file(
-    capy::any_buffer_sink& sink,
+    http::any_buffer_sink& sink,
     std::filesystem::path const& path,
     std::uint64_t size,
     bool call_eof)

@@ -13,9 +13,9 @@
 #include <boost/burl/any_request_body.hpp>
 
 #include <boost/capy/ex/run_async.hpp>
-#include <boost/capy/io/any_buffer_sink.hpp>
+#include <boost/http/io/any_buffer_sink.hpp>
 #include <boost/capy/task.hpp>
-#include <boost/capy/test/buffer_sink.hpp>
+#include <boost/http/test/buffer_sink.hpp>
 #include <boost/capy/test/fuse.hpp>
 #include <boost/corosio/io_context.hpp>
 
@@ -37,8 +37,8 @@ check_body(
     BOOST_TEST(body.has_value());
     capy::test::fuse f;
     auto r = f.armed([&](capy::test::fuse& f) -> capy::task<> {
-        capy::test::buffer_sink bs(f);
-        capy::any_buffer_sink sink(&bs);
+        http::test::buffer_sink bs(f);
+        http::any_buffer_sink sink(&bs);
 
         auto [ec] = co_await body.write(sink);
         if(ec)
@@ -57,8 +57,8 @@ check_io_body(
 {
     corosio::io_context ioc;
     std::error_code ec;
-    capy::test::buffer_sink bs;
-    capy::any_buffer_sink sink(&bs);
+    http::test::buffer_sink bs;
+    http::any_buffer_sink sink(&bs);
     capy::run_async(
         ioc.get_executor(),
         [&](capy::io_result<> res) {ec = res.ec; })

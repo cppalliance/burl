@@ -13,7 +13,7 @@
 #include <boost/burl/detail/config.hpp>
 #include <boost/burl/request_body.hpp>
 
-#include <boost/capy/io/any_buffer_sink.hpp>
+#include <boost/http/io/any_buffer_sink.hpp>
 #include <boost/capy/io_task.hpp>
 
 #include <cstdint>
@@ -59,7 +59,7 @@ class any_request_body
         content_length() const = 0;
 
         virtual capy::io_task<>
-        write(capy::any_buffer_sink& sink) const = 0;
+        write(http::any_buffer_sink& sink) const = 0;
     };
 
     template<RequestBody T>
@@ -85,7 +85,7 @@ class any_request_body
         }
 
         capy::io_task<>
-        write(capy::any_buffer_sink& sink) const override
+        write(http::any_buffer_sink& sink) const override
         {
             return body.write(sink);
         }
@@ -215,7 +215,7 @@ public:
         @return An awaitable yielding `(error_code)`.
     */
     capy::io_task<>
-    write(capy::any_buffer_sink& sink) const
+    write(http::any_buffer_sink& sink) const
     {
         return impl_->write(sink);
     }

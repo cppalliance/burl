@@ -13,9 +13,9 @@
 #include <boost/burl/any_request_body.hpp>
 #include <boost/burl/conversion.hpp>
 
-#include <boost/capy/io/any_buffer_sink.hpp>
+#include <boost/http/io/any_buffer_sink.hpp>
 #include <boost/capy/task.hpp>
-#include <boost/capy/test/buffer_sink.hpp>
+#include <boost/http/test/buffer_sink.hpp>
 #include <boost/capy/test/fuse.hpp>
 
 #include "test_suite.hpp"
@@ -53,8 +53,8 @@ struct urlencoded_form_test
             capy::test::fuse().armed(
                 [&](capy::test::fuse& f) -> capy::task<void>
                 {
-                    capy::test::buffer_sink bs(f);
-                    capy::any_buffer_sink sink(&bs);
+                    http::test::buffer_sink bs(f);
+                    http::any_buffer_sink sink(&bs);
 
                     auto [ec] = co_await body.write(sink);
                     if(ec)

@@ -27,7 +27,7 @@ struct MyRequestBody
 {
     std::optional<std::string>   content_type()   const;
     std::optional<std::uint64_t> content_length() const;
-    capy::io_task<>              write(capy::any_buffer_sink& sink) const;
+    capy::io_task<>              write(http::any_buffer_sink& sink) const;
 };
 ----
 

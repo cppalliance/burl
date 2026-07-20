@@ -10,7 +10,7 @@
 #ifndef BOOST_BURL_SRC_DETAIL_SEND_FILE_HPP
 #define BOOST_BURL_SRC_DETAIL_SEND_FILE_HPP
 
-#include <boost/capy/io/any_buffer_sink.hpp>
+#include <boost/http/io/any_buffer_sink.hpp>
 #include <boost/capy/io_task.hpp>
 
 #include <cstdint>
@@ -32,7 +32,7 @@ namespace detail
 // with error::file_changed if the file no longer holds `size` bytes.
 capy::io_task<>
 send_file(
-    capy::any_buffer_sink& sink,
+    http::any_buffer_sink& sink,
     std::filesystem::path const& path,
     std::uint64_t size,
     bool call_eof = false);
