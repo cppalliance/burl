@@ -13,7 +13,6 @@
 #include <boost/burl/string.hpp>
 #include <boost/burl/test/response_factory.hpp>
 
-#include <boost/capy/buffers/string_dynamic_buffer.hpp>
 #include <boost/capy/read.hpp>
 
 #include "test_suite.hpp"
@@ -240,8 +239,9 @@ public:
     void
     testTimeout()
     {
+        corosio::io_context ioc;
         // The body arrives before the timeout
-        capy::test::run_blocking()([]() -> capy::task<>
+        capy::run_async(ioc.get_executor())([]() -> capy::task<>
         {
             auto r1 = test::response_factory()
                 .timeout(10s)
@@ -261,6 +261,7 @@ public:
             BOOST_TEST(!ec2);
             BOOST_TEST_EQ(b2, "data");
         }());
+        ioc.run();
     }
 
     void
@@ -306,11 +307,11 @@ public:
                 .create();
 
             auto source = r.as_read_source();
-            std::string out;
+            char buf[16];
             auto [ec, n] = co_await capy::read(
-                source, capy::string_dynamic_buffer(&out));
-            BOOST_TEST(!ec);
-            BOOST_TEST_EQ(out, "aabbcc");
+                source, capy::make_buffer(buf));
+            BOOST_TEST(ec == capy::cond::eof);
+            BOOST_TEST_EQ(buf, std::string_view(buf, n));
         }());
     }
 

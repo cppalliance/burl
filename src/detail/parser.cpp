@@ -12,9 +12,11 @@
 #include "util.hpp"
 
 #include <boost/assert.hpp>
-#include <boost/capy/error.hpp>
-#include <boost/capy/buffers/make_buffer.hpp>
+#include <boost/capy/buffers/buffer_slice.hpp>
+#include <boost/capy/buffers/consuming_buffers.hpp>
 #include <boost/capy/buffers/front.hpp>
+#include <boost/capy/buffers/make_buffer.hpp>
+#include <boost/capy/error.hpp>
 #include <boost/url/grammar/error.hpp>
 #include <boost/url/grammar/hexdig_chars.hpp>
 
@@ -788,7 +790,7 @@ decode_some(
     if(capy::buffer_empty(buffers))
         co_return { {}, 0 };
 
-    auto slice = capy::buffer_slice(buffers);
+    auto outbufs = capy::consuming_buffers(buffers);
     std::size_t prod = 0;
     auto decode =
     [&](capy::const_buffer in, bool last)
@@ -806,7 +808,7 @@ decode_some(
         std::size_t cons = 0;
         for(;;)
         {
-            auto const out = capy::front(slice.data());
+            auto const out = capy::front(outbufs.data());
             if(out.size() == 0)
                 return { {}, cons };
             auto const lim = dec_limit_rem();
@@ -819,7 +821,7 @@ decode_some(
             transferred_ += r.consumed;
             prod += r.produced;
             decoded_ += r.produced;
-            slice.remove_prefix(r.produced);
+            outbufs.consume(r.produced);
             if(r.ec)
             {
                 dec_err_ = r.ec;
@@ -920,17 +922,16 @@ do_read_some(
         {
             std::size_t read = 0;
             std::size_t lim = raw_limit_rem();
-            auto slice = capy::buffer_slice(buffers);
+            auto outbufs = capy::consuming_buffers(buffers);
             auto ec = walk_chunks(
             [&](capy::const_buffer b, bool)
                 -> capy::io_result<std::size_t>
             {
                 auto const take = clamp(b.size(), lim);
                 lim -= take;
-                auto const n = capy::buffer_copy(
-                    slice.data(), b, take);
+                auto const n = capy::buffer_copy(outbufs.data(), b, take);
                 read += n;
-                slice.remove_prefix(n);
+                outbufs.consume(n);
                 if(take < b.size())
                     return { body_too_large, n };
                 return { {}, n };
@@ -963,7 +964,7 @@ do_read_some(
         if(eof_)
             co_return { incomplete, 0 };
         auto [ec, n] = co_await stream_.read_some(
-            capy::buffer_slice(buffers, 0, clamp(rem, lim)).data());
+            capy::buffer_slice(buffers, 0, clamp(rem, lim)));
         transferred_ += n;
         if(n == rem)
             got_body_ = true;
@@ -985,7 +986,7 @@ do_read_some(
         if(!in_.empty())
             co_return { {}, copy(lim) };
         auto [ec, n] = co_await stream_.read_some(
-            capy::buffer_slice(buffers, 0, lim).data());
+            capy::buffer_slice(buffers, 0, lim));
         transferred_ += n;
         if(ec == capy::cond::eof)
         {

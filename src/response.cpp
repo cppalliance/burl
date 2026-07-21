@@ -12,7 +12,7 @@
 #include "detail/can_reuse_conn.hpp"
 
 #include <boost/capy/error.hpp>
-#include <boost/capy/timeout.hpp>
+#include <boost/corosio/timeout.hpp>
 
 #include <chrono>
 #include <utility>
@@ -71,9 +71,9 @@ capy::io_task<std::string_view>
 response::try_as_view() &
 {
     if(deadline_)
-        return capy::timeout(
+        co_return co_await corosio::timeout(
             parser_.read_body(), *deadline_ - clock::now());
-    return parser_.read_body();
+    co_return co_await parser_.read_body();
 }
 
 capy::task<std::string_view>

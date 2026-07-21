@@ -10,8 +10,9 @@
 #include "serializer.hpp"
 
 #include <boost/assert.hpp>
-#include <boost/capy/cond.hpp>
 #include <boost/capy/buffers/make_buffer.hpp>
+#include <boost/capy/cond.hpp>
+#include <boost/capy/write_at_least.hpp>
 
 #include <cstring>
 #include <utility>
@@ -354,7 +355,8 @@ flush(
         append({ "\r\n0\r\n\r\n", len || tail_len ? 7u : 2u });
 
     auto const need = chunked || eof ? sum : owned + !!tail_len;
-    auto [ec, written] = co_await write_at_least({ vec, n }, need);
+    auto [ec, written] = co_await capy::write_at_least(
+        *stream_, std::span{ vec, n }, need);
     if(ec)
         co_return { ec, 0 };
 
@@ -364,27 +366,6 @@ flush(
     hdr_sent_ = true;
     done_ = eof;
     co_return { {}, consumed };
-}
-
-capy::io_task<std::size_t>
-serializer::
-write_at_least(
-    std::span<capy::const_buffer const> buffers,
-    std::size_t bytes)
-{
-    BOOST_ASSERT(bytes <= capy::buffer_size(buffers));
-    auto slice = capy::buffer_slice(buffers);
-    std::size_t written = 0;
-    while(written < bytes)
-    {
-        auto [ec, n] = co_await stream_->
-            write_some(slice.data());
-        written += n;
-        if(ec && written < bytes)
-            co_return { ec, written };
-        slice.remove_prefix(n);
-    }
-    co_return { {}, written };
 }
 
 } // namespace detail

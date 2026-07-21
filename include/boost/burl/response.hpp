@@ -19,6 +19,7 @@
 #include <boost/capy/io/any_buffer_source.hpp>
 #include <boost/capy/io/any_read_source.hpp>
 #include <boost/capy/io_task.hpp>
+#include <boost/corosio/timeout.hpp>
 #include <boost/http/fields_base.hpp>
 #include <boost/http/metadata.hpp>
 #include <boost/http/status.hpp>
@@ -332,18 +333,17 @@ public:
     {
         if(deadline_)
         {
-            auto dur = *deadline_ - clock::now();
-            if(dur <= clock::duration::zero())
-                return []() -> capy::io_task<T>
-                {
-                    co_return { capy::error::timeout, {} };
-                }();
-            return capy::timeout(
+            co_return co_await corosio::timeout(
                 tag_invoke(
-                    body_to_tag<T>{}, *this, std::forward<Args>(args)...),
-                dur);
+                    body_to_tag<T>{},
+                    *this,
+                    std::forward<Args>(args)...),
+                deadline_.value() - clock::now());
         }
-        return tag_invoke(body_to_tag<T>{}, *this, std::forward<Args>(args)...);
+        co_return co_await tag_invoke(
+            body_to_tag<T>{},
+            *this,
+            std::forward<Args>(args)...);
     }
 
     /** Asynchronously convert the body.

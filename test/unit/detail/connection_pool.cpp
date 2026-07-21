@@ -11,15 +11,13 @@
 #include "src/detail/connection_pool.hpp"
 
 #include <boost/capy/buffers.hpp>
-#include <boost/capy/buffers/string_dynamic_buffer.hpp>
-#include <boost/capy/delay.hpp>
-#include <boost/capy/read.hpp>
-#include <boost/capy/read_until.hpp>
-#include <boost/capy/write.hpp>
 #include <boost/capy/ex/run_async.hpp>
 #include <boost/capy/io/any_stream.hpp>
+#include <boost/capy/read.hpp>
 #include <boost/capy/test/run_blocking.hpp>
 #include <boost/capy/test/stream.hpp>
+#include <boost/capy/write.hpp>
+#include <boost/corosio/delay.hpp>
 #include <boost/corosio/io_context.hpp>
 #include <boost/corosio/openssl_stream.hpp>
 #include <boost/corosio/socket_option.hpp>
@@ -67,14 +65,14 @@ class connection_pool_test
         capy::io_task<std::size_t>
         read_some(auto)
         {
-            auto [ec] = co_await capy::delay(10s);
+            auto [ec] = co_await corosio::delay(10s);
             co_return { ec, {} };
         }
 
         capy::io_task<std::size_t>
         write_some(auto)
         {
-            auto [ec] = co_await capy::delay(10s);
+            auto [ec] = co_await corosio::delay(10s);
             co_return { ec, {} };
         }
     };
@@ -117,6 +115,24 @@ class connection_pool_test
         }
     };
 
+    capy::io_task<std::size_t>
+    read_until(
+        capy::any_stream s,
+        std::string& buf,
+        std::string_view delim)
+    {
+        for(;;)
+        {
+            if(auto pos = buf.find(delim); pos != std::string::npos)
+                co_return { {}, pos + delim.size() };
+            char tmp[256];
+            auto [ec, n] = co_await s.read_some(capy::make_buffer(tmp));
+            buf.append(tmp, n);
+            if(ec)
+                co_return { ec, buf.size() };
+        }
+    }
+
     static capy::task<>
     ping(capy::any_stream s)
     {
@@ -150,7 +166,6 @@ public:
     testOriginKeySeparation()
     {
         scripted_net net;
-
         urls::url_view const urls[4] =
         {
             "http://example.com",
@@ -158,8 +173,7 @@ public:
             "https://example.com",
             "https://a.example.com"
         };
-
-        capy::test::run_blocking()([&]() -> capy::task<>
+        net.run([&]() -> capy::task<>
         {
             auto pool = std::make_shared<connection_pool>(
                 co_await capy::this_coro::executor,
@@ -172,8 +186,7 @@ public:
                 BOOST_TEST(!ec);
                 pool->release(std::move(pc));
             }
-        }());
-
+        });
         BOOST_TEST_EQ(net.connects(), 4u);
         BOOST_TEST_EQ(net.origins[0], urls[0].buffer());
         BOOST_TEST_EQ(net.origins[1], urls[1].buffer());
@@ -186,8 +199,7 @@ public:
     {
         scripted_net net;
         urls::url_view url = "http://example.com";
-
-        capy::test::run_blocking()([&]() -> capy::task<>
+        net.run([&]() -> capy::task<>
         {
             auto pool = std::make_shared<connection_pool>(
                 co_await capy::this_coro::executor,
@@ -200,8 +212,7 @@ public:
                 BOOST_TEST(!ec);
                 pool->release(std::move(pc));
             }
-        }());
-
+        });
         BOOST_TEST_EQ(net.connects(), 1u);
         BOOST_TEST_EQ(net.origins[0], url.buffer());
     }
@@ -211,8 +222,7 @@ public:
     {
         scripted_net net;
         urls::url_view url = "http://example.com";
-
-        capy::test::run_blocking()([&]() -> capy::task<>
+        net.run([&]() -> capy::task<>
         {
             auto cfg = net.config();
             cfg.pool_max_idle_per_host = 1;
@@ -237,7 +247,7 @@ public:
             auto [ec4, pc4] = co_await pool->acquire(url);
             BOOST_TEST(!ec4);
             BOOST_TEST_EQ(net.connects(), 3u);
-        }());
+        });
     }
 
     void
@@ -245,8 +255,7 @@ public:
     {
         scripted_net net;
         urls::url_view url = "http://example.com";
-
-        capy::test::run_blocking()([&]() -> capy::task<>
+        net.run([&]() -> capy::task<>
         {
             auto cfg = net.config();
             cfg.pool_idle_timeout = 10ms;
@@ -261,13 +270,12 @@ public:
                 pool->release(std::move(pc));
             }
 
-            if(auto [ec] = co_await capy::delay(20ms); ec)
+            if(auto [ec] = co_await corosio::delay(20ms); ec)
                 throw std::system_error(ec);
 
             auto [ec, pc] = co_await pool->acquire(url);
             BOOST_TEST(!ec);
-        }());
-
+        });
         BOOST_TEST_EQ(net.connects(), 2u);
     }
 
@@ -276,8 +284,7 @@ public:
     {
         scripted_net net;
         urls::url_view url = "http://example.com";
-
-        capy::test::run_blocking()([&]() -> capy::task<>
+        net.run([&]() -> capy::task<>
         {
             auto pool = std::make_shared<connection_pool>(
                 co_await capy::this_coro::executor,
@@ -297,7 +304,7 @@ public:
             auto [ec, pc] = co_await pool->acquire(url);
             BOOST_TEST(!ec);
             // BOOST_TEST_EQ(net.connects(), 2u);
-        }());
+        });
     }
 
     void
@@ -305,8 +312,7 @@ public:
     {
         scripted_net net;
         urls::url_view url = "http://example.com";
-
-        capy::test::run_blocking()([&]() -> capy::task<>
+        net.run([&]() -> capy::task<>
         {
             auto pool = std::make_shared<connection_pool>(
                 co_await capy::this_coro::executor,
@@ -328,19 +334,19 @@ public:
 
             // Returning to a dead pool is a safe no-op.
             pc.return_to_pool();
-        }());
-
+        });
         BOOST_TEST_EQ(net.connects(), 1u);
     }
 
     void
     testConnectTimeout()
     {
+        corosio::io_context ioc;
         client::config cfg;
         cfg.connect_timeout = 10ms;
         cfg.connect_handler = [](urls::url_view) -> capy::io_task<capy::any_stream>
         {
-            if(auto [ec] = co_await capy::delay(1s); ec)
+            if(auto [ec] = co_await corosio::delay(1s); ec)
             {
                 BOOST_TEST_EQ(ec, capy::error::canceled);
                 co_return { ec, {} };
@@ -350,7 +356,7 @@ public:
             co_return { {}, capy::any_stream(std::move(cli)) };
         };
 
-        capy::test::run_blocking()([&]() -> capy::task<>
+        capy::run_async(ioc.get_executor())([&]() -> capy::task<>
         {
             auto pool = std::make_shared<connection_pool>(
                 co_await capy::this_coro::executor,
@@ -360,11 +366,13 @@ public:
             auto [ec, pc] = co_await pool->acquire("http://example.com/");
             BOOST_TEST_EQ(ec, capy::error::timeout);
         }());
+        ioc.run();
     }
 
     void
     testIoTimeout()
     {
+        corosio::io_context ioc;
         client::config cfg;
         cfg.io_timeout = 10ms;
         cfg.connect_handler = [](urls::url_view) -> capy::io_task<capy::any_stream>
@@ -372,7 +380,7 @@ public:
             co_return { {}, capy::any_stream{ slow_stream{} } };
         };
 
-        capy::test::run_blocking()([&]() -> capy::task<>
+        capy::run_async(ioc.get_executor())([&]() -> capy::task<>
         {
             auto pool = std::make_shared<connection_pool>(
                 co_await capy::this_coro::executor,
@@ -394,6 +402,7 @@ public:
             BOOST_TEST(wec == capy::error::timeout);
             BOOST_TEST_EQ(n2, 0);
         }());
+        ioc.run();
     }
 
     void
@@ -708,8 +717,7 @@ public:
             {
                 // CONNECT request: read up to the end of the headers
                 std::string req;
-                auto [rec, rn] = co_await capy::read_until(
-                    s, capy::dynamic_buffer(req), "\r\n\r\n");
+                auto [rec, rn] = co_await read_until(&s, req, "\r\n\r\n");
                 BOOST_TEST(!rec);
                 BOOST_TEST(req.starts_with(
                     "CONNECT example.com:80 HTTP/1.1\r\n"));
@@ -780,8 +788,7 @@ public:
     testUnsupportedUrlScheme()
     {
         scripted_net net;
-
-        capy::test::run_blocking()([&]() -> capy::task<>
+        net.run([&]() -> capy::task<>
         {
             auto pool = std::make_shared<connection_pool>(
                 co_await capy::this_coro::executor,
@@ -794,8 +801,7 @@ public:
                 BOOST_TEST_EQ(ec, error::unsupported_url_scheme);
                 BOOST_TEST(!pc);
             }
-        }());
-
+        });
         BOOST_TEST_EQ(net.connects(), 0u);
     }
 

@@ -16,13 +16,13 @@
 #include "socks5_tunnel.hpp"
 
 #include <boost/capy/io/any_stream.hpp>
-#include <boost/capy/timeout.hpp>
 #include <boost/corosio/connect.hpp>
 #include <boost/corosio/openssl_stream.hpp>
 #include <boost/corosio/resolver.hpp>
 #include <boost/corosio/shutdown_type.hpp>
 #include <boost/corosio/socket_option.hpp>
 #include <boost/corosio/tcp_socket.hpp>
+#include <boost/corosio/timeout.hpp>
 #include <boost/url/scheme.hpp>
 #include <boost/url/url_view.hpp>
 
@@ -198,6 +198,26 @@ private:
 
 } // namespace
 
+capy::io_task<std::size_t>
+connection::
+read_some_impl(capy::detail::mutable_buffer_array<8> rba)
+{
+    if(io_timeout_)
+        co_return co_await corosio::timeout(
+            do_read_some(rba), *io_timeout_);
+    co_return co_await do_read_some(rba);
+}
+
+capy::io_task<std::size_t>
+connection::
+write_some_impl(capy::detail::const_buffer_array<8> wba)
+{
+    if(io_timeout_)
+        co_return co_await corosio::timeout(
+            do_write_some(wba), *io_timeout_);
+    co_return co_await do_write_some(wba);
+}
+
 connection_pool::connection_pool(
     capy::executor_ref exec,
     corosio::tls_context tls_ctx,
@@ -234,7 +254,8 @@ connection_pool::acquire(urls::url_view url)
     }
 
     auto [ec, conn] =
-        co_await capy::timeout(connect(url), config_.connect_timeout);
+        co_await corosio::timeout(
+            connect(url), config_.connect_timeout);
     if(ec)
         co_return { ec, {} };
 

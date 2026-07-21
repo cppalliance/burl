@@ -72,7 +72,7 @@ private:
         {
             auto const b = capy::make_buffer(head_);
             auto const n = capy::buffer_copy(
-                bufs, capy::buffer_slice(b, head_pos_).data());
+                bufs, capy::buffer_slice(b, head_pos_));
             head_pos_ += n;
             co_return { {}, n };
         }
@@ -85,7 +85,7 @@ private:
 
         auto const b = capy::make_buffer(chunks_[idx_]);
         auto const n = capy::buffer_copy(
-            bufs, capy::buffer_slice(b, pos_).data());
+            bufs, capy::buffer_slice(b, pos_));
         pos_ += n;
         if(pos_ == b.size())
         {

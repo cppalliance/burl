@@ -11,9 +11,9 @@
 #include "detail/util.hpp"
 
 #include <boost/capy/buffers/make_buffer.hpp>
-#include <boost/capy/buffers/string_dynamic_buffer.hpp>
 #include <boost/capy/read.hpp>
 
+#include <algorithm>
 #include <cstdint>
 #include <string_view>
 #include <utility>
@@ -106,14 +106,40 @@ capy::io_task<std::string>
 tag_invoke(body_to_tag<std::string>, response& resp)
 {
     std::string ret;
+    auto source = resp.as_read_source();
 
     if(auto cl = resp.content_length())
-        ret.reserve(detail::clamp(*cl));
+    {
+        ret.resize(detail::clamp(*cl));
+        auto [ec, n] = co_await source.read(
+            capy::mutable_buffer(ret.data(), ret.size()));
+        ret.resize(n);
+        if(ec == capy::cond::eof)
+            ec.clear();
+        co_return { ec, ret };
+    }
 
-    auto source = resp.as_read_source();
-    auto [ec, n] =
-        co_await capy::read(source, capy::string_dynamic_buffer(&ret));
-    co_return { ec, ret };
+    std::size_t chunk = 4096;
+    ret.resize(chunk);
+    std::size_t total = 0;
+    for(;;)
+    {
+        auto [ec, n] = co_await source.read_some(
+            capy::mutable_buffer(ret.data() + total, ret.size() - total));
+        total += n;
+        if(ec)
+        {
+            ret.resize(total);
+            if(ec == capy::cond::eof)
+                ec.clear();
+            co_return { ec, ret };
+        }
+        if(total == ret.size())
+        {
+            chunk = std::min<std::size_t>(chunk * 2, 65536);
+            ret.resize(ret.size() + chunk);
+        }
+    }
 }
 
 } // namespace burl

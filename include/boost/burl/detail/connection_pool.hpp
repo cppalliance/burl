@@ -16,7 +16,6 @@
 #include <boost/capy/detail/buffer_array.hpp>
 #include <boost/capy/io/any_stream.hpp>
 #include <boost/capy/io_task.hpp>
-#include <boost/capy/timeout.hpp>
 
 #include <chrono>
 #include <cstddef>
@@ -38,9 +37,6 @@ class connection_pool;
 class connection
 {
     using duration = std::chrono::steady_clock::duration;
-
-    capy::detail::buffer_array<8, false> rba_; // TODO
-    capy::detail::buffer_array<8, true> wba_;  // TODO
     std::optional<duration> io_timeout_;
 
 public:
@@ -48,20 +44,14 @@ public:
     capy::io_task<std::size_t>
     read_some(MB buffers)
     {
-        rba_ = buffers;
-        if(io_timeout_)
-            return capy::timeout(do_read_some(rba_), *io_timeout_);
-        return do_read_some(rba_);
+        return read_some_impl(buffers);
     }
 
     template<capy::ConstBufferSequence CB>
     capy::io_task<std::size_t>
     write_some(CB buffers)
     {
-        wba_ = buffers;
-        if(io_timeout_)
-            return capy::timeout(do_write_some(wba_), *io_timeout_);
-        return do_write_some(wba_);
+        return write_some_impl(buffers);
     }
 
     void
@@ -79,6 +69,12 @@ public:
     virtual ~connection() = default;
 
 private:
+    capy::io_task<std::size_t>
+    read_some_impl(capy::detail::mutable_buffer_array<8>);
+
+    capy::io_task<std::size_t>
+    write_some_impl(capy::detail::const_buffer_array<8>);
+
     virtual capy::io_task<std::size_t>
     do_read_some(std::span<capy::mutable_buffer const> buffers) = 0;
 

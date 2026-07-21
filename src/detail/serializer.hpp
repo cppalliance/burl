@@ -165,12 +165,6 @@ private:
         std::span<capy::const_buffer const> tail,
         bool eof);
 
-    // TODO: replace this with capy's version
-    capy::io_task<std::size_t>
-    write_at_least(
-        std::span<capy::const_buffer const> buffers,
-        std::size_t bytes);
-
     static constexpr std::size_t margin = 24;
 
     capy::any_write_stream* stream_;

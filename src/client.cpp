@@ -20,8 +20,8 @@
 
 #include <boost/capy/buffers/make_buffer.hpp>
 #include <boost/capy/ex/execution_context.hpp>
-#include <boost/capy/timeout.hpp>
 #include <boost/capy/write.hpp>
+#include <boost/corosio/timeout.hpp>
 #include <boost/burl/detail/response_parser.hpp>
 #include <boost/http/field.hpp>
 #include <boost/http/request.hpp>
@@ -178,10 +178,11 @@ client::execute(burl::request request)
     auto timeout =
         request.options.timeout ? request.options.timeout : config_.timeout;
     if(!timeout)
-        return execute_impl(std::move(request), std::nullopt);
+        co_return co_await execute_impl(std::move(request), std::nullopt);
 
     auto deadline = config::clock::now() + *timeout;
-    return capy::timeout(execute_impl(std::move(request), deadline), *timeout);
+    co_return co_await corosio::timeout(
+        execute_impl(std::move(request), deadline), *timeout);
 }
 
 capy::io_task<response>
@@ -318,7 +319,7 @@ client::execute_impl(
         }
 
         // Read and discard small bodies so the connection can be reused
-        auto [dec, drained] = co_await capy::timeout(
+        auto [dec, drained] = co_await corosio::timeout(
             detail::drain_body(parser, 3),
             std::chrono::seconds(2));
         if(drained && detail::can_reuse_conn(parser))

@@ -16,6 +16,7 @@
 #include <boost/capy/io_task.hpp>
 #include <boost/capy/test/fuse.hpp>
 #include <boost/capy/test/stream.hpp>
+#include <boost/corosio/io_context.hpp>
 #include <boost/url/url_view.hpp>
 
 #include <cstddef>
@@ -31,6 +32,7 @@ namespace burl
 
 struct scripted_net
 {
+    corosio::io_context ioc;
     capy::test::fuse fuse;
     std::vector<std::string> scripts;
     std::vector<bool> close_after;
@@ -84,6 +86,14 @@ struct scripted_net
     written(std::size_t i)
     {
         return std::string(servers.at(i).data());
+    }
+
+    void
+    run(auto&& f)
+    {
+        capy::run_async(ioc.get_executor())(std::move(f)());
+        ioc.run();
+        ioc.restart();
     }
 };
 
