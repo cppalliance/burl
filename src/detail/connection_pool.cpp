@@ -23,11 +23,13 @@
 #include <boost/corosio/socket_option.hpp>
 #include <boost/corosio/tcp_socket.hpp>
 #include <boost/corosio/timeout.hpp>
+#include <boost/corosio/tls_stream.hpp>
 #include <boost/url/scheme.hpp>
 #include <boost/url/url_view.hpp>
 
 #include <memory>
 #include <string>
+#include <string_view>
 #include <utility>
 
 namespace boost
@@ -123,7 +125,13 @@ public:
     capy::io_task<>
     handshake()
     {
-        return stream_.handshake(corosio::openssl_stream::client);
+        return stream_.handshake(corosio::tls_role::client);
+    }
+
+    void
+    set_hostname(std::string_view hostname)
+    {
+        stream_.set_hostname(hostname);
     }
 
     bool
@@ -361,11 +369,9 @@ connection_pool::connect(urls::url_view url) const
 
     if(url.scheme_id() == scheme::https)
     {
-        auto tls_ctx = tls_ctx_;
-        tls_ctx.set_hostname(url.encoded_host());
-
         auto conn =
-            std::make_unique<tls_connection>(std::move(socket), tls_ctx);
+            std::make_unique<tls_connection>(std::move(socket), tls_ctx_);
+        conn->set_hostname(url.encoded_host());
         auto [hec] = co_await conn->handshake();
         if(hec)
             co_return { hec, {} };

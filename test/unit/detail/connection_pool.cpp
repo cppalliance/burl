@@ -23,6 +23,7 @@
 #include <boost/corosio/socket_option.hpp>
 #include <boost/corosio/tcp_acceptor.hpp>
 #include <boost/corosio/tls_context.hpp>
+#include <boost/corosio/tls_stream.hpp>
 
 #include "scripted_net.hpp"
 #include "test_suite.hpp"
@@ -486,7 +487,7 @@ public:
         {
             corosio::openssl_stream s{ co_await server.next(), tls_ctx };
             auto [hec] = co_await s.handshake(
-                corosio::openssl_stream::server);
+                corosio::tls_role::server);
             BOOST_TEST(!hec);
 
             co_await pong(&s);
