@@ -28,6 +28,7 @@
 #include "test_suite.hpp"
 
 #include <chrono>
+#include <exception>
 #include <string>
 #include <string_view>
 
@@ -950,42 +951,67 @@ public:
     void
     testTransportErrorInjection()
     {
-        // TODO
-        // capy::test::fuse f;
-        // auto r = f.armed([](capy::test::fuse& f) -> capy::task<>
-        // {
-        //     scripted_net net(f);
-        //     net.run([&]() -> capy::task<>
-        //     {
-        //         net.scripts = {
-        //             "HTTP/1.1 200 OK\r\n"
-        //             "Content-Length: 5\r\n"
-        //             "\r\n"
-        //             "hello" };
+        // Injects a transport error at each successive await point across the
+        // full connect/send/parse/read pipeline. burl's connect uses
+        // corosio::timeout, so each round must run on an io_context. Supply a
+        // runner for fuse::armed that drives one round on the io_context and
+        // returns the round's exception (null on success) without rethrowing
+        // (armed rethrows it from its own synchronous code).
+        //
+        // GCC PR124584 miscompiles tuple-protocol structured bindings captured
+        // in a coroutine frame (double-free/leak); fixed in GCC 15.4 and the
+        // releases/gcc-16 backport (r16-9218). Version macros can't tell a
+        // patched 16.x from an unpatched one, so skip on GCC 15.0-15.3 and all
+        // 16.x. Runs on clang, GCC 14, GCC 15.4+ (non-16), and GCC 17+.
+#if !(defined(__GNUC__) && !defined(__clang__) && \
+    ((__GNUC__ == 15 && __GNUC_MINOR__ < 4) || __GNUC__ == 16))
+        capy::test::fuse f;
+        corosio::io_context ioc;
+        auto run_on_ioc = [&ioc](auto t) -> std::exception_ptr
+        {
+            std::exception_ptr ep;
+            capy::run_async(
+                ioc.get_executor(),
+                [](auto&&...) noexcept {},
+                [&ep](std::exception_ptr e) noexcept { ep = e; })(
+                std::move(t));
+            ioc.run();
+            ioc.restart();
+            return ep;
+        };
+        auto r = f.armed(
+            run_on_ioc,
+            [](capy::test::fuse& f) -> capy::task<>
+        {
+            scripted_net net(f);
+            net.scripts = {
+                "HTTP/1.1 200 OK\r\n"
+                "Content-Length: 5\r\n"
+                "\r\n"
+                "hello" };
 
-        //         client c(
-        //             co_await capy::this_coro::executor,
-        //             corosio::tls_context(),
-        //             net.config());
+            client c(
+                co_await capy::this_coro::executor,
+                corosio::tls_context(),
+                net.config());
 
-        //         auto [ec, res] = co_await c
-        //             .get("http://example.com/")
-        //             .send();
-        //         if(ec)
-        //             co_return;
+            auto [ec, res] = co_await c
+                .get("http://example.com/")
+                .send();
+            if(ec)
+                co_return;
 
-        //         auto [ec2, body] = co_await res.try_as_view();
-        //         if(ec2)
-        //             co_return;
+            auto [ec2, body] = co_await res.try_as_view();
+            if(ec2)
+                co_return;
 
-        //         BOOST_TEST(res.status() == http::status::ok);
-        //         BOOST_TEST_EQ(body, "hello");
-        //         BOOST_TEST(
-        //             net.written(0).starts_with("GET / HTTP/1.1\r\n"));
-        //     });
-        //     co_return;
-        // });
-        // BOOST_TEST(r.success);
+            BOOST_TEST(res.status() == http::status::ok);
+            BOOST_TEST_EQ(body, "hello");
+            BOOST_TEST(
+                net.written(0).starts_with("GET / HTTP/1.1\r\n"));
+        });
+        BOOST_TEST(r.success);
+#endif
     }
 
     void
