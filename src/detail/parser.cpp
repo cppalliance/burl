@@ -236,32 +236,6 @@ collect(
     return dest.first(n);
 }
 
-void
-move_leftovers(
-    char* base,
-    std::array<capy::const_buffer, 2> const& bufs) noexcept
-{
-    auto const* a = static_cast<char const*>(bufs[0].data());
-    auto an       = bufs[0].size();
-    auto const* b = static_cast<char const*>(bufs[1].data());
-    auto const bn = bufs[1].size();
-    if(bn == 0)
-    {
-        std::memmove(base, a, an);
-        return;
-    }
-    do
-    {
-        auto* bp = (std::min)(base + an, const_cast<char*>(a) - bn);
-        b = static_cast<char const*>(std::memmove(bp, b, bn));
-        auto chunk_a = static_cast<std::size_t>(b - base);
-        std::memcpy(base, a, chunk_a);
-        an   -= chunk_a;
-        base += chunk_a;
-        a    += chunk_a;
-    } while(an);
-}
-
 auto
 prefix(
     auto buf,
@@ -312,7 +286,8 @@ parser(
     buf_ = std::make_unique_for_overwrite<char[]>(
         h_cap + cfg.dec_buffer);
     hp_  = { is_req_, buf_.get(), h_cap, cfg.hdr_limits };
-    in_  = { buf_.get(), 0 };
+    in_  = { buf_.get(), static_cast<std::size_t>(
+        hp_.ceiling() - buf_.get()) };
     out_ = { buf_.get() + h_cap, cfg.dec_buffer };
 }
 
@@ -391,9 +366,8 @@ start(bool head)
     if(payload_sized() && got_body_)
         in_.consume(payload_rem());
 
-    move_leftovers(buf_.get(), in_.data());
-    hp_.reset(in_.size()); // pass leftovers
-    in_ = { buf_.get(), 0 };
+    hp_.reset(
+        in_.linearize(buf_.get()));
 
     dec_          = nullptr;
     chunk_rem_    = 0;
@@ -414,8 +388,8 @@ void
 parser::
 reset(capy::any_read_stream stream) noexcept
 {
-    hp_.reset();
-    in_ = { buf_.get(), 0 };
+    hp_.reset(buf_.get());
+    in_.reset(buf_.get());
 
     stream_       = std::move(stream);
     dec_          = nullptr;
@@ -598,38 +572,34 @@ read_header()
     for(;;)
     {
         system::error_code ec;
-        hp_.parse(ec);
+        hp_.parse(in_.size(), ec);
         if(ec)
         {
+            if(ec == in_place_overflow && in_.ptr != buf_.get())
+            {
+                in_.slide(buf_.get());
+                hp_.rebase(buf_.get());
+                continue;
+            }
             if(ec != need_more_input)
                 co_return { ec };
             if(eof_)
             {
-                if(!hp_.got_some())
+                if(in_.empty())
                     co_return { end_of_stream };
                 co_return { incomplete };
             }
-            auto [rec, n] = co_await stream_.read_some(hp_.prepare());
-            hp_.commit(n);
-            if(rec == capy::cond::eof)
-                eof_ = true;
-            else if(rec)
-                co_return { rec };
+            if(auto [fec] = co_await refill(); fec)
+                co_return { fec };
             continue;
         }
-
-        // TODO: resize out_ based on payload and decoder
-        auto const leftovers = hp_.leftovers();
-        in_ = {
-            static_cast<char*>(leftovers.data()),
-            leftovers.size() + hp_.prepare().size(),
-            0,
-            leftovers.size() };
 
         auto const& h = hp_.message_head();
         got_header_   = true;
         payload_      = head_ ? payload::none : h.payload();
         payload_size_ = h.content_length().value_or(0);
+
+        auto const head_size = h.buffer().size();
 
         switch(payload_)
         {
@@ -639,7 +609,7 @@ read_header()
             got_body_ = true;
             break;
         case payload::size:
-            if(payload_rem() <= in_.size())
+            if(payload_rem() <= in_.size() - head_size)
                 got_body_ = true;
             break;
         case payload::chunked:
@@ -649,6 +619,15 @@ read_header()
                 got_body_ = true;
             break;
         }
+
+        if(!got_body_)
+        {
+            in_.slide(buf_.get());
+            hp_.rebase(buf_.get());
+        }
+
+        in_.shed(head_size);
+
         co_return {};
     }
 }

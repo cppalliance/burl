@@ -11,6 +11,11 @@
 
 #include "util.hpp"
 
+#include <boost/assert.hpp>
+
+#include <algorithm>
+#include <cstring>
+
 namespace boost
 {
 namespace burl
@@ -32,6 +37,13 @@ full() const noexcept
     return len == cap;
 }
 
+bool
+circular_buffer::
+wrapped() const noexcept
+{
+    return pos + len > cap;
+}
+
 std::size_t
 circular_buffer::
 size() const noexcept
@@ -43,7 +55,7 @@ std::array<capy::const_buffer, 2>
 circular_buffer::
 data() const noexcept
 {
-    if(pos + len <= cap)
+    if(!wrapped())
         return { { { ptr + pos, len }, { ptr, 0 } } };
     return { { { ptr + pos, cap - pos },
         { ptr, len - (cap - pos) } } };
@@ -53,7 +65,7 @@ capy::const_buffer
 circular_buffer::
 first(std::size_t n) const noexcept
 {
-    auto const k = (pos + len <= cap) ? len : cap - pos;
+    auto const k = wrapped() ? cap - pos : len;
     return { ptr + pos, clamp(k, n) };
 }
 
@@ -90,6 +102,74 @@ consume(std::size_t n) noexcept
     if(pos >= cap)
         pos -= cap;
     len -= n;
+}
+
+void
+circular_buffer::
+reset(char* p) noexcept
+{
+    BOOST_ASSERT(p <= ptr + cap);
+    cap = static_cast<std::size_t>((ptr + cap) - p);
+    ptr = p;
+    pos = 0;
+    len = 0;
+}
+
+void
+circular_buffer::
+shed(std::size_t n) noexcept
+{
+    BOOST_ASSERT(pos == 0);
+    BOOST_ASSERT(n <= len);
+    ptr += n;
+    cap -= n;
+    len -= n;
+}
+
+void
+circular_buffer::
+slide(char* p) noexcept
+{
+    BOOST_ASSERT(pos == 0);
+    BOOST_ASSERT(p <= ptr);
+    std::memmove(p, ptr, len);
+    cap += static_cast<std::size_t>(ptr - p);
+    ptr = p;
+}
+
+char*
+circular_buffer::
+linearize(char* floor) noexcept
+{
+    BOOST_ASSERT(floor <= ptr);
+    char* p = floor;
+    if(len != 0 && !wrapped())
+    {
+        p = ptr + pos;
+    }
+    else if(len != 0)
+    {
+        auto const bufs = data();
+        auto const* a = static_cast<char const*>(bufs[0].data());
+        auto an       = bufs[0].size();
+        auto const* b = static_cast<char const*>(bufs[1].data());
+        auto const bn = bufs[1].size();
+        char* base    = floor;
+        do
+        {
+            auto* bp = (std::min)(base + an, const_cast<char*>(a) - bn);
+            b = static_cast<char const*>(std::memmove(bp, b, bn));
+            auto chunk_a = static_cast<std::size_t>(b - base);
+            std::memcpy(base, a, chunk_a);
+            an   -= chunk_a;
+            base += chunk_a;
+            a    += chunk_a;
+        } while(an);
+    }
+    cap = static_cast<std::size_t>((ptr + cap) - p);
+    ptr = p;
+    pos = 0;
+    return p;
 }
 
 } // namespace detail

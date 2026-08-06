@@ -50,21 +50,55 @@ class head_parser_test
         head_parser::bytes_needed(
             { .max_size = 1, .max_fields = 0 });
 
-    // copy s into the parser's prepare region,
-    // commit it, and parse
+    // the parse base, which the parser exposes as
+    // the start of the header it is building
+    static
+    char*
+    base_of(head_parser const& pr) noexcept
+    {
+        return const_cast<char*>(
+            pr.message_head().buffer().data());
+    }
+
+    // the bytes past the header, which the caller
+    // locates from the header and its own total
+    static
+    std::string_view
+    leftovers(
+        head_parser const& pr,
+        std::size_t size) noexcept
+    {
+        auto const h = pr.message_head().buffer();
+        return { h.data() + h.size(), size - h.size() };
+    }
+
+    // place s at the parse base past the `size`
+    // bytes already there, then parse the new total
+    static
+    system::error_code
+    feed(
+        head_parser& pr,
+        std::size_t& size,
+        std::string_view s)
+    {
+        auto* const base = base_of(pr);
+        BOOST_ASSERT(base + size + s.size() <= pr.ceiling());
+        std::memcpy(base + size, s.data(), s.size());
+        size += s.size();
+        system::error_code ec;
+        pr.parse(size, ec);
+        return ec;
+    }
+
+    // one shot into a parser with nothing in it yet
     static
     system::error_code
     feed(
         head_parser& pr,
         std::string_view s)
     {
-        auto const mb = pr.prepare();
-        BOOST_ASSERT(mb.size() >= s.size());
-        std::memcpy(mb.data(), s.data(), s.size());
-        pr.commit(s.size());
-        system::error_code ec;
-        pr.parse(ec);
-        return ec;
+        std::size_t size = 0;
+        return feed(pr, size, s);
     }
 
 public:
@@ -83,16 +117,12 @@ public:
         std::string const body = "BODYBYTES";
 
         head_parser pr(true, buf_, sizeof(buf_));
-        auto const mb = pr.prepare();
-        BOOST_TEST(mb.data() == buf_);
-        std::memcpy(mb.data(), msg.data(), msg.size());
-        std::memcpy(
-            static_cast<char*>(mb.data()) + msg.size(),
-            body.data(),
-            body.size());
-        pr.commit(msg.size() + body.size());
+        BOOST_TEST(base_of(pr) == buf_);
+        std::memcpy(buf_, msg.data(), msg.size());
+        std::memcpy(buf_ + msg.size(), body.data(), body.size());
+        auto const fed = msg.size() + body.size();
         system::error_code ec;
-        pr.parse(ec);
+        pr.parse(fed, ec);
         BOOST_TEST(!ec);
 
         auto const& h = pr.request_head();
@@ -132,22 +162,17 @@ public:
         // untouched and reported as leftovers
         BOOST_TEST_EQ(
             std::string_view(buf_ + msg.size(), body.size()), body);
-        BOOST_TEST(pr.leftovers().data() == buf_ + msg.size());
-        BOOST_TEST_EQ(pr.leftovers().size(), body.size());
+        BOOST_TEST_EQ(leftovers(pr, fed), body);
 
         // the table reserve is withheld from the
         // writable region, before and after
         // completion alike
         auto const reserve = table_space(
             pr.limits().max_fields);
-        BOOST_TEST(
-            pr.prepare().data() == buf_ + msg.size() + body.size());
-        BOOST_TEST_EQ(
-            pr.prepare().size(),
-            sizeof(buf_) - reserve - msg.size() - body.size());
+        BOOST_TEST(pr.ceiling() == buf_ + sizeof(buf_) - reserve);
 
         // parsing again is a no-op success
-        pr.parse(ec);
+        pr.parse(fed, ec);
         BOOST_TEST(!ec);
     }
 
@@ -162,14 +187,14 @@ public:
 
         head_parser pr(true, buf_, sizeof(buf_));
         system::error_code ec;
+        std::size_t n = 0;
         for(char const c : msg)
         {
-            pr.parse(ec);
+            pr.parse(n, ec);
             BOOST_TEST(ec == http::error::need_data);
-            *static_cast<char*>(pr.prepare().data()) = c;
-            pr.commit(1);
+            buf_[n++] = c;
         }
-        pr.parse(ec);
+        pr.parse(n, ec);
         BOOST_TEST(!ec);
 
         auto const& h = pr.request_head();
@@ -393,18 +418,17 @@ public:
 
             head_parser pr(true, buf_, sizeof(buf_));
             system::error_code ec;
-            // bytes are appended through prepare
-            // and committed once; those already
-            // parsed are resolved in place and
-            // never rewritten
+            // bytes are appended one at a time;
+            // those already parsed are resolved in
+            // place and never rewritten
+            std::size_t n = 0;
             for(char const c : msg)
             {
-                pr.parse(ec);
+                pr.parse(n, ec);
                 BOOST_TEST(ec == http::error::need_data);
-                *static_cast<char*>(pr.prepare().data()) = c;
-                pr.commit(1);
+                buf_[n++] = c;
             }
-            pr.parse(ec);
+            pr.parse(n, ec);
             BOOST_TEST(!ec);
             BOOST_TEST_EQ(pr.request_head().at("X"), "1   continued");
         }
@@ -568,10 +592,11 @@ public:
             header_limits const& limits = {})
         {
             head_parser pr(is_request, buf_, sizeof(buf_), limits);
-            system::error_code ec = feed(pr, msg);
+            std::size_t n = 0;
+            system::error_code ec = feed(pr, n, msg);
             BOOST_TEST(ec == e);
             // errors are sticky
-            pr.parse(ec);
+            pr.parse(n, ec);
             BOOST_TEST(ec == e);
         };
 
@@ -866,13 +891,11 @@ public:
                 system::error_code ec;
                 for(std::size_t n = 0;; ++n)
                 {
-                    pr.parse(ec);
+                    pr.parse(n, ec);
                     if(ec != http::error::need_data ||
                         n == s.size())
                         break;
-                    *static_cast<char*>(
-                        pr.prepare().data()) = s[n];
-                    pr.commit(1);
+                    buf_[n] = s[n];
                 }
                 if(e == http::error::success)
                     BOOST_TEST(! ec);
@@ -958,13 +981,12 @@ public:
         alignas(4) char tiny[64];
 
         head_parser pr(true, tiny, sizeof(tiny));
-        BOOST_TEST_EQ(
-            pr.prepare().size(), 0u); // default max_fields = 100
+        BOOST_TEST(pr.ceiling() == tiny); // default max_fields = 100
         system::error_code ec;
-        pr.parse(ec);
+        pr.parse(0, ec);
         BOOST_TEST(ec == http::error::in_place_overflow);
         // the error is derived again on request
-        pr.parse(ec);
+        pr.parse(0, ec);
         BOOST_TEST(ec == http::error::in_place_overflow);
 
         // with fitting limits the same buffer works
@@ -1034,16 +1056,17 @@ public:
         header_limits const lim{ .max_fields = 4 };
         head_parser pr(true, buf, sizeof(buf), lim);
         system::error_code ec;
-        std::memcpy(pr.prepare().data(), msg.data(), 21);
-        pr.commit(21);
-        pr.parse(ec);
+        std::size_t n = 0;
+        std::memcpy(buf, msg.data(), 21);
+        n = 21;
+        pr.parse(n, ec);
         BOOST_TEST(ec == http::error::need_data);
 
-        // the new object continues from the same
-        // committed bytes
+        // the new object continues over the same
+        // bytes
         head_parser pr2(std::move(pr));
-        BOOST_TEST(pr2.prepare().data() == buf + 21);
-        BOOST_TEST(! feed(pr2, msg.substr(21)));
+        BOOST_TEST(base_of(pr2) == buf);
+        BOOST_TEST(! feed(pr2, n, msg.substr(21)));
         auto const& h = pr2.request_head();
         BOOST_TEST_EQ(h.target(), "/index");
         BOOST_TEST_EQ(h.at(http::field::host), "example.com");
@@ -1066,8 +1089,8 @@ public:
         // default construction: zero-size buffer,
         // no room to receive anything
         head_parser pr3;
-        BOOST_TEST_EQ(pr3.prepare().size(), 0u);
-        pr3.parse(ec);
+        BOOST_TEST(pr3.ceiling() == base_of(pr3));
+        pr3.parse(0, ec);
         BOOST_TEST(ec == http::error::in_place_overflow);
     }
 
@@ -1085,9 +1108,9 @@ public:
         BOOST_TEST(! feed(pr, msg1));
         BOOST_TEST_EQ(pr.request_head().target(), "/a");
 
-        pr.reset();
-        BOOST_TEST(! pr.got_some());
-        BOOST_TEST(pr.prepare().data() == buf);
+        pr.reset(buf);
+        BOOST_TEST(base_of(pr) == buf);
+        BOOST_TEST_EQ(pr.message_head().buffer().size(), 0u);
         std::string_view const msg2 =
             "POST /bb HTTP/1.1\r\nHost: b\r\nX: y\r\n\r\n";
         BOOST_TEST(! feed(pr, msg2));
@@ -1115,26 +1138,22 @@ public:
             "POST /b HTTP/1.1\r\n\r\n";
 
         head_parser pr(true, buf, sizeof(buf), { .max_fields = 4 });
-        BOOST_TEST(! pr.got_some());
         auto const both =
             std::string(msg1) + std::string(msg2);
-        BOOST_TEST(! feed(pr, both));
-        BOOST_TEST(pr.got_some());
-        auto const lo = pr.leftovers();
+        std::size_t n = 0;
+        BOOST_TEST(! feed(pr, n, both));
+        auto const lo = leftovers(pr, n);
         BOOST_TEST(lo.data() == buf + msg1.size());
-        BOOST_TEST_EQ(
-            std::string_view(
-                static_cast<char const*>(lo.data()), lo.size()),
-            msg2);
+        BOOST_TEST_EQ(lo, msg2);
 
         std::memmove(buf, lo.data(), lo.size());
-        pr.reset(lo.size());
-        BOOST_TEST(pr.got_some());
+        pr.reset(buf);
+        n = lo.size();
         system::error_code ec;
-        pr.parse(ec);
+        pr.parse(n, ec);
         BOOST_TEST(! ec);
         BOOST_TEST_EQ(pr.request_head().target(), "/b");
-        BOOST_TEST_EQ(pr.leftovers().size(), 0u);
+        BOOST_TEST_EQ(leftovers(pr, n).size(), 0u);
     }
 
     void
@@ -1151,8 +1170,8 @@ public:
             head_parser pr(true, raw + 1, 41, lim);
             // raw + 42 aligns down to raw + 40:
             // 39 usable bytes, 12 reserved
-            BOOST_TEST_EQ(pr.prepare().size(), 27u);
-            BOOST_TEST(pr.prepare().data() == raw + 1);
+            BOOST_TEST(base_of(pr) == raw + 1);
+            BOOST_TEST_EQ(pr.ceiling() - (raw + 1), 27);
             BOOST_TEST(! feed(pr, msg));
             BOOST_TEST_EQ(
                 pr.request_head().at(http::field::host), "x");
@@ -1165,9 +1184,9 @@ public:
             for(std::size_t n = 0; n <= 12; ++n)
             {
                 head_parser pr(true, raw, n, lim);
-                BOOST_TEST_EQ(pr.prepare().size(), 0u);
+                BOOST_TEST(pr.ceiling() == raw);
                 system::error_code ec;
-                pr.parse(ec);
+                pr.parse(0, ec);
                 BOOST_TEST(ec == http::error::in_place_overflow);
             }
         }
@@ -1177,20 +1196,21 @@ public:
         {
             alignas(4) char raw[36];
             head_parser pr(true, raw, sizeof(raw), lim);
-            BOOST_TEST_EQ(pr.prepare().size(), 24u);
-            auto ec = feed(pr, msg.substr(0, 24));
+            BOOST_TEST_EQ(pr.ceiling() - raw, 24);
+            std::size_t n = 0;
+            auto ec = feed(pr, n, msg.substr(0, 24));
             BOOST_TEST(ec == http::error::in_place_overflow);
             // and stays so
-            pr.parse(ec);
+            pr.parse(n, ec);
             BOOST_TEST(ec == http::error::in_place_overflow);
         }
     }
 
-    // Feed `s` through prepare()/commit()/parse() in
-    // chunks of at most `chunk` bytes (0 for as much as
-    // prepare() offers), stopping once the parser stops
-    // asking for bytes or the caller has none left to
-    // give. Reports how much was committed.
+    // Feed `s` to the parse base in chunks of at most
+    // `chunk` bytes (0 for as much as fits below the
+    // table), stopping once the parser stops asking for
+    // bytes or the caller has none left to give. Reports
+    // how much was placed.
     static
     system::error_code
     drive(
@@ -1199,23 +1219,24 @@ public:
         std::size_t chunk,
         std::size_t& fed)
     {
+        auto* const base = base_of(pr);
         system::error_code ec;
         fed = 0;
         for(;;)
         {
-            pr.parse(ec);
+            pr.parse(fed, ec);
             if(ec != http::error::need_data)
                 break;
-            auto const mb = pr.prepare();
-            if(mb.size() == 0 || fed == s.size())
+            auto const room = static_cast<std::size_t>(
+                pr.ceiling() - (base + fed));
+            if(room == 0 || fed == s.size())
                 break;
             auto n = s.size() - fed;
             if(chunk != 0 && n > chunk)
                 n = chunk;
-            if(n > mb.size())
-                n = mb.size();
-            std::memcpy(mb.data(), s.data() + fed, n);
-            pr.commit(n);
+            if(n > room)
+                n = room;
+            std::memcpy(base + fed, s.data() + fed, n);
             fed += n;
         }
         return ec;
@@ -1283,10 +1304,9 @@ public:
 
                     // the region offered is always inside
                     // the buffer
-                    auto const mb0 = pr.prepare();
-                    BOOST_TEST(mb0.size() <= n);
-                    BOOST_TEST(
-                        static_cast<char*>(mb0.data()) >= raw + off);
+                    BOOST_TEST(base_of(pr) == raw + off);
+                    BOOST_TEST(pr.ceiling() >= raw + off);
+                    BOOST_TEST(pr.ceiling() <= raw + off + n);
 
                     std::size_t fed = 0;
                     auto const ec = drive(pr, wire, chunk, fed);
@@ -1323,21 +1343,16 @@ public:
                     // and the payload which followed it in
                     // is byte for byte where it landed
                     auto const got = fed - h.size();
-                    BOOST_TEST_EQ(pr.leftovers().size(), got);
-                    BOOST_TEST(
-                        pr.leftovers().data() ==
-                            raw + off + h.size());
+                    auto const lo = leftovers(pr, fed);
+                    BOOST_TEST_EQ(lo.size(), got);
+                    BOOST_TEST(lo.data() == raw + off + h.size());
                     BOOST_TEST_EQ(
-                        std::string_view(
-                            raw + off + h.size(), got),
-                        std::string_view(pay).substr(0, got));
+                        lo, std::string_view(pay).substr(0, got));
 
                     // leftovers and the still-writable
                     // region together stay in the buffer
                     BOOST_TEST(
-                        static_cast<char*>(pr.leftovers().data()) +
-                            pr.leftovers().size() +
-                            pr.prepare().size() <= raw + off + n);
+                        lo.data() + lo.size() <= pr.ceiling());
                 }
             }
         }
@@ -1583,13 +1598,57 @@ public:
         head_parser pr(true, owned.get(), cap, lim);
         std::size_t fed = 0;
         BOOST_TEST(! drive(pr, wire, 0, fed));
-        BOOST_TEST_EQ(pr.prepare().size(), 0u);
+        BOOST_TEST(base_of(pr) + fed == pr.ceiling());
 
-        auto const lo = pr.leftovers();
+        auto const lo = leftovers(pr, fed);
         BOOST_TEST_EQ(lo.size(), carry);
         std::memmove(owned.get(), lo.data(), lo.size());
-        pr.reset(lo.size());
-        BOOST_TEST_EQ(pr.prepare().size(), one.size());
+        pr.reset(owned.get());
+        BOOST_TEST_EQ(
+            pr.ceiling() - (owned.get() + lo.size()), one.size());
+    }
+
+    void
+    testRebase()
+    {
+        std::string_view const msg =
+            "GET /a HTTP/1.1\r\nHost: x\r\n\r\n";
+        std::string_view const carry = "GET /b";
+
+        // a header built away from the front, moved down
+        // once it is complete
+        head_parser pr(true, buf_, sizeof(buf_));
+        pr.reset(buf_ + 64);
+        std::size_t n = 0;
+        BOOST_TEST(
+            ! feed(pr, n, std::string(msg) + std::string(carry)));
+        BOOST_TEST(pr.message_head().buffer().data() == buf_ + 64);
+
+        std::memmove(buf_, buf_ + 64, n);
+        pr.rebase(buf_);
+        BOOST_TEST(pr.message_head().buffer().data() == buf_);
+        BOOST_TEST_EQ(pr.message_head().buffer(), msg);
+        BOOST_TEST_EQ(pr.request_head().target(), "/a");
+        BOOST_TEST_EQ(pr.request_head().at(http::field::host), "x");
+        BOOST_TEST_EQ(leftovers(pr, n), carry);
+
+        // rebasing where it already is is harmless
+        pr.rebase(buf_);
+        BOOST_TEST_EQ(pr.request_head().target(), "/a");
+
+        // a rebase in the middle of a parse keeps the
+        // progress made so far
+        head_parser pr2(true, buf_, sizeof(buf_));
+        pr2.reset(buf_ + 64);
+        std::size_t n2 = 0;
+        BOOST_TEST(
+            feed(pr2, n2, "GET /c HTTP/1.1\r\nHo") ==
+                http::error::need_data);
+        std::memmove(buf_, buf_ + 64, n2);
+        pr2.rebase(buf_);
+        BOOST_TEST(! feed(pr2, n2, "st: y\r\n\r\n"));
+        BOOST_TEST_EQ(pr2.request_head().target(), "/c");
+        BOOST_TEST_EQ(pr2.request_head().at(http::field::host), "y");
     }
 
     void
@@ -1610,25 +1669,30 @@ public:
         auto owned = std::unique_ptr<char[]>(new char[cap]);
 
         head_parser pr(true, owned.get(), cap, lim);
-        std::size_t fed = 0;
+        // bytes taken off the wire, and how many of
+        // them are sitting at the parse base
+        std::size_t sent = 0;
+        std::size_t held = 0;
         int done = 0;
         for(int round = 0; round < 4; ++round)
         {
             system::error_code ec;
             for(;;)
             {
-                pr.parse(ec);
+                pr.parse(held, ec);
                 if(ec != http::error::need_data)
                     break;
-                auto const mb = pr.prepare();
-                if(mb.size() == 0 || fed == wire.size())
+                auto* const at = base_of(pr) + held;
+                auto const room = static_cast<std::size_t>(
+                    pr.ceiling() - at);
+                if(room == 0 || sent == wire.size())
                     break;
-                auto n = wire.size() - fed;
-                if(n > mb.size())
-                    n = mb.size();
-                std::memcpy(mb.data(), wire.data() + fed, n);
-                pr.commit(n);
-                fed += n;
+                auto n = wire.size() - sent;
+                if(n > room)
+                    n = room;
+                std::memcpy(at, wire.data() + sent, n);
+                sent += n;
+                held += n;
             }
             if(! BOOST_TEST(! ec))
                 break;
@@ -1636,9 +1700,10 @@ public:
             BOOST_TEST_EQ(pr.request_head().at(http::field::host), "x");
             ++done;
 
-            auto const lo = pr.leftovers();
+            auto const lo = leftovers(pr, held);
             std::memmove(owned.get(), lo.data(), lo.size());
-            pr.reset(lo.size());
+            pr.reset(owned.get());
+            held = lo.size();
         }
         BOOST_TEST_EQ(done, 4);
     }
@@ -1668,6 +1733,7 @@ public:
         testLimitSweep();
         testFieldLineAtUint16Max();
         testResetFullBuffer();
+        testRebase();
         testPipelineRounds();
     }
 };

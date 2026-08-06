@@ -473,11 +473,9 @@ public:
         auto const parse =
             [&](head_parser& pr)
             {
-                std::memcpy(
-                    pr.prepare().data(), msg.data(), msg.size());
-                pr.commit(msg.size());
+                std::memcpy(buf, msg.data(), msg.size());
                 system::error_code ec;
-                pr.parse(ec);
+                pr.parse(msg.size(), ec);
                 BOOST_TEST(!ec);
             };
 
@@ -524,10 +522,9 @@ public:
             "Transfer-Encoding: chunked\r\n"
             "\r\n";
         head_parser pr(false, buf, sizeof(buf));
-        std::memcpy(pr.prepare().data(), msg.data(), msg.size());
-        pr.commit(msg.size());
+        std::memcpy(buf, msg.data(), msg.size());
         system::error_code ec;
-        pr.parse(ec);
+        pr.parse(msg.size(), ec);
         BOOST_TEST(!ec);
         response_head_base const& base = pr.response_head();
 

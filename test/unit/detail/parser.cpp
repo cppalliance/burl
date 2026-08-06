@@ -2684,6 +2684,145 @@ public:
     }
 
     void
+    testStartParksCompleteMessage()
+    {
+        capy::test::read_stream server;
+        capy::any_read_stream stream(&server);
+        test_parser pr({}, &stream);
+
+        capy::test::run_blocking()([&]() -> capy::task<>
+        {
+            server.provide(
+                "HTTP/1.1 200 OK\r\n"
+                "Content-Length: 5\r\n"
+                "\r\n"
+                "hello"
+                "HTTP/1.1 200 OK\r\n"
+                "Content-Length: 3\r\n"
+                "\r\n"
+                "bye");
+
+            pr.start();
+            char const* first = nullptr;
+            {
+                auto [ec, body] = co_await pr.read_body();
+                BOOST_TEST(!ec);
+                BOOST_TEST(body == "hello");
+                first = body.data();
+            }
+            pr.consume(5);
+
+            pr.start();
+
+            // the octets carried over are reported even though
+            // the header has not completed yet
+            BOOST_TEST(pr.has_buffered_data());
+            {
+                auto [ec, body] = co_await pr.read_body();
+                BOOST_TEST(!ec);
+                BOOST_TEST(body == "bye");
+
+                // the whole message was already buffered, so the
+                // header was parsed where its octets lay; nothing
+                // was moved back to the front of the buffer
+                BOOST_TEST(body.data() > first + 5);
+            }
+        }());
+    }
+
+    void
+    testStartCompactsIncompleteMessage()
+    {
+        capy::test::read_stream server;
+        capy::any_read_stream stream(&server);
+        test_parser pr({}, &stream);
+
+        capy::test::run_blocking()([&]() -> capy::task<>
+        {
+            server.provide(
+                "HTTP/1.1 200 OK\r\n"
+                "Content-Length: 5\r\n"
+                "\r\n"
+                "hello"
+                "HTTP/1.1 200 OK\r\n"
+                "Content-Length: 3\r\n"
+                "\r\n");
+
+            pr.start();
+            char const* first = nullptr;
+            {
+                auto [ec, body] = co_await pr.read_body();
+                BOOST_TEST(!ec);
+                BOOST_TEST(body == "hello");
+                first = body.data();
+            }
+            pr.consume(5);
+
+            pr.start();
+            {
+                auto [ec] = co_await pr.read_header();
+                BOOST_TEST(!ec);
+            }
+            server.provide("bye");
+            {
+                auto [ec, body] = co_await pr.read_body();
+                BOOST_TEST(!ec);
+                BOOST_TEST(body == "bye");
+
+                // the body had not arrived, so the header was
+                // moved back to the front to recover the window;
+                // both headers are the same length
+                BOOST_TEST(body.data() == first);
+            }
+        }());
+    }
+
+    void
+    testStartRetriesOverflowAtParkedBase()
+    {
+        // sized so that once the first message is parked, the run
+        // above the parked base is too short for the second
+        // header. Parsing must fall back to the front of the
+        // buffer rather than fail with in_place_overflow.
+        parser::config cfg;
+        cfg.hdr_limits.max_fields = 1;
+        cfg.hdr_limits.max_size = 39;
+        cfg.in_buffer = 36;
+
+        capy::test::read_stream server;
+        capy::any_read_stream stream(&server);
+        test_parser pr(cfg, &stream);
+
+        capy::test::run_blocking()([&]() -> capy::task<>
+        {
+            server.provide(
+                "HTTP/1.1 200 OK\r\n"       // 39 octets
+                "Content-Length: 20\r\n"
+                "\r\n"
+                "01234567890123456789"      // 20 octets
+                "HTTP/1.1 200 OK\r\n"       // 38 octets
+                "Content-Length: 3\r\n"
+                "\r\n"
+                "bye");
+
+            pr.start();
+            {
+                auto [ec, body] = co_await pr.read_body();
+                BOOST_TEST(!ec);
+                BOOST_TEST(body == "01234567890123456789");
+            }
+            pr.consume(20);
+
+            pr.start();
+            {
+                auto [ec, body] = co_await pr.read_body();
+                BOOST_TEST(!ec);
+                BOOST_TEST(body == "bye");
+            }
+        }());
+    }
+
+    void
     testStartSkipsUndeliveredRemainder()
     {
         capy::test::read_stream server;
@@ -2795,6 +2934,9 @@ public:
         testMoveAssign();
         testReset();
         testStartPipelined();
+        testStartParksCompleteMessage();
+        testStartCompactsIncompleteMessage();
+        testStartRetriesOverflowAtParkedBase();
         testStartSkipsUndeliveredRemainder();
     }
 };

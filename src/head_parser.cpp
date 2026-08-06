@@ -469,7 +469,6 @@ head_parser(head_parser&& other) noexcept
     : limits_(other.limits_)
     , is_req_(other.is_req_)
     , st_(other.st_)
-    , in_size_(other.in_size_)
 {
     if(is_req_)
         ::new(static_cast<void*>(&s_.req))
@@ -485,10 +484,9 @@ operator=(head_parser&& other) noexcept
 {
     if(this == &other)
         return *this;
-    limits_  = other.limits_;
-    in_size_ = other.in_size_;
-    is_req_  = other.is_req_;
-    st_      = other.st_;
+    limits_ = other.limits_;
+    is_req_ = other.is_req_;
+    st_     = other.st_;
     if(is_req_)
         ::new(static_cast<void*>(&s_.req))
             class request_head_base(other.s_.req);
@@ -498,53 +496,54 @@ operator=(head_parser&& other) noexcept
     return *this;
 }
 
-void
+char*
 head_parser::
-reset(std::size_t leftovers) noexcept
+ceiling() const noexcept
 {
-    auto& h = h_();
-    auto const cap = h.capacity_in_bytes();
-    if(is_req_)
-        ::new(static_cast<void*>(&s_.req))
-            class request_head_base(h.base_(), cap);
-    else
-        ::new(static_cast<void*>(&s_.res))
-            class response_head_base(h.base_(), cap);
-    in_size_ = 0;
-    st_      = state::start_line;
-    commit(leftovers);
-}
-
-capy::mutable_buffer
-head_parser::
-prepare() noexcept
-{
-    auto& h = h_();
+    auto const& h = h_();
     auto const reserve =
         message_head_base::table_space_(limits_.max_fields);
     auto const cap = h.capacity_in_bytes();
-    if(reserve + in_size_ >= cap)
-        return { h.base_() + in_size_, 0 };
-    return { h.base_() + in_size_, cap - reserve - in_size_ };
+    return h.base_() + (cap > reserve ? cap - reserve : 0);
 }
 
 void
 head_parser::
-commit(std::size_t n) noexcept
+reset(char* base) noexcept
 {
-    BOOST_ASSERT(n <= prepare().size());
-    in_size_ += n;
+    auto& h = h_();
+    BOOST_ASSERT(base <= ceiling());
+    auto const cap = static_cast<std::size_t>(h.end_ - base);
+    if(is_req_)
+        ::new(static_cast<void*>(&s_.req))
+            class request_head_base(base, cap);
+    else
+        ::new(static_cast<void*>(&s_.res))
+            class response_head_base(base, cap);
+    st_ = state::start_line;
 }
 
 void
 head_parser::
-parse(system::error_code& ec) noexcept
+rebase(char* base) noexcept
+{
+    auto& h = h_();
+    BOOST_ASSERT(base <= h.base_());
+    h.buf_ = base + h.prefix_;
+}
+
+void
+head_parser::
+parse(
+    std::size_t n,
+    system::error_code& ec) noexcept
 {
     ec.clear();
     auto const& h  = h_();
     char const* it = h.buf_ + h.size_;
-    auto* const end = it +
-        (in_size_ - h.prefix_ - h.size_);
+    BOOST_ASSERT(n >= std::size_t(h.prefix_) + h.size_);
+    BOOST_ASSERT(h.base_() + n <= ceiling());
+    auto* const end = h.base_() + n;
 
     switch(st_)
     {
@@ -588,7 +587,7 @@ parse(system::error_code& ec) noexcept
     }
     }
 
-    if(ec == error::need_data && prepare().size() == 0)
+    if(ec == error::need_data && end >= ceiling())
         ec = error::in_place_overflow;
 }
 

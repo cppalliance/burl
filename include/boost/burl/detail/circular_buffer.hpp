@@ -35,6 +35,9 @@ struct circular_buffer
     bool
     full() const noexcept;
 
+    bool
+    wrapped() const noexcept;
+
     std::size_t
     size() const noexcept;
 
@@ -52,6 +55,18 @@ struct circular_buffer
 
     void
     consume(std::size_t n) noexcept;
+
+    void
+    reset(char* p) noexcept;
+
+    void
+    shed(std::size_t n) noexcept;
+
+    void
+    slide(char* p) noexcept;
+
+    char*
+    linearize(char* floor) noexcept;
 };
 
 } // namespace detail
