@@ -10,49 +10,22 @@
 = Compression
 
 Burl can advertise the content codings it accepts and transparently decode a
-compressed response body, so `gzip`, `deflate`, and `br` responses arrive
-already decompressed. Decoding depends on the relevant service being installed
-in the system context.
+compressed response body, so `gzip`, `deflate`, `br`, and `zstd` responses
+arrive already decompressed. Decoding for each coding is compiled into the
+library when it is built with the corresponding compression library.
 
-== Installing the Decode Services
+== Build Support
 
-Decoding is provided by Boost.Http and must be registered in the system context
-once, at startup, before any request. The zlib service handles `gzip` and
-`deflate`; the brotli service handles `br`:
-
-[source,cpp]
-----
-#include <boost/http/zlib.hpp>
-#include <boost/http/brotli.hpp>
-
-int main()
-{
-    http::zlib::install_inflate_service(capy::get_system_context());
-    http::brotli::install_decode_service(capy::get_system_context());
-
-    // ... run the client ...
-}
-----
-
-These are available only when Boost.Http is built with zlib and brotli support.
-Guarding the calls with the feature macros keeps the program portable across
-builds that lack them:
-
-[source,cpp]
-----
-#ifdef BOOST_HTTP_HAS_ZLIB
-    http::zlib::install_inflate_service(capy::get_system_context());
-#endif
-#ifdef BOOST_HTTP_HAS_BROTLI
-    http::brotli::install_decode_service(capy::get_system_context());
-#endif
-----
+The build detects zlib, Brotli, and zstd and enables the codings they provide:
+zlib handles `gzip` and `deflate`, Brotli handles `br`, and zstd handles
+`zstd`. The macros `BOOST_BURL_HAS_ZLIB`, `BOOST_BURL_HAS_BROTLI`, and
+`BOOST_BURL_HAS_ZSTD` indicate which codings the library was built with.
 
 == How It Works
 
-With a service installed and the corresponding setting enabled, the client adds
-that coding to the `Accept-Encoding` request header and decodes a response
-encoded with it.
+Every supported coding is enabled by default: the client adds it to the
+`Accept-Encoding` request header and decodes a response encoded with it. The
+configuration controls each coding individually.
 
 [source,cpp]
 ----
@@ -60,14 +33,15 @@ burl::client::config cfg;
 cfg.gzip    = true;
 cfg.deflate = true;
 cfg.brotli  = false;   // do not advertise or decode br
+cfg.zstd    = false;   // do not advertise or decode zstd
 
 burl::client client(co_await capy::this_coro::executor, tls_ctx, cfg);
 ----
 
 [NOTE]
 ====
-A coding whose decode service is not installed is disabled regardless of the
-setting, since the client cannot honor what it advertises.
+A coding whose decoder was not compiled into the library is disabled regardless
+of the setting, since the client cannot honor what it advertises.
 ====
 
 The decoding is transparent: the body you read through
