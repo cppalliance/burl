@@ -22,9 +22,11 @@
 
 #include <boost/capy/buffers/make_buffer.hpp>
 #include <boost/capy/ex/execution_context.hpp>
+#include <boost/capy/io/any_write_stream.hpp>
 #include <boost/capy/write.hpp>
 #include <boost/corosio/timeout.hpp>
-#include <boost/burl/detail/response_parser.hpp>
+#include <boost/burl/message_reader.hpp>
+#include <boost/burl/response_parser.hpp>
 
 #include <chrono>
 #include <optional>
@@ -220,14 +222,13 @@ client::execute_impl(
     if(auto_decode)
         set_accept_encoding(head, config_);
 
-    detail::response_parser parser(
+    response_parser parser(
         {
             .hdr_limits = {},
             .in_buffer  = config_.response_inplace_buffer,
             .dec_buffer = config_.response_inplace_buffer,
             .body_limit = config_.response_body_limit
-        },
-        {});
+        });
     detail::serializer sr({});
 
     auto url             = request.url;
@@ -260,7 +261,7 @@ client::execute_impl(
 
         // TODO: expect100timeout
 
-        auto stream = conn.stream();
+        capy::any_write_stream stream(&conn);
         sr.reset(&stream, &head);
         if(request.body.has_value())
         {
@@ -274,10 +275,11 @@ client::execute_impl(
                 co_return { wec, {} };
         }
 
-        parser.reset(std::move(stream));
+        parser.reset();
         parser.start(is_head);
 
-        auto [rec] = co_await parser.read_header();
+        auto [rec] = co_await message_reader{
+            &conn, &parser }.read_header();
         if(rec)
             co_return { rec, {} };
 
@@ -302,7 +304,7 @@ client::execute_impl(
             if(status_int >= 400)
                 ec = std::error_code(status_int, burl_category());
 
-            std::unique_ptr<detail::parser::decoder> dec;
+            std::unique_ptr<parser::decoder> dec;
             if(auto_decode && !is_head)
             {
                 dec = detail::make_decoder(
@@ -319,7 +321,7 @@ client::execute_impl(
 
         // Read and discard small bodies so the connection can be reused
         auto [dec, drained] = co_await corosio::timeout(
-            detail::drain_body(parser, 3),
+            detail::drain_body(conn, parser, 3),
             std::chrono::seconds(2));
         if(drained && detail::can_reuse_conn(parser))
             conn.return_to_pool();

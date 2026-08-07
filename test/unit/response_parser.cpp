@@ -8,10 +8,12 @@
 //
 
 // Test that header file is self-contained.
-#include <boost/burl/detail/response_parser.hpp>
+#include <boost/burl/response_parser.hpp>
 
 #include <boost/burl/error.hpp>
+#include <boost/burl/message_reader.hpp>
 
+#include <boost/capy/io/any_read_stream.hpp>
 #include <boost/capy/test/read_stream.hpp>
 
 #include "test_suite.hpp"
@@ -22,9 +24,6 @@ namespace boost
 {
 namespace burl
 {
-namespace detail
-{
-
 class response_parser_test
 {
 public:
@@ -33,7 +32,7 @@ public:
     {
         capy::test::read_stream server;
         capy::any_read_stream stream(&server);
-        response_parser pr({}, &stream);
+        response_parser pr(response_parser::config{});
 
         capy::test::run_blocking()([&]() -> capy::task<>
         {
@@ -44,7 +43,7 @@ public:
                 "hello");
 
             pr.start();
-            auto [ec] = co_await pr.read_header();
+            auto [ec] = co_await message_reader{ &stream, &pr }.read_header();
             BOOST_TEST(!ec);
             BOOST_TEST(pr.got_header());
             // the whole body arrived with the header, so the message
@@ -56,7 +55,8 @@ public:
             BOOST_TEST(pr.get().reason() == "OK");
 
             char buf[8];
-            auto [bec, n] = co_await pr.read(capy::make_buffer(buf));
+            auto [bec, n] = co_await message_reader{ &stream, &pr }
+                .read(capy::make_buffer(buf));
             BOOST_TEST(bec == capy::cond::eof);
             BOOST_TEST_EQ(n, 5);
             BOOST_TEST(std::string_view(buf, n) == "hello");
@@ -68,7 +68,7 @@ public:
     {
         capy::test::read_stream server;
         capy::any_read_stream stream(&server);
-        response_parser pr({}, &stream);
+        response_parser pr(response_parser::config{});
 
         capy::test::run_blocking()([&]() -> capy::task<>
         {
@@ -80,7 +80,7 @@ public:
                 "\r\n");
 
             pr.start(true);
-            auto [ec] = co_await pr.read_header();
+            auto [ec] = co_await message_reader{ &stream, &pr }.read_header();
             BOOST_TEST(!ec);
             BOOST_TEST(pr.got_header());
             BOOST_TEST(pr.got_body());
@@ -96,8 +96,6 @@ public:
     }
 };
 
-TEST_SUITE(response_parser_test, "boost.burl.detail.response_parser");
-
-} // namespace detail
+TEST_SUITE(response_parser_test, "boost.burl.response_parser");
 } // namespace burl
 } // namespace boost

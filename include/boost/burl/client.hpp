@@ -335,9 +335,9 @@ public:
     /** Constructor.
 
         Constructs a client with the provided
-        configuration. Content codings whose decode
-        service is not installed in the system
-        context are disabled, regardless of the
+        configuration. Content codings whose
+        decoder was not compiled into the library
+        are disabled, regardless of the
         configuration.
 
         @param exec The executor used to perform

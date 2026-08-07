@@ -12,6 +12,7 @@
 
 #include <boost/burl/error.hpp>
 
+#include <boost/capy/cond.hpp>
 #include <boost/capy/error.hpp>
 
 #include "test_suite.hpp"

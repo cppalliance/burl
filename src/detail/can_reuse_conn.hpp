@@ -10,7 +10,7 @@
 #ifndef BOOST_BURL_SRC_DETAIL_CAN_REUSE_CONN_HPP
 #define BOOST_BURL_SRC_DETAIL_CAN_REUSE_CONN_HPP
 
-#include <boost/burl/detail/response_parser.hpp>
+#include <boost/burl/response_parser.hpp>
 
 namespace boost
 {

@@ -10,7 +10,7 @@
 #ifndef BOOST_BURL_SRC_DETAIL_DECODERS_HPP
 #define BOOST_BURL_SRC_DETAIL_DECODERS_HPP
 
-#include <boost/burl/detail/parser.hpp>
+#include <boost/burl/parser.hpp>
 
 #include <boost/http/metadata.hpp>
 

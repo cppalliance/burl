@@ -1,0 +1,304 @@
+//
+// Copyright (c) 2026 Mohammad Nejati
+//
+// Distributed under the Boost Software License, Version 1.0. (See accompanying
+// file LICENSE_1_0.txt or copy at http://www.boost.org/LICENSE_1_0.txt)
+//
+// Official repository: https://github.com/cppalliance/burl
+//
+
+// Test that header file is self-contained.
+#include <boost/burl/detail/circular_buffer.hpp>
+
+#include <boost/capy/buffers/buffer_copy.hpp>
+#include <boost/capy/buffers/make_buffer.hpp>
+
+#include <string>
+#include <string_view>
+
+#include "test_suite.hpp"
+
+namespace boost
+{
+namespace burl
+{
+namespace detail
+{
+
+class circular_buffer_test
+{
+    static
+    std::string
+    str(std::array<capy::const_buffer, 2> const& bufs)
+    {
+        std::string s;
+        for(auto b : bufs)
+            s.append(static_cast<char const*>(b.data()), b.size());
+        return s;
+    }
+
+    static
+    std::string
+    str(capy::const_buffer b)
+    {
+        return { static_cast<char const*>(b.data()), b.size() };
+    }
+
+    // Writes through prepare/commit, like a stream read would.
+    static
+    void
+    put(circular_buffer& cb, std::string_view s)
+    {
+        auto const n = capy::buffer_copy(
+            cb.prepare(), capy::make_buffer(s.data(), s.size()));
+        BOOST_TEST_EQ(n, s.size());
+        cb.commit(n);
+    }
+
+public:
+    void
+    testEmpty()
+    {
+        char store[8];
+        circular_buffer cb{ store, sizeof(store) };
+
+        BOOST_TEST(cb.empty());
+        BOOST_TEST(!cb.full());
+        BOOST_TEST(!cb.wrapped());
+        BOOST_TEST_EQ(cb.size(), 0);
+        BOOST_TEST(str(cb.data()).empty());
+        BOOST_TEST_EQ(cb.first(5).size(), 0);
+
+        auto const pb = cb.prepare();
+        BOOST_TEST_EQ(pb[0].size(), sizeof(store));
+        BOOST_TEST_EQ(pb[1].size(), 0);
+    }
+
+    void
+    testFillAndDrain()
+    {
+        char store[8];
+        circular_buffer cb{ store, sizeof(store) };
+
+        put(cb, "hello");
+        BOOST_TEST(!cb.empty());
+        BOOST_TEST_EQ(cb.size(), 5);
+        BOOST_TEST(str(cb.data()) == "hello");
+
+        // first clamps to the smaller of n and what is contiguous
+        BOOST_TEST(str(cb.first(3)) == "hel");
+        BOOST_TEST(str(cb.first(100)) == "hello");
+
+        cb.consume(2);
+        BOOST_TEST(str(cb.data()) == "llo");
+
+        // over-commit saturates at capacity
+        cb.commit(100);
+        BOOST_TEST(cb.full());
+        BOOST_TEST_EQ(cb.size(), sizeof(store));
+
+        // over-consume saturates at empty
+        cb.consume(100);
+        BOOST_TEST(cb.empty());
+        BOOST_TEST_EQ(cb.size(), 0);
+    }
+
+    void
+    testWrapAround()
+    {
+        char store[8];
+        circular_buffer cb{ store, sizeof(store) };
+
+        put(cb, "abcdefgh");
+        BOOST_TEST(cb.full());
+        cb.consume(6);
+
+        // the free region is contiguous at the front
+        put(cb, "XYZ");
+        BOOST_TEST(cb.wrapped());
+        BOOST_TEST_EQ(cb.size(), 5);
+        BOOST_TEST(str(cb.data()) == "ghXYZ");
+
+        // first serves only the tail segment of a wrapped buffer
+        BOOST_TEST(str(cb.first(100)) == "gh");
+        BOOST_TEST(str(cb.first(1)) == "g");
+
+        // consuming past the end wraps the read position
+        cb.consume(4);
+        BOOST_TEST(!cb.wrapped());
+        BOOST_TEST(str(cb.data()) == "Z");
+        cb.consume(1);
+        BOOST_TEST(cb.empty());
+    }
+
+    void
+    testReset()
+    {
+        char store[8];
+        circular_buffer cb{ store, sizeof(store) };
+        put(cb, "abcdefgh");
+
+        // rebasing to an interior pointer discards the contents
+        // and shrinks the capacity to what lies above it
+        cb.reset(store + 2);
+        BOOST_TEST(cb.empty());
+        BOOST_TEST_EQ(cb.ptr, store + 2);
+        BOOST_TEST_EQ(cb.cap, sizeof(store) - 2);
+
+        put(cb, "XYZ");
+        BOOST_TEST(str(cb.data()) == "XYZ");
+    }
+
+    void
+    testShedAndSlide()
+    {
+        char store[8];
+        circular_buffer cb{ store, sizeof(store) };
+        put(cb, "hello");
+
+        // shed gives up the leading octets and the region they
+        // occupy
+        cb.shed(2);
+        BOOST_TEST_EQ(cb.ptr, store + 2);
+        BOOST_TEST_EQ(cb.cap, sizeof(store) - 2);
+        BOOST_TEST(str(cb.data()) == "llo");
+
+        // slide moves the contents down and reclaims the region
+        cb.slide(store);
+        BOOST_TEST_EQ(cb.ptr, store);
+        BOOST_TEST_EQ(cb.cap, sizeof(store));
+        BOOST_TEST(str(cb.data()) == "llo");
+    }
+
+    void
+    testLinearizeEmpty()
+    {
+        char store[8];
+        circular_buffer cb{ store + 4, 4 };
+
+        // an empty buffer rebases to the floor and reclaims the
+        // whole region
+        auto* p = cb.linearize(store);
+        BOOST_TEST_EQ(p, store);
+        BOOST_TEST_EQ(cb.ptr, store);
+        BOOST_TEST_EQ(cb.cap, sizeof(store));
+        BOOST_TEST(cb.empty());
+    }
+
+    void
+    testLinearizeStraight()
+    {
+        char store[8];
+        circular_buffer cb{ store, sizeof(store) };
+        put(cb, "abcde");
+        cb.consume(2);
+
+        // contiguous contents stay put: only the base moves up
+        // to them
+        auto* p = cb.linearize(store);
+        BOOST_TEST_EQ(p, store + 2);
+        BOOST_TEST_EQ(cb.ptr, store + 2);
+        BOOST_TEST_EQ(cb.cap, sizeof(store) - 2);
+        BOOST_TEST_EQ(cb.pos, 0);
+        BOOST_TEST(str(cb.data()) == "cde");
+    }
+
+    void
+    testLinearizeWrapped()
+    {
+        char store[8];
+        circular_buffer cb{ store, sizeof(store) };
+        put(cb, "abcdefgh");
+        cb.consume(6);
+        put(cb, "XYZ");
+        BOOST_TEST(cb.wrapped());
+
+        // wrapped contents are rotated down to the floor
+        auto* p = cb.linearize(store);
+        BOOST_TEST_EQ(p, store);
+        BOOST_TEST_EQ(cb.ptr, store);
+        BOOST_TEST_EQ(cb.cap, sizeof(store));
+        BOOST_TEST_EQ(cb.pos, 0);
+        BOOST_TEST(!cb.wrapped());
+        BOOST_TEST(str(cb.data()) == "ghXYZ");
+        BOOST_TEST(str(cb.first(100)) == "ghXYZ");
+    }
+
+    void
+    testLinearizeWrappedOverlap()
+    {
+        // the two segments overlap both source and destination;
+        // the rotation has to proceed in more than one step
+        char store[8];
+        circular_buffer cb{ store, sizeof(store) };
+        put(cb, "abcdefgh");
+        cb.consume(5);
+        put(cb, "XYZ");
+        BOOST_TEST(cb.wrapped());
+        BOOST_TEST_EQ(cb.size(), 6);
+
+        auto* p = cb.linearize(store);
+        BOOST_TEST_EQ(p, store);
+        BOOST_TEST(str(cb.data()) == "fghXYZ");
+    }
+
+    void
+    testLinearizeWrappedLongFront()
+    {
+        // the wrapped-around segment is longer than the tail one
+        char store[8];
+        circular_buffer cb{ store, sizeof(store) };
+        put(cb, "abcdefgh");
+        cb.consume(7);
+        put(cb, "UVWXY");
+        BOOST_TEST(cb.wrapped());
+        BOOST_TEST_EQ(cb.size(), 6);
+
+        auto* p = cb.linearize(store);
+        BOOST_TEST_EQ(p, store);
+        BOOST_TEST(str(cb.data()) == "hUVWXY");
+    }
+
+    void
+    testLinearizeWrappedBelowBase()
+    {
+        // room below the buffer: the rotation lands at the floor
+        // and the capacity grows by the reclaimed region
+        char store[12];
+        circular_buffer cb{ store + 4, 8 };
+        put(cb, "abcdefgh");
+        cb.consume(6);
+        put(cb, "XYZ");
+        BOOST_TEST(cb.wrapped());
+
+        auto* p = cb.linearize(store);
+        BOOST_TEST_EQ(p, store);
+        BOOST_TEST_EQ(cb.ptr, store);
+        BOOST_TEST_EQ(cb.cap, sizeof(store));
+        BOOST_TEST(str(cb.data()) == "ghXYZ");
+    }
+
+    void
+    run()
+    {
+        testEmpty();
+        testFillAndDrain();
+        testWrapAround();
+        testReset();
+        testShedAndSlide();
+        testLinearizeEmpty();
+        testLinearizeStraight();
+        testLinearizeWrapped();
+        testLinearizeWrappedOverlap();
+        testLinearizeWrappedLongFront();
+        testLinearizeWrappedBelowBase();
+    }
+};
+
+TEST_SUITE(
+    circular_buffer_test,
+    "boost.burl.detail.circular_buffer");
+
+} // namespace detail
+} // namespace burl
+} // namespace boost

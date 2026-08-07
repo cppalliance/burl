@@ -10,6 +10,8 @@
 // Test that header file is self-contained.
 #include "src/detail/drain_body.hpp"
 
+#include <boost/burl/message_reader.hpp>
+
 #include "test_suite.hpp"
 
 #include <boost/capy/test/fuse.hpp>
@@ -39,7 +41,7 @@ class drain_body_test
         std::size_t max_read_size = std::size_t(-1))
     {
         result rs;
-        response_parser pr({}, {});
+        response_parser pr(response_parser::config{});
         capy::test::fuse f;
         auto r = f.armed([&](capy::test::fuse&) -> capy::task<>
         {
@@ -48,15 +50,16 @@ class drain_body_test
             server.provide(msg);
             server.close();
 
-            pr.reset(&client);
+            pr.reset();
             pr.start();
 
-            if(auto [rec] = co_await pr.read_header(); rec)
+            if(auto [rec] = co_await message_reader{
+                   &client, &pr }.read_header(); rec)
                 co_return;
 
             BOOST_TEST(pr.got_header());
 
-            auto [dec, drained] = co_await drain_body(pr, attempts);
+            auto [dec, drained] = co_await drain_body(client, pr, attempts);
             if(dec)
                 BOOST_TEST(!drained);
             rs = { dec, drained, pr.got_body() };

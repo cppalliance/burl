@@ -10,10 +10,15 @@
 #ifndef BOOST_BURL_SRC_DETAIL_DRAIN_BODY_HPP
 #define BOOST_BURL_SRC_DETAIL_DRAIN_BODY_HPP
 
-#include <boost/burl/detail/response_parser.hpp>
+#include <boost/burl/message_reader.hpp>
+#include <boost/burl/response_parser.hpp>
+
+#include <boost/capy/buffers.hpp>
+#include <boost/capy/concept/read_stream.hpp>
+#include <boost/capy/cond.hpp>
 #include <boost/capy/io_task.hpp>
 
-#include <cstdint>
+#include <cstddef>
 
 namespace boost
 {
@@ -22,10 +27,32 @@ namespace burl
 namespace detail
 {
 
+template<capy::ReadStream S>
 capy::io_task<bool>
 drain_body(
+    S& stream,
     response_parser& parser,
-    std::size_t attempts);
+    std::size_t attempts)
+{
+    message_reader reader{ &stream, &parser };
+
+    while(!parser.got_body())
+    {
+        if(attempts-- == 0)
+            co_return { {}, false };
+
+        capy::const_buffer arr[8];
+        auto [ec, bufs] = co_await reader.pull(arr);
+        if(ec)
+        {
+            if(ec == capy::cond::eof)
+                break;
+            co_return { ec, false };
+        }
+        parser.consume(capy::buffer_size(bufs));
+    }
+    co_return { {}, true };
+}
 
 } // namespace detail
 } // namespace burl

@@ -14,7 +14,6 @@
 #include <boost/burl/test/fwd.hpp>
 #include <boost/capy/buffers.hpp>
 #include <boost/capy/detail/buffer_array.hpp>
-#include <boost/capy/io/any_stream.hpp>
 #include <boost/capy/io_task.hpp>
 
 #include <chrono>
@@ -94,10 +93,18 @@ class pooled_connection
 public:
     pooled_connection() = default;
 
-    capy::any_stream
-    stream() noexcept
+    template<capy::MutableBufferSequence MB>
+    capy::io_task<std::size_t>
+    read_some(MB buffers)
     {
-        return conn_.get();
+        return conn_->read_some(std::move(buffers));
+    }
+
+    template<capy::ConstBufferSequence CB>
+    capy::io_task<std::size_t>
+    write_some(CB buffers)
+    {
+        return conn_->write_some(std::move(buffers));
     }
 
     explicit

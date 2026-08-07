@@ -25,8 +25,8 @@ namespace burl
 response::response(
     urls::url url,
     detail::pooled_connection conn,
-    detail::response_parser parser,
-    std::unique_ptr<detail::parser::decoder> dec,
+    response_parser parser,
+    std::unique_ptr<parser::decoder> dec,
     std::optional<clock::time_point> deadline)
     : url_(std::move(url))
     , conn_(std::move(conn))
@@ -72,8 +72,9 @@ response::try_as_view() &
 {
     if(deadline_)
         co_return co_await corosio::timeout(
-            parser_.read_body(), *deadline_ - clock::now());
-    co_return co_await parser_.read_body();
+            message_reader{ &conn_, &parser_ }.read_body(),
+            *deadline_ - clock::now());
+    co_return co_await message_reader{ &conn_, &parser_ }.read_body();
 }
 
 capy::task<std::string_view>
@@ -90,13 +91,15 @@ response::as_view() &
 http::any_buffer_source
 response::as_buffer_source() &
 {
-    return http::any_buffer_source(&parser_);
+    return http::any_buffer_source(
+        message_reader{ &conn_, &parser_ });
 }
 
 http::any_read_source
 response::as_read_source() &
 {
-    return http::any_read_source(&parser_);
+    return http::any_read_source(
+        message_reader{ &conn_, &parser_ });
 }
 
 } // namespace burl

@@ -8,17 +8,21 @@
 //
 
 // Test that header file is self-contained.
-#include <boost/burl/detail/parser.hpp>
+#include <boost/burl/parser.hpp>
 
 #include <boost/burl/error.hpp>
+#include <boost/burl/message_reader.hpp>
 
 #include <boost/capy/error.hpp>
+#include <boost/capy/io/any_read_stream.hpp>
 #include <boost/capy/test/read_stream.hpp>
 #include <boost/http/error.hpp>
 
 #include <cstring>
+#include <span>
 #include <string>
 #include <string_view>
+#include <utility>
 
 #include "test_suite.hpp"
 
@@ -26,17 +30,19 @@ namespace boost
 {
 namespace burl
 {
-namespace detail
-{
 
 // parser has protected members (it is a base for the request/response
-// parsers); this shim exposes them so the base can be exercised directly.
+// parsers) and performs no I/O. This shim exposes the protected members
+// and binds a stream, so that the sans-io base can be exercised through
+// the same spellings a @ref message_reader offers.
 struct test_parser : parser
 {
     test_parser(
         config const& cfg,
-        capy::any_read_stream* stream = nullptr)
-        : parser(cfg, false, stream)
+        capy::any_read_stream* stream = nullptr,
+        bool is_request = false)
+        : parser(cfg, is_request)
+        , stream_(stream)
     {
     }
 
@@ -51,6 +57,59 @@ struct test_parser : parser
     {
         return get_response();
     }
+
+    auto
+    read_header()
+    {
+        return reader().read_header();
+    }
+
+    auto
+    read_body()
+    {
+        return reader().read_body();
+    }
+
+    template<capy::MutableBufferSequence MB>
+    auto
+    read_some(MB buffers)
+    {
+        return reader().read_some(std::move(buffers));
+    }
+
+    template<capy::MutableBufferSequence MB>
+    auto
+    read(MB buffers)
+    {
+        return reader().read(std::move(buffers));
+    }
+
+    auto
+    pull(std::span<capy::const_buffer> dest)
+    {
+        return reader().pull(dest);
+    }
+
+    // The stream is bound at the reader now, so rebinding is the shim's
+    // job rather than the parser's.
+    void
+    reset(capy::any_read_stream* stream) noexcept
+    {
+        parser::reset();
+        stream_ = stream;
+    }
+
+    using parser::consume;
+    using parser::reset;
+
+private:
+    message_reader<capy::any_read_stream>
+    reader() noexcept
+    {
+        return { stream_, this };
+    }
+
+    capy::any_read_stream* stream_;
 };
 
 class parser_test
@@ -130,6 +189,71 @@ class parser_test
 
     private:
         std::size_t trailer_pos_ = 0;
+    };
+
+    // A stream that reports eof alongside the octets which complete the
+    // transfer, rather than on a following empty read. Real transports do
+    // this; capy::test::read_stream never does, so the case that a read
+    // delivers data and a contingency at once needs its own double.
+    class eager_eof_stream
+    {
+        std::string data_;
+        std::size_t pos_ = 0;
+        std::size_t max_read_size_;
+
+    public:
+        explicit
+        eager_eof_stream(
+            std::string data,
+            std::size_t max_read_size = std::size_t(-1))
+            : data_(std::move(data))
+            , max_read_size_(max_read_size)
+        {
+        }
+
+        template<capy::MutableBufferSequence MB>
+        auto
+        read_some(MB buffers)
+        {
+            struct awaitable
+            {
+                eager_eof_stream* self_;
+                MB buffers_;
+
+                bool
+                await_ready() const noexcept
+                {
+                    return true;
+                }
+
+                void
+                await_suspend(
+                    std::coroutine_handle<>,
+                    capy::io_env const*) const noexcept
+                {
+                }
+
+                capy::io_result<std::size_t>
+                await_resume()
+                {
+                    auto avail = self_->data_.size() - self_->pos_;
+                    if(avail == 0)
+                        return { capy::error::eof, 0 };
+                    if(avail > self_->max_read_size_)
+                        avail = self_->max_read_size_;
+                    auto const n = capy::buffer_copy(
+                        buffers_,
+                        capy::make_buffer(
+                            self_->data_.data() + self_->pos_, avail));
+                    self_->pos_ += n;
+                    // eof accompanies the last octets
+                    if(self_->pos_ == self_->data_.size())
+                        return { capy::error::eof, n };
+                    return { {}, n };
+                }
+            };
+            return awaitable{ this, buffers };
+        }
     };
 
     // A stream that reports a scripted error a number of times before
@@ -323,6 +447,31 @@ public:
             pr.start();
             auto [ec] = co_await pr.read_header();
             BOOST_TEST(ec == http::error::bad_payload);
+            BOOST_TEST(!pr.got_header());
+            BOOST_TEST(!pr.got_body());
+        }());
+    }
+
+    void
+    testRequestBadTransferEncoding()
+    {
+        capy::test::read_stream server;
+        capy::any_read_stream stream(&server);
+        test_parser pr({}, &stream, true);
+
+        capy::test::run_blocking()([&]() -> capy::task<>
+        {
+            // a request whose Transfer-Encoding does not end in
+            // chunked has no defined length; unlike a response it
+            // has no to-eof fallback, so the header is rejected
+            server.provide(
+                "PUT / HTTP/1.1\r\n"
+                "Transfer-Encoding: gzip\r\n"
+                "\r\n");
+
+            pr.start();
+            auto [ec] = co_await pr.read_header();
+            BOOST_TEST(ec == http::error::bad_transfer_encoding);
             BOOST_TEST(!pr.got_header());
             BOOST_TEST(!pr.got_body());
         }());
@@ -737,6 +886,32 @@ public:
     }
 
     void
+    testSizedPullBodyLimitZero()
+    {
+        // a zero budget fails the pull before any delivery
+        parser::config cfg;
+        cfg.body_limit = 0;
+        capy::test::read_stream server;
+        capy::any_read_stream stream(&server);
+        test_parser pr(cfg, &stream);
+
+        capy::test::run_blocking()([&]() -> capy::task<>
+        {
+            server.provide(
+                "HTTP/1.1 200 OK\r\n"
+                "Content-Length: 5\r\n"
+                "\r\n"
+                "hello");
+
+            pr.start();
+            capy::const_buffer arr[2];
+            auto [ec, bufs] = co_await pr.pull(arr);
+            BOOST_TEST(ec == http::error::body_too_large);
+            BOOST_TEST_EQ(bufs.size(), 0);
+        }());
+    }
+
+    void
     testSizedMixedStreamThenView()
     {
         capy::test::read_stream server;
@@ -1080,6 +1255,50 @@ public:
     }
 
     void
+    testChunkedPullSmallDest()
+    {
+        capy::test::read_stream server;
+        capy::any_read_stream stream(&server);
+        test_parser pr({}, &stream);
+
+        capy::test::run_blocking()([&]() -> capy::task<>
+        {
+            server.provide(
+                "HTTP/1.1 200 OK\r\n"
+                "Transfer-Encoding: chunked\r\n"
+                "\r\n"
+                "3\r\nabc\r\n"
+                "3\r\ndef\r\n"
+                "0\r\n\r\n");
+
+            pr.start();
+            // a single descriptor cannot span chunks: delivery
+            // stops at the boundary and resumes on the next pull
+            capy::const_buffer arr[1];
+            {
+                auto [ec, bufs] = co_await pr.pull(arr);
+                BOOST_TEST(!ec);
+                BOOST_TEST_EQ(bufs.size(), 1);
+                BOOST_TEST_EQ(bufs[0].size(), 3);
+            }
+            pr.consume(3);
+            {
+                auto [ec, bufs] = co_await pr.pull(arr);
+                BOOST_TEST(!ec);
+                BOOST_TEST_EQ(bufs.size(), 1);
+                BOOST_TEST_EQ(bufs[0].size(), 3);
+            }
+            pr.consume(3);
+            {
+                auto [ec, bufs] = co_await pr.pull(arr);
+                BOOST_TEST(ec == capy::cond::eof);
+                BOOST_TEST_EQ(bufs.size(), 0);
+            }
+            BOOST_TEST(pr.got_body());
+        }());
+    }
+
+    void
     testChunkedBadFraming()
     {
         capy::test::read_stream server;
@@ -1137,6 +1356,114 @@ public:
             auto [ec2, n2] = co_await pr.read_some(capy::make_buffer(buf));
             BOOST_TEST(ec2 == http::error::bad_payload);
             BOOST_TEST_EQ(n2, 0);
+        }());
+    }
+
+    void
+    testChunkedBadChunkExtension()
+    {
+        capy::test::read_stream server;
+        capy::any_read_stream stream(&server);
+        test_parser pr({}, &stream);
+
+        capy::test::run_blocking()([&]() -> capy::task<>
+        {
+            // a lone CR inside a chunk extension
+            server.provide(
+                "HTTP/1.1 200 OK\r\n"
+                "Transfer-Encoding: chunked\r\n"
+                "\r\n"
+                "5;ext\rZ\r\nhello\r\n"
+                "0\r\n\r\n");
+
+            pr.start();
+            char buf[16];
+            auto [ec, n] = co_await pr.read_some(capy::make_buffer(buf));
+            BOOST_TEST(ec == http::error::bad_payload);
+            BOOST_TEST_EQ(n, 0);
+        }());
+    }
+
+    void
+    testChunkedSizeOverflow()
+    {
+        capy::test::read_stream server;
+        capy::any_read_stream stream(&server);
+        test_parser pr({}, &stream);
+
+        capy::test::run_blocking()([&]() -> capy::task<>
+        {
+            // a chunk size that does not fit in 64 bits
+            server.provide(
+                "HTTP/1.1 200 OK\r\n"
+                "Transfer-Encoding: chunked\r\n"
+                "\r\n"
+                "FFFFFFFFFFFFFFFFF\r\nhello\r\n"
+                "0\r\n\r\n");
+
+            pr.start();
+            char buf[16];
+            auto [ec, n] = co_await pr.read_some(capy::make_buffer(buf));
+            BOOST_TEST(ec == http::error::bad_payload);
+            BOOST_TEST_EQ(n, 0);
+        }());
+    }
+
+    void
+    testChunkedBadChunkTerminator()
+    {
+        // the CRLF closing the chunk data is malformed in two
+        // ways: no CR at all, and a CR followed by the wrong octet
+        for(std::string_view tail : { "XY", "\rX" })
+        {
+            capy::test::read_stream server;
+            capy::any_read_stream stream(&server);
+            test_parser pr({}, &stream);
+
+            capy::test::run_blocking()([&]() -> capy::task<>
+            {
+                server.provide(
+                    "HTTP/1.1 200 OK\r\n"
+                    "Transfer-Encoding: chunked\r\n"
+                    "\r\n"
+                    "5\r\nhello" + std::string(tail));
+
+                pr.start();
+                char buf[16];
+                // the valid chunk data is delivered first
+                auto [ec, n] = co_await pr.read_some(capy::make_buffer(buf));
+                BOOST_TEST(!ec);
+                BOOST_TEST_EQ(n, 5);
+
+                auto [ec2, n2] = co_await pr.read_some(capy::make_buffer(buf));
+                BOOST_TEST(ec2 == http::error::bad_payload);
+                BOOST_TEST_EQ(n2, 0);
+            }());
+        }
+    }
+
+    void
+    testChunkedBadTrailer()
+    {
+        capy::test::read_stream server;
+        capy::any_read_stream stream(&server);
+        test_parser pr({}, &stream);
+
+        capy::test::run_blocking()([&]() -> capy::task<>
+        {
+            // a lone CR inside the trailer section
+            server.provide(
+                "HTTP/1.1 200 OK\r\n"
+                "Transfer-Encoding: chunked\r\n"
+                "\r\n"
+                "0\r\n\rX");
+
+            pr.start();
+            char buf[16];
+            auto [ec, n] = co_await pr.read_some(capy::make_buffer(buf));
+            BOOST_TEST(ec == http::error::bad_payload);
+            BOOST_TEST_EQ(n, 0);
+            BOOST_TEST(!pr.got_body());
         }());
     }
 
@@ -1251,6 +1578,57 @@ public:
                 BOOST_TEST(ec == http::error::in_place_overflow);
                 BOOST_TEST_EQ(n, 0);
             }
+        }());
+    }
+
+    void
+    testChunkedReadBodyChunkLargerThanBuffer()
+    {
+        capy::test::read_stream server;
+        capy::any_read_stream stream(&server);
+        test_parser pr({}, &stream);
+
+        capy::test::run_blocking()([&]() -> capy::task<>
+        {
+            // the chunk declares more octets than in_ can ever
+            // hold: assembling a contiguous body cannot succeed
+            server.provide(
+                "HTTP/1.1 200 OK\r\n"
+                "Transfer-Encoding: chunked\r\n"
+                "\r\n"
+                "FFFFFF\r\nhello");
+
+            pr.start();
+            auto [ec, body] = co_await pr.read_body();
+            BOOST_TEST(ec == http::error::in_place_overflow);
+            BOOST_TEST(body.empty());
+        }());
+    }
+
+    void
+    testChunkedBodyLimitViaReadBody()
+    {
+        parser::config cfg;
+        cfg.body_limit = 4;
+        capy::test::read_stream server;
+        capy::any_read_stream stream(&server);
+        test_parser pr(cfg, &stream);
+
+        capy::test::run_blocking()([&]() -> capy::task<>
+        {
+            server.provide(
+                "HTTP/1.1 200 OK\r\n"
+                "Transfer-Encoding: chunked\r\n"
+                "\r\n"
+                "a\r\n0123456789\r\n"
+                "0\r\n\r\n");
+
+            pr.start();
+            // the body can never be returned whole; read_body
+            // yields an empty view alongside the error
+            auto [ec, body] = co_await pr.read_body();
+            BOOST_TEST(ec == http::error::body_too_large);
+            BOOST_TEST(body.empty());
         }());
     }
 
@@ -1578,6 +1956,54 @@ public:
     // set_body_limit
     //
     //--------------------------------------------
+
+    void
+    testToEofBodyLimitViaReadBody()
+    {
+        parser::config cfg;
+        cfg.body_limit = 4;
+        capy::test::read_stream server;
+        capy::any_read_stream stream(&server);
+        test_parser pr(cfg, &stream);
+
+        capy::test::run_blocking()([&]() -> capy::task<>
+        {
+            server.provide(
+                "HTTP/1.1 200 OK\r\n"
+                "\r\n"
+                "hello");
+
+            pr.start();
+            auto [ec, body] = co_await pr.read_body();
+            BOOST_TEST(ec == http::error::body_too_large);
+            BOOST_TEST(body.empty());
+        }());
+    }
+
+    void
+    testToEofPullBodyLimitZero()
+    {
+        // a zero budget fails the pull before any delivery
+        parser::config cfg;
+        cfg.body_limit = 0;
+        capy::test::read_stream server;
+        capy::any_read_stream stream(&server);
+        test_parser pr(cfg, &stream);
+
+        capy::test::run_blocking()([&]() -> capy::task<>
+        {
+            server.provide(
+                "HTTP/1.1 200 OK\r\n"
+                "\r\n"
+                "hello");
+
+            pr.start();
+            capy::const_buffer arr[2];
+            auto [ec, bufs] = co_await pr.pull(arr);
+            BOOST_TEST(ec == http::error::body_too_large);
+            BOOST_TEST_EQ(bufs.size(), 0);
+        }());
+    }
 
     void
     testSetBodyLimitEnforced()
@@ -2090,6 +2516,183 @@ public:
     }
 
     void
+    testDecoderNoPayload()
+    {
+        capy::test::read_stream server;
+        capy::any_read_stream stream(&server);
+        test_parser pr({}, &stream);
+        test_decoder dec;
+
+        capy::test::run_blocking()([&]() -> capy::task<>
+        {
+            server.provide(
+                "HTTP/1.1 200 OK\r\n"
+                "Content-Length: 0\r\n"
+                "\r\n");
+
+            pr.start();
+            auto [hec] = co_await pr.read_header();
+            BOOST_TEST(!hec);
+            pr.set_decoder(&dec);
+
+            // a bodiless message ends the decode path without
+            // ever invoking the decoder
+            char buf[8];
+            auto [ec, n] = co_await pr.read_some(capy::make_buffer(buf));
+            BOOST_TEST(ec == capy::cond::eof);
+            BOOST_TEST_EQ(n, 0);
+            BOOST_TEST(!dec.finished);
+        }());
+    }
+
+    void
+    testDecoderReadSomeEmptyBuffer()
+    {
+        capy::test::read_stream server;
+        capy::any_read_stream stream(&server);
+        test_parser pr({}, &stream);
+        test_decoder dec;
+
+        capy::test::run_blocking()([&]() -> capy::task<>
+        {
+            server.provide(
+                "HTTP/1.1 200 OK\r\n"
+                "Content-Length: 5\r\n"
+                "\r\n"
+                "hello");
+
+            pr.start();
+            auto [hec] = co_await pr.read_header();
+            BOOST_TEST(!hec);
+            pr.set_decoder(&dec);
+
+            // an empty destination transfers nothing and is
+            // not an error
+            {
+                auto [ec, n] = co_await pr.read_some(
+                    capy::mutable_buffer{});
+                BOOST_TEST(!ec);
+                BOOST_TEST_EQ(n, 0);
+            }
+            char buf[16];
+            {
+                auto [ec, n] = co_await pr.read_some(capy::make_buffer(buf));
+                BOOST_TEST(!ec);
+                BOOST_TEST_EQ(n, 5);
+                BOOST_TEST(std::string_view(buf, n) == decoded("hello"));
+            }
+        }());
+    }
+
+    void
+    testDecoderBodyAfterStreaming()
+    {
+        capy::test::read_stream server;
+        capy::any_read_stream stream(&server);
+        test_parser pr({}, &stream);
+        test_decoder dec;
+
+        capy::test::run_blocking()([&]() -> capy::task<>
+        {
+            server.provide(
+                "HTTP/1.1 200 OK\r\n"
+                "Content-Length: 5\r\n"
+                "\r\n"
+                "hello");
+
+            pr.start();
+            auto [hec] = co_await pr.read_header();
+            BOOST_TEST(!hec);
+            pr.set_decoder(&dec);
+
+            char buf[3];
+            {
+                auto [ec, n] = co_await pr.read_some(capy::make_buffer(buf));
+                BOOST_TEST(!ec);
+                BOOST_TEST_EQ(n, 3);
+            }
+            // read_body cannot reconstruct a body whose leading
+            // octets were already streamed out
+            auto [ec, body] = co_await pr.read_body();
+            BOOST_TEST(ec == http::error::incomplete);
+            BOOST_TEST(body.empty());
+        }());
+    }
+
+    void
+    testDecoderReadBodyHardError()
+    {
+        capy::test::read_stream server;
+        capy::any_read_stream stream(&server);
+        test_parser pr({}, &stream);
+        test_decoder dec;
+        dec.fail_ec = capy::error::test_failure;
+        dec.fail_at = 3;
+
+        capy::test::run_blocking()([&]() -> capy::task<>
+        {
+            server.provide(
+                "HTTP/1.1 200 OK\r\n"
+                "Content-Length: 5\r\n"
+                "\r\n"
+                "hello");
+
+            pr.start();
+            auto [hec] = co_await pr.read_header();
+            BOOST_TEST(!hec);
+            pr.set_decoder(&dec);
+
+            // the in-place body cannot be completed
+            auto [ec, body] = co_await pr.read_body();
+            BOOST_TEST(ec == capy::error::test_failure);
+            BOOST_TEST(body.empty());
+        }());
+    }
+
+    void
+    testDecoderPullTwiceWithoutConsume()
+    {
+        capy::test::read_stream server;
+        capy::any_read_stream stream(&server);
+        test_parser pr({}, &stream);
+        test_decoder dec;
+
+        capy::test::run_blocking()([&]() -> capy::task<>
+        {
+            server.provide(
+                "HTTP/1.1 200 OK\r\n"
+                "Content-Length: 5\r\n"
+                "\r\n"
+                "hello");
+
+            pr.start();
+            auto [hec] = co_await pr.read_header();
+            BOOST_TEST(!hec);
+            pr.set_decoder(&dec);
+
+            capy::const_buffer arr[2];
+            {
+                auto [ec, bufs] = co_await pr.pull(arr);
+                BOOST_TEST(!ec);
+                BOOST_TEST_EQ(capy::buffer_size(bufs), 5);
+            }
+            // without a consume the same octets are served again,
+            // straight from the decoded buffer
+            {
+                auto [ec, bufs] = co_await pr.pull(arr);
+                BOOST_TEST(!ec);
+                BOOST_TEST_EQ(capy::buffer_size(bufs), 5);
+            }
+            pr.consume(5);
+            {
+                auto [ec, bufs] = co_await pr.pull(arr);
+                BOOST_TEST(ec == capy::cond::eof);
+                BOOST_TEST_EQ(bufs.size(), 0);
+            }
+        }());
+    }
+
+    void
     testDecoderChunked()
     {
         capy::test::read_stream server;
@@ -2162,6 +2765,41 @@ public:
 
             auto [ec2, n2] = co_await pr.read_some(capy::make_buffer(buf));
             BOOST_TEST(ec2 == http::error::bad_payload);
+            BOOST_TEST_EQ(n2, 0);
+        }());
+    }
+
+    void
+    testDecoderChunkedIncomplete()
+    {
+        capy::test::read_stream server;
+        capy::any_read_stream stream(&server);
+        test_parser pr({}, &stream);
+        test_decoder dec;
+
+        capy::test::run_blocking()([&]() -> capy::task<>
+        {
+            // the stream ends mid-chunk
+            server.provide(
+                "HTTP/1.1 200 OK\r\n"
+                "Transfer-Encoding: chunked\r\n"
+                "\r\n"
+                "5\r\nab");
+
+            pr.start();
+            auto [hec] = co_await pr.read_header();
+            BOOST_TEST(!hec);
+            pr.set_decoder(&dec);
+
+            char buf[16];
+            // the cleanly decoded bytes are delivered first
+            auto [ec, n] = co_await pr.read_some(capy::make_buffer(buf));
+            BOOST_TEST(!ec);
+            BOOST_TEST_EQ(n, 2);
+            BOOST_TEST(std::string_view(buf, n) == decoded("ab"));
+
+            auto [ec2, n2] = co_await pr.read_some(capy::make_buffer(buf));
+            BOOST_TEST(ec2 == http::error::incomplete);
             BOOST_TEST_EQ(n2, 0);
         }());
     }
@@ -2858,6 +3496,290 @@ public:
         }());
     }
 
+    //--------------------------------------------
+    //
+    // sans-io surface
+    //
+    //--------------------------------------------
+
+    void
+    testDirectCapacity()
+    {
+        // The pass-through budget is what lets a body be received straight
+        // into caller memory. It must be offered exactly when that is safe.
+        {
+            capy::test::read_stream server;
+            capy::any_read_stream stream(&server);
+            test_parser pr({}, &stream);
+
+            capy::test::run_blocking()([&]() -> capy::task<>
+            {
+                server.provide(
+                    "HTTP/1.1 200 OK\r\n"
+                    "Content-Length: 5\r\n"
+                    "\r\n");
+
+                pr.start();
+                auto [ec] = co_await pr.read_header();
+                BOOST_TEST(!ec);
+                // nothing buffered, so the whole payload may go direct
+                BOOST_TEST_EQ(pr.direct_capacity(), 5u);
+
+                // a lowered limit clamps the budget
+                pr.set_body_limit(3);
+                BOOST_TEST_EQ(pr.direct_capacity(), 3u);
+                pr.set_body_limit(std::uint64_t(-1));
+            }());
+        }
+        {
+            // octets which arrived with the header must be drained first
+            capy::test::read_stream server;
+            capy::any_read_stream stream(&server);
+            test_parser pr({}, &stream);
+
+            capy::test::run_blocking()([&]() -> capy::task<>
+            {
+                server.provide(
+                    "HTTP/1.1 200 OK\r\n"
+                    "Content-Length: 5\r\n"
+                    "\r\n"
+                    "he");
+
+                pr.start();
+                auto [ec] = co_await pr.read_header();
+                BOOST_TEST(!ec);
+                BOOST_TEST_EQ(pr.direct_capacity(), 0u);
+
+                char buf[8];
+                auto [rec, n] = co_await pr.read_some(
+                    capy::make_buffer(buf));
+                BOOST_TEST(!rec);
+                BOOST_TEST_EQ(n, 2);
+
+                // buffer drained: the remainder may go direct
+                BOOST_TEST_EQ(pr.direct_capacity(), 3u);
+            }());
+        }
+        {
+            // a decoder has to see the octets, so nothing may bypass it
+            capy::test::read_stream server;
+            capy::any_read_stream stream(&server);
+            test_parser pr({}, &stream);
+            test_decoder dec;
+
+            capy::test::run_blocking()([&]() -> capy::task<>
+            {
+                server.provide(
+                    "HTTP/1.1 200 OK\r\n"
+                    "Content-Length: 5\r\n"
+                    "\r\n");
+
+                pr.start();
+                auto [ec] = co_await pr.read_header();
+                BOOST_TEST(!ec);
+                pr.set_decoder(&dec);
+                BOOST_TEST_EQ(pr.direct_capacity(), 0u);
+            }());
+        }
+        {
+            // chunked framing has to be walked, so it cannot go direct
+            capy::test::read_stream server;
+            capy::any_read_stream stream(&server);
+            test_parser pr({}, &stream);
+
+            capy::test::run_blocking()([&]() -> capy::task<>
+            {
+                server.provide(
+                    "HTTP/1.1 200 OK\r\n"
+                    "Transfer-Encoding: chunked\r\n"
+                    "\r\n");
+
+                pr.start();
+                auto [ec] = co_await pr.read_header();
+                BOOST_TEST(!ec);
+                BOOST_TEST_EQ(pr.direct_capacity(), 0u);
+            }());
+        }
+    }
+
+    void
+    testDirectReadBypassesBuffer()
+    {
+        // With a buffer far smaller than the body, a single read_some can
+        // only deliver more than the buffer holds by reading straight into
+        // the caller's memory.
+        capy::test::read_stream server;
+        capy::any_read_stream stream(&server);
+        auto const body = make_body(4096);
+        test_parser pr(
+            {
+                .hdr_limits = { .max_size = 128, .max_fields = 4 },
+                .in_buffer  = 64
+            },
+            &stream);
+
+        capy::test::run_blocking()([&]() -> capy::task<>
+        {
+            server.provide(
+                "HTTP/1.1 200 OK\r\n"
+                "Content-Length: 4096\r\n"
+                "\r\n");
+
+            pr.start();
+            auto [ec] = co_await pr.read_header();
+            BOOST_TEST(!ec);
+
+            // the body arrives only after the header, so none of it is
+            // buffered and all of it is eligible for the direct path
+            server.provide(body);
+
+            std::string dest(4096, '\0');
+            auto [rec, n] = co_await pr.read_some(
+                capy::mutable_buffer(dest.data(), dest.size()));
+            BOOST_TEST(!rec);
+            BOOST_TEST_EQ(n, 4096);
+            BOOST_TEST(std::string_view(dest.data(), n) == body);
+            BOOST_TEST(pr.got_body());
+        }());
+    }
+
+    void
+    testBufferedData()
+    {
+        {
+            // pipelined: the next message is visible once this one is done
+            capy::test::read_stream server;
+            capy::any_read_stream stream(&server);
+            test_parser pr({}, &stream);
+
+            capy::test::run_blocking()([&]() -> capy::task<>
+            {
+                server.provide(
+                    "HTTP/1.1 200 OK\r\n"
+                    "Content-Length: 5\r\n"
+                    "\r\n"
+                    "hello"
+                    "HTTP/1.1 204 No Content\r\n"
+                    "\r\n");
+
+                pr.start();
+                auto [ec] = co_await pr.read_header();
+                BOOST_TEST(!ec);
+
+                char buf[8];
+                auto [rec, n] = co_await pr.read_some(
+                    capy::make_buffer(buf));
+                BOOST_TEST(!rec);
+                BOOST_TEST_EQ(n, 5);
+
+                BOOST_TEST(pr.has_buffered_data());
+                auto const bufs = pr.buffered_data();
+                BOOST_TEST_EQ(capy::buffer_size(bufs), 27u);
+                BOOST_TEST(std::string_view(
+                    static_cast<char const*>(bufs[0].data()),
+                    bufs[0].size()).starts_with("HTTP/1.1 204"));
+            }());
+        }
+        {
+            // A response whose framing runs to the end of the stream hides
+            // its leftovers from has_buffered_data. This is the shape of a
+            // 200 answer to CONNECT: the caller knows there is no body even
+            // though the response alone cannot say so, and buffered_data is
+            // the only way to recover the octets which follow.
+            capy::test::read_stream server;
+            capy::any_read_stream stream(&server);
+            test_parser pr({}, &stream);
+
+            capy::test::run_blocking()([&]() -> capy::task<>
+            {
+                server.provide(
+                    "HTTP/1.1 200 Connection Established\r\n"
+                    "\r\n"
+                    "\x16\x03\x01");
+
+                pr.start();
+                auto [ec] = co_await pr.read_header();
+                BOOST_TEST(!ec);
+                BOOST_TEST(pr.get().payload() ==
+                    http::payload::to_eof);
+
+                BOOST_TEST(!pr.has_buffered_data());
+                auto const bufs = pr.buffered_data();
+                BOOST_TEST_EQ(capy::buffer_size(bufs), 3u);
+                BOOST_TEST(std::string_view(
+                    static_cast<char const*>(bufs[0].data()),
+                    bufs[0].size()) == "\x16\x03\x01");
+            }());
+        }
+    }
+
+    void
+    testEofWithOctets()
+    {
+        // A read which delivers the last octets together with eof must not
+        // lose them: they are committed before the contingency is acted on,
+        // and reported before eof is.
+        {
+            eager_eof_stream server(
+                "HTTP/1.1 200 OK\r\n"
+                "\r\n"
+                "hello");
+            test_parser pr({}, nullptr);
+            capy::any_read_stream stream(&server);
+            pr.reset(&stream);
+
+            capy::test::run_blocking()([&]() -> capy::task<>
+            {
+                pr.start();
+                auto [ec] = co_await pr.read_header();
+                BOOST_TEST(!ec);
+
+                std::string got;
+                char buf[16];
+                for(;;)
+                {
+                    auto [rec, n] = co_await pr.read_some(
+                        capy::make_buffer(buf));
+                    got.append(buf, n);
+                    if(rec)
+                    {
+                        // any contingency ends the read; only eof is
+                        // expected here
+                        BOOST_TEST(rec == capy::cond::eof);
+                        break;
+                    }
+                }
+                BOOST_TEST(got == "hello");
+                BOOST_TEST(pr.got_body());
+            }());
+        }
+        {
+            // same, through a decoder, which forces every octet to travel
+            // via the parser's buffer rather than the pass-through path
+            eager_eof_stream server(
+                "HTTP/1.1 200 OK\r\n"
+                "Content-Length: 5\r\n"
+                "\r\n"
+                "hello");
+            test_parser pr({}, nullptr);
+            capy::any_read_stream stream(&server);
+            pr.reset(&stream);
+            test_decoder dec;
+
+            capy::test::run_blocking()([&]() -> capy::task<>
+            {
+                pr.start();
+                auto [ec] = co_await pr.read_header();
+                BOOST_TEST(!ec);
+                pr.set_decoder(&dec);
+
+                auto [bec, body] = co_await pr.read_body();
+                BOOST_TEST(!bec);
+                BOOST_TEST(body == decoded("hello"));
+            }());
+        }
+    }
+
     void
     run()
     {
@@ -2865,9 +3787,10 @@ public:
         testHeaderEagerComplete();
         testHeaderSyntaxError();
         testHeaderPayloadError();
+        testRequestBadTransferEncoding();
         testEndOfStream();
         testIncompleteHeader();
-        //testHeaderLargerThanBuffer();
+        testHeaderLargerThanBuffer();
 
         testSizedReadSome();
         testSizedPullConsume();
@@ -2878,6 +3801,7 @@ public:
         testSizedReadBodyIncomplete();
         testSizedBodyLimit();
         testSizedBodyLimitViaReadBody();
+        testSizedPullBodyLimitZero();
         testSizedMixedStreamThenView();
         testSizedReadBodyOverflow();
 
@@ -2888,12 +3812,19 @@ public:
         testChunkedReadBodySplitMidChunk();
         testChunkedReadBodyPipelined();
         testChunkedTrailersAndExtensions();
+        testChunkedPullSmallDest();
         testChunkedBadFraming();
         testChunkedBadFramingWithData();
+        testChunkedBadChunkExtension();
+        testChunkedSizeOverflow();
+        testChunkedBadChunkTerminator();
+        testChunkedBadTrailer();
         testChunkedPullDrainThenError();
         testChunkedIncomplete();
         testChunkedFramingLargerThanBuffer();
+        testChunkedReadBodyChunkLargerThanBuffer();
         testChunkedBodyLimit();
+        testChunkedBodyLimitViaReadBody();
         testChunkedBodyLimitViaConsume();
         testChunkedByteByByte();
         testChunkedReadBodyOverflowThenStream();
@@ -2903,6 +3834,8 @@ public:
         testToEofPull();
         testToEofEmptyBody();
         testToEofBodyLimit();
+        testToEofBodyLimitViaReadBody();
+        testToEofPullBodyLimitZero();
 
         testSetBodyLimitEnforced();
         testSetBodyLimitRaiseUnblocks();
@@ -2919,8 +3852,14 @@ public:
         testDecoderEarlyEof();
         testDecoderHardError();
         testDecoderPullServesDataBeforeError();
+        testDecoderNoPayload();
+        testDecoderReadSomeEmptyBuffer();
+        testDecoderBodyAfterStreaming();
+        testDecoderReadBodyHardError();
+        testDecoderPullTwiceWithoutConsume();
         testDecoderChunked();
         testDecoderChunkedEarlyEof();
+        testDecoderChunkedIncomplete();
         testDecoderToEof();
         testDecoderToEofTrailerSeparateRead();
         testDecoderReadBody();
@@ -2938,11 +3877,14 @@ public:
         testStartCompactsIncompleteMessage();
         testStartRetriesOverflowAtParkedBase();
         testStartSkipsUndeliveredRemainder();
+
+        testDirectCapacity();
+        testDirectReadBypassesBuffer();
+        testBufferedData();
+        testEofWithOctets();
     }
 };
 
-TEST_SUITE(parser_test, "boost.burl.detail.parser");
-
-} // namespace detail
+TEST_SUITE(parser_test, "boost.burl.parser");
 } // namespace burl
 } // namespace boost

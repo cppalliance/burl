@@ -7,29 +7,32 @@
 // Official repository: https://github.com/cppalliance/burl
 //
 
-#include <boost/burl/detail/parser.hpp>
+#include <boost/burl/parser.hpp>
 
-#include "util.hpp"
+#include <boost/burl/error.hpp>
+
+#include "detail/util.hpp"
 
 #include <boost/assert.hpp>
-#include <boost/capy/buffers/buffer_slice.hpp>
+#include <boost/capy/buffers/buffer_copy.hpp>
 #include <boost/capy/buffers/consuming_buffers.hpp>
 #include <boost/capy/buffers/front.hpp>
-#include <boost/capy/buffers/make_buffer.hpp>
+#include <boost/capy/cond.hpp>
 #include <boost/capy/error.hpp>
+#include <boost/capy/io_result.hpp>
 #include <boost/url/grammar/error.hpp>
 #include <boost/url/grammar/hexdig_chars.hpp>
 
 #include <cstring>
+#include <limits>
 #include <type_traits>
-#include <utility>
 
 namespace boost
 {
 namespace burl
 {
-namespace detail
-{
+
+using detail::clamp;
 
 using http::condition::need_more_input;
 using http::error::bad_payload;
@@ -165,10 +168,9 @@ parse_chunk_header(
     chained_sequence& cs,
     std::uint64_t& size) noexcept
 {
-    for(auto const start = cs.size();;)
+    auto const start = cs.size();
+    while(!cs.empty())
     {
-        if(cs.empty())
-            return need_data;
         auto const n = urls::grammar::hexdig_value(cs.value());
         if(n < 0)
         {
@@ -183,15 +185,14 @@ parse_chunk_header(
         size = (size << 4) | static_cast<std::uint64_t>(n);
         cs.next();
     }
+    return need_data;
 }
 
 std::error_code
 skip_trailer(chained_sequence& cs) noexcept
 {
-    for(;;)
+    while(!cs.empty())
     {
-        if(cs.empty())
-            return need_data;
         if(cs.value() == '\r')
         {
             if(!cs.next())
@@ -205,6 +206,7 @@ skip_trailer(chained_sequence& cs) noexcept
         if(auto ec = skip_to_eol(cs); ec)
             return ec;
     }
+    return need_data;
 }
 
 std::error_code
@@ -275,10 +277,8 @@ struct parser::chunk_fn
 parser::
 parser(
     config const& cfg,
-    bool is_request,
-    capy::any_read_stream stream)
-    : stream_(std::move(stream))
-    , body_limit_(cfg.body_limit)
+    bool is_request)
+    : body_limit_(cfg.body_limit)
     , is_req_(is_request)
 {
     auto const h_cap = head_parser::bytes_needed(
@@ -320,6 +320,24 @@ has_buffered_data() const noexcept
     default:
         return !in_.empty();
     }
+}
+
+std::array<capy::const_buffer, 2>
+parser::
+buffered_data() const noexcept
+{
+    return in_.data();
+}
+
+std::error_code
+parser::
+need_more() const noexcept
+{
+    if(eof_)
+        return incomplete;
+    if(in_.full())
+        return in_place_overflow;
+    return need_data;
 }
 
 std::size_t
@@ -386,51 +404,68 @@ start(bool head)
 
 void
 parser::
-reset(capy::any_read_stream stream) noexcept
+reset() noexcept
 {
     hp_.reset(buf_.get());
     in_.reset(buf_.get());
 
-    stream_       = std::move(stream);
-    dec_          = nullptr;
-    chunk_rem_    = 0;
-    transferred_  = 0;
-    decoded_      = 0;
-    payload_size_ = 0;
-    dec_err_      = {};
-    payload_      = payload::none;
-    head_         = false;
-    started_      = false;
-    got_header_   = false;
-    got_body_     = false;
-    mid_chunk_    = false;
-    fin_chunk_    = false;
-    eof_          = false;
+    payload_    = payload::none;
+    started_    = false;
+    got_header_ = false;
+    got_body_   = false;
+    eof_        = false;
 }
 
-capy::io_task<>
-parser::refill()
+std::array<capy::mutable_buffer, 2>
+parser::
+prepare() noexcept
 {
-    if(eof_)
-        co_return { incomplete };
-    if(in_.full())
-        co_return { in_place_overflow };
-    auto [ec, n] = co_await stream_.read_some(in_.prepare());
+    return in_.prepare();
+}
+
+void
+parser::
+commit(std::size_t n) noexcept
+{
     in_.commit(n);
     if(payload_sized() && payload_rem() <= in_.size())
         got_body_ = true;
-    if(ec)
+}
+
+void
+parser::
+commit_eof() noexcept
+{
+    eof_ = true;
+    if(got_header_ && payload_ == payload::to_eof)
+        got_body_ = true;
+}
+
+std::size_t
+parser::
+direct_capacity() const noexcept
+{
+    if(!got_header_ || dec_ || eof_ || !in_.empty())
+        return 0;
+
+    switch(payload_)
     {
-        if(ec == capy::cond::eof)
-        {
-            eof_ = true;
-            if(payload_ == payload::to_eof)
-                got_body_ = true;
-            co_return {};
-        }
-        co_return ec;
+    case payload::size:
+        return clamp(payload_rem(), raw_limit_rem());
+    case payload::to_eof:
+        return raw_limit_rem();
+    default:
+        return 0;
     }
-    co_return {};
+}
+
+void
+parser::
+commit_direct(std::size_t n) noexcept
+{
+    transferred_ += n;
+    if(payload_sized() && payload_rem() == 0)
+        got_body_ = true;
 }
 
 std::error_code
@@ -560,76 +595,78 @@ flatten_chunks()
     }
 }
 
-capy::io_task<>
+void
 parser::
-read_header()
+parse_header(system::error_code& ec)
 {
     BOOST_ASSERT(started_);
 
+    ec = {};
+
     if(got_header_)
-        co_return {};
+        return;
 
     for(;;)
     {
-        system::error_code ec;
         hp_.parse(in_.size(), ec);
-        if(ec)
-        {
-            if(ec == in_place_overflow && in_.ptr != buf_.get())
-            {
-                in_.slide(buf_.get());
-                hp_.rebase(buf_.get());
-                continue;
-            }
-            if(ec != need_more_input)
-                co_return { ec };
-            if(eof_)
-            {
-                if(in_.empty())
-                    co_return { end_of_stream };
-                co_return { incomplete };
-            }
-            if(auto [fec] = co_await refill(); fec)
-                co_return { fec };
-            continue;
-        }
-
-        auto const& h = hp_.message_head();
-        got_header_   = true;
-        payload_      = head_ ? payload::none : h.payload();
-        payload_size_ = h.content_length().value_or(0);
-
-        auto const head_size = h.buffer().size();
-
-        switch(payload_)
-        {
-        case payload::error:
-            co_return { bad_payload };
-        case payload::none:
-            got_body_ = true;
-            break;
-        case payload::size:
-            if(payload_rem() <= in_.size() - head_size)
-                got_body_ = true;
-            break;
-        case payload::chunked:
-            break;
-        case payload::to_eof:
-            if(eof_)
-                got_body_ = true;
-            break;
-        }
-
-        if(!got_body_)
+        if(ec == in_place_overflow && in_.ptr != buf_.get())
         {
             in_.slide(buf_.get());
             hp_.rebase(buf_.get());
+            continue;
         }
-
-        in_.shed(head_size);
-
-        co_return {};
+        break;
     }
+    if(ec)
+    {
+        if(ec != need_more_input)
+            return;
+        if(eof_)
+        {
+            if(in_.empty())
+                ec = end_of_stream;
+            else
+                ec = incomplete;
+            return;
+        }
+        ec = need_data;
+        return;
+    }
+
+    auto const& h = hp_.message_head();
+    got_header_   = true;
+    payload_      = head_ ? payload::none : h.payload();
+    payload_size_ = h.content_length().value_or(0);
+
+    auto const head_size = h.buffer().size();
+
+    switch(payload_)
+    {
+    case payload::error:
+        ec = bad_payload;
+        return;
+    case payload::none:
+        got_body_ = true;
+        break;
+    case payload::size:
+        if(payload_rem() <= in_.size() - head_size)
+            got_body_ = true;
+        break;
+    case payload::chunked:
+        break;
+    case payload::to_eof:
+        if(eof_)
+            got_body_ = true;
+        break;
+    }
+
+    if(!got_body_)
+    {
+        in_.slide(buf_.get());
+        hp_.rebase(buf_.get());
+    }
+
+    in_.shed(head_size);
 }
 
 void
@@ -647,56 +684,74 @@ set_body_limit(std::uint64_t n) noexcept
     body_limit_ = n;
 }
 
-capy::io_task<std::string_view>
+std::string_view
 parser::
-read_body()
+body(system::error_code& ec)
 {
-    if(auto [ec] = co_await read_header(); ec)
-        co_return { ec, {} };
+    BOOST_ASSERT(got_header_);
+
+    ec = {};
 
     if(dec_)
     {
         if(decoded_ != out_.size())
-            co_return { incomplete, {} };
+        {
+            ec = incomplete;
+            return {};
+        }
         for(;;)
         {
             if(out_.full())
-                co_return { in_place_overflow, {} };
-            auto [ec, n] = co_await decode_some(out_.prepare());
+            {
+                ec = in_place_overflow;
+                return {};
+            }
+            auto pb = out_.prepare();
+            auto const n = decode_some(pb, ec);
             out_.commit(n);
             if(ec)
             {
                 if(ec == capy::cond::eof)
-                    co_return { {}, { out_.ptr, out_.len } };
-                co_return { ec, {} };
+                {
+                    ec = {};
+                    return { out_.ptr, out_.len };
+                }
+                return {};
             }
         }
     }
 
     if(transferred_ != 0)
-        co_return { incomplete, {} };
+    {
+        ec = incomplete;
+        return {};
+    }
 
     switch(payload_)
     {
     case payload::error:
     case payload::none:
     {
-        co_return { {}, {} };
+        return {};
     }
     case payload::chunked:
     {
         for(;;)
         {
             if(chunk_rem_ > raw_limit_rem())
-                co_return { body_too_large, {} };
-            if(fin_chunk_)
-                co_return { {}, { in_.ptr, clamp(chunk_rem_) } };
-            if(auto ec = flatten_chunks(); ec)
             {
-                if(ec != need_more_input)
-                    co_return { ec, {} };
-                if(auto [fec] = co_await refill(); fec)
-                    co_return { fec, {} };
+                ec = body_too_large;
+                return {};
+            }
+            if(fin_chunk_)
+                return { in_.ptr, clamp(chunk_rem_) };
+            if(auto fec = flatten_chunks(); fec)
+            {
+                if(fec != need_more_input)
+                    ec = fec;
+                else
+                    ec = need_more();
+                return {};
             }
         }
     }
@@ -704,28 +759,30 @@ read_body()
     {
         auto const rem = payload_rem();
         if(rem > raw_limit_rem())
-            co_return { body_too_large, {} };
-        for(;;)
         {
-            if(got_body_)
-                co_return { {}, { in_.ptr, clamp(in_.len, rem) } };
-            if(auto [fec] = co_await refill(); fec)
-                co_return { fec, {} };
+            ec = body_too_large;
+            return {};
         }
+        if(got_body_)
+            return { in_.ptr, clamp(in_.len, rem) };
+        ec = need_more();
+        return {};
     }
     case payload::to_eof:
     {
-        for(;;)
+        if(in_.size() > raw_limit_rem())
         {
-            if(in_.size() > raw_limit_rem())
-                co_return { body_too_large, {} };
-            if(got_body_)
-                co_return { {}, { in_.ptr, in_.len } };
-            if(auto [fec] = co_await refill(); fec)
-                co_return { fec, {} };
+            ec = body_too_large;
+            return {};
         }
+        if(got_body_)
+            return { in_.ptr, in_.len };
+        ec = need_more();
+        return {};
     }
     }
+
+    return {};
 }
 
 burl::response_head_base const&
@@ -742,13 +799,16 @@ get_request() const
     return hp_.request_head();
 }
 
-capy::io_task<std::size_t>
+std::size_t
 parser::
 decode_some(
-    std::span<capy::mutable_buffer const> buffers)
+    std::span<capy::mutable_buffer const> buffers,
+    system::error_code& ec)
 {
+    ec = {};
+
     if(capy::buffer_empty(buffers))
-        co_return { {}, 0 };
+        return 0;
 
     auto outbufs = capy::consuming_buffers(buffers);
     std::size_t prod = 0;
@@ -802,20 +862,19 @@ decode_some(
     case payload::error:
     case payload::none:
     {
-        co_return { capy::error::eof, 0 };
+        ec = capy::error::eof;
+        return 0;
     }
     case payload::chunked:
     {
-        for(;;)
-        {
-            auto ec = walk_chunks(decode);
-            if(prod != 0)
-                co_return { {}, prod };
-            if(ec != need_more_input)
-                co_return { ec, 0 };
-            if(auto [fec] = co_await refill(); fec)
-                co_return { fec, 0 };
-        }
+        auto const wec = walk_chunks(decode);
+        if(prod != 0)
+            return prod;
+        if(wec != need_more_input)
+            ec = wec;
+        else
+            ec = need_more();
+        return 0;
     }
     case payload::size:
     case payload::to_eof:
@@ -826,28 +885,34 @@ decode_some(
             auto const in  = in_.first(rem);
             if(in.size() == 0 && !got_body_)
             {
-                if(auto [fec] = co_await refill(); fec)
-                    co_return { fec, 0 };
-                continue;
+                ec = need_more();
+                return 0;
             }
-            auto [ec, cons] = decode(in, got_body_ && in.size() == rem);
+            auto [dec_ec, cons] = decode(in, got_body_ && in.size() == rem);
             in_.consume(cons);
             if(prod != 0)
-                co_return { {}, prod };
-            if(ec)
-                co_return { ec, 0 };
+                return prod;
+            if(dec_ec)
+            {
+                ec = dec_ec;
+                return 0;
+            }
         }
     }
     }
+
+    return 0;
 }
 
-capy::io_task<std::size_t>
+std::size_t
 parser::
-do_read_some(
-    std::span<capy::mutable_buffer const> buffers)
+read_some(
+    std::span<capy::mutable_buffer const> buffers,
+    system::error_code& ec)
 {
-    if(auto [ec] = co_await read_header(); ec)
-        co_return { ec, 0 };
+    BOOST_ASSERT(got_header_);
+
+    ec = {};
 
     if(dec_)
     {
@@ -855,9 +920,9 @@ do_read_some(
         {
             auto const n = capy::buffer_copy(buffers, out_.data());
             out_.consume(n);
-            co_return { {}, n };
+            return n;
         }
-        co_return co_await decode_some(buffers);
+        return decode_some(buffers, ec);
     }
 
     auto copy = [&](std::size_t at_most)
@@ -874,106 +939,107 @@ do_read_some(
     case payload::error:
     case payload::none:
     {
-        co_return { capy::error::eof, 0 };
+        ec = capy::error::eof;
+        return 0;
     }
     case payload::chunked:
     {
-        for(;;)
+        std::size_t read = 0;
+        std::size_t lim = raw_limit_rem();
+        auto outbufs = capy::consuming_buffers(buffers);
+        auto const wec = walk_chunks(
+        [&](capy::const_buffer b, bool)
+            -> capy::io_result<std::size_t>
         {
-            std::size_t read = 0;
-            std::size_t lim = raw_limit_rem();
-            auto outbufs = capy::consuming_buffers(buffers);
-            auto ec = walk_chunks(
-            [&](capy::const_buffer b, bool)
-                -> capy::io_result<std::size_t>
-            {
-                auto const take = clamp(b.size(), lim);
-                lim -= take;
-                auto const n = capy::buffer_copy(outbufs.data(), b, take);
-                read += n;
-                outbufs.consume(n);
-                if(take < b.size())
-                    return { body_too_large, n };
-                return { {}, n };
+            auto const take = clamp(b.size(), lim);
+            lim -= take;
+            auto const n = capy::buffer_copy(outbufs.data(), b, take);
+            read += n;
+            outbufs.consume(n);
+            if(take < b.size())
+                return { body_too_large, n };
+            return { {}, n };
 
-            });
-            if(read != 0)
-                co_return { {}, read };
-            if(ec == need_more_input)
-            {
-                if(auto [fec] = co_await refill(); fec)
-                    co_return { fec, 0 };
-                continue;
-            }
-            else if(ec)
-                co_return { ec, 0 };
-            BOOST_ASSERT(got_body_);
-            co_return { capy::error::eof, 0 };
+        });
+        if(read != 0)
+            return read;
+        if(wec == need_more_input)
+        {
+            ec = need_more();
+            return 0;
         }
+        if(wec)
+        {
+            ec = wec;
+            return 0;
+        }
+        BOOST_ASSERT(got_body_);
+        ec = capy::error::eof;
+        return 0;
     }
     case payload::size:
     {
         auto const rem = payload_rem();
         if(rem == 0)
-            co_return { capy::error::eof, 0 };
+        {
+            ec = capy::error::eof;
+            return 0;
+        }
         auto const lim = raw_limit_rem();
         if(lim == 0)
-            co_return { body_too_large, 0 };
-        if(!in_.empty())
-            co_return { {}, copy(clamp(rem, lim)) };
-        if(eof_)
-            co_return { incomplete, 0 };
-        auto [ec, n] = co_await stream_.read_some(
-            capy::buffer_slice(buffers, 0, clamp(rem, lim)));
-        transferred_ += n;
-        if(n == rem)
-            got_body_ = true;
-        if(ec == capy::cond::eof)
         {
-            eof_ = true;
-            if(n != rem)
-                co_return { incomplete, n };
+            ec = body_too_large;
+            return 0;
         }
-        co_return { ec, n };
+        if(!in_.empty())
+            return copy(clamp(rem, lim));
+        ec = need_more();
+        return 0;
     }
     case payload::to_eof:
     {
-        if(eof_)
-            co_return { capy::error::eof, 0 };
         auto const lim = raw_limit_rem();
         if(lim == 0)
-            co_return { body_too_large, 0 };
-        if(!in_.empty())
-            co_return { {}, copy(lim) };
-        auto [ec, n] = co_await stream_.read_some(
-            capy::buffer_slice(buffers, 0, lim));
-        transferred_ += n;
-        if(ec == capy::cond::eof)
         {
-            eof_ = true;
-            got_body_ = true;
+            ec = body_too_large;
+            return 0;
         }
-        co_return { ec, n };
+        if(!in_.empty())
+            return copy(lim);
+        if(eof_)
+        {
+            ec = capy::error::eof;
+            return 0;
+        }
+        ec = need_more();
+        return 0;
     }
     }
+
+    return 0;
 }
 
-capy::io_task<std::span<capy::const_buffer>>
+std::span<capy::const_buffer>
 parser::
-pull(std::span<capy::const_buffer> dest)
+pull(
+    std::span<capy::const_buffer> dest,
+    system::error_code& ec)
 {
-    if(auto [ec] = co_await read_header(); ec)
-        co_return { ec, {} };
+    BOOST_ASSERT(got_header_);
+
+    ec = {};
 
     if(dec_)
     {
         if(!out_.empty())
-            co_return { {}, collect(dest, out_.data()) };
-        auto [ec, n] = co_await decode_some(out_.prepare());
+            return collect(dest, out_.data());
+        auto pb = out_.prepare();
+        auto const n = decode_some(pb, ec);
         out_.commit(n);
         if(ec && n == 0)
-            co_return { ec, {} };
-        co_return { {}, collect(dest, out_.data()) };
+            return {};
+        ec = {};
+        return collect(dest, out_.data());
     }
 
     switch(payload_)
@@ -981,75 +1047,84 @@ pull(std::span<capy::const_buffer> dest)
     case payload::error:
     case payload::none:
     {
-        co_return { capy::error::eof, {} };
+        ec = capy::error::eof;
+        return {};
     }
     case payload::chunked:
     {
-        for(;;)
+        std::size_t n = 0;
+        std::size_t lim = raw_limit_rem();
+        if(lim == 0)
         {
-            std::size_t n = 0;
-            std::size_t lim = raw_limit_rem();
-            if(lim == 0)
-                co_return { body_too_large, {} };
-            auto ec = walk_chunks(
-            [&](capy::const_buffer b, bool last)
-                -> capy::io_result<std::size_t>
-            {
-                if(last && b.size() == 0)
-                    return { capy::error::eof, 0 };
-                auto const take = clamp(b.size(), lim);
-                if(take == 0 || n == dest.size())
-                    return { {}, 0 };
-                lim -= take;
-                dest[n++] = { b.data(), take };
-                return { {}, take };
-            },
-            true);
-            if(n != 0)
-                co_return { {}, dest.first(n) };
-            if(ec != need_more_input)
-            {
-                if(ec == capy::error::eof)
-                    consume(0); // chunk trailer
-                co_return { ec, {} };
-            }
-            if(auto [fec] = co_await refill(); fec)
-                co_return { fec, {} };
+            ec = body_too_large;
+            return {};
         }
+        auto const wec = walk_chunks(
+        [&](capy::const_buffer b, bool last)
+            -> capy::io_result<std::size_t>
+        {
+            if(last && b.size() == 0)
+                return { capy::error::eof, 0 };
+            auto const take = clamp(b.size(), lim);
+            if(take == 0 || n == dest.size())
+                return { {}, 0 };
+            lim -= take;
+            dest[n++] = { b.data(), take };
+            return { {}, take };
+        },
+        true);
+        if(n != 0)
+            return dest.first(n);
+        if(wec != need_more_input)
+        {
+            if(wec == capy::error::eof)
+                consume(0); // chunk trailer
+            ec = wec;
+            return {};
+        }
+        ec = need_more();
+        return {};
     }
     case payload::size:
     {
         auto const rem = payload_rem();
         auto const lim = raw_limit_rem();
         if(rem == 0)
-            co_return { capy::error::eof, {} };
-        if(lim == 0)
-            co_return { body_too_large, {} };
-        for(;;)
         {
-            if(!in_.empty())
-                co_return { {}, collect(
-                    dest, in_.data(), clamp(rem, lim)) };
-            if(auto [fec] = co_await refill(); fec)
-                co_return { fec, {} };
+            ec = capy::error::eof;
+            return {};
         }
+        if(lim == 0)
+        {
+            ec = body_too_large;
+            return {};
+        }
+        if(!in_.empty())
+            return collect(dest, in_.data(), clamp(rem, lim));
+        ec = need_more();
+        return {};
     }
     case payload::to_eof:
     {
         auto const lim = raw_limit_rem();
         if(lim == 0)
-            co_return { body_too_large, {} };
-        for(;;)
         {
-            if(!in_.empty())
-                co_return { {}, collect(dest, in_.data(), lim) };
-            if(eof_)
-                co_return { capy::error::eof, {} };
-            if(auto [fec] = co_await refill(); fec)
-                co_return { fec, {} };
+            ec = body_too_large;
+            return {};
         }
+        if(!in_.empty())
+            return collect(dest, in_.data(), lim);
+        if(eof_)
+        {
+            ec = capy::error::eof;
+            return {};
+        }
+        ec = need_more();
+        return {};
     }
     }
+
+    return {};
 }
 
 void
@@ -1078,6 +1153,5 @@ consume(std::size_t n) noexcept
     }
 }
 
-} // namespace detail
 } // namespace burl
 } // namespace boost

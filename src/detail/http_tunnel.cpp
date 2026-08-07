@@ -10,7 +10,8 @@
 #include "http_tunnel.hpp"
 
 #include <boost/burl/error.hpp>
-#include <boost/burl/detail/response_parser.hpp>
+#include <boost/burl/message_reader.hpp>
+#include <boost/burl/response_parser.hpp>
 #include <boost/burl/request_head.hpp>
 
 #include "base64.hpp"
@@ -54,9 +55,10 @@ open_http_tunnel(
        ec)
         co_return ec;
 
-    detail::response_parser parser({}, &stream);
+    response_parser parser(response_parser::config{});
     parser.start();
-    if(auto [ec] = co_await parser.read_header(); ec)
+    if(auto [ec] = co_await message_reader{
+        &stream, &parser }.read_header(); ec)
         co_return { error::proxy_connect_failed };
 
     auto status = parser.get().status();

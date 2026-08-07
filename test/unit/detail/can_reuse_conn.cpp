@@ -10,6 +10,8 @@
 // Test that header file is self-contained.
 #include "src/detail/can_reuse_conn.hpp"
 
+#include <boost/burl/message_reader.hpp>
+
 #include "test_suite.hpp"
 
 #include <boost/capy/task.hpp>
@@ -33,12 +35,13 @@ class can_reuse_conn_test
         auto [client, server] = capy::test::make_stream_pair();
         server.provide(response);
 
-        response_parser parser({}, capy::any_read_stream(&client));
+        response_parser parser(response_parser::config{});
         bool result = false;
         capy::test::run_blocking()([&]() -> capy::task<>
         {
             parser.start();
-            if(auto [rec] = co_await parser.read_header(); rec)
+            if(auto [rec] = co_await message_reader{
+                   &client, &parser }.read_header(); rec)
                 co_return;
             result = can_reuse_conn(parser);
         }());
@@ -90,7 +93,7 @@ public:
     void
     testNoHeader()
     {
-        response_parser parser({}, {});
+        response_parser parser(response_parser::config{});
         BOOST_TEST(!can_reuse_conn(parser));
     }
 
