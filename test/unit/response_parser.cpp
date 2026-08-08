@@ -11,13 +11,13 @@
 #include <boost/burl/response_parser.hpp>
 
 #include <boost/burl/error.hpp>
-#include <boost/burl/message_reader.hpp>
 
-#include <boost/capy/io/any_read_stream.hpp>
-#include <boost/capy/test/read_stream.hpp>
+#include <boost/capy/buffers/buffer_copy.hpp>
+#include <boost/capy/cond.hpp>
 
 #include "test_suite.hpp"
 
+#include <span>
 #include <string_view>
 
 namespace boost
@@ -26,66 +26,74 @@ namespace burl
 {
 class response_parser_test
 {
+    // The parser does no I/O: octets go in through prepare()/commit().
+    static
+    void
+    feed(parser& pr, std::string_view s)
+    {
+        auto const n = capy::buffer_copy(
+            pr.prepare(),
+            capy::const_buffer(s.data(), s.size()));
+        BOOST_TEST_EQ(n, s.size());
+        pr.commit(n);
+    }
+
 public:
     void
     test_header()
     {
-        capy::test::read_stream server;
-        capy::any_read_stream stream(&server);
         response_parser pr(response_parser::config{});
 
-        capy::test::run_blocking()([&]() -> capy::task<>
-        {
-            server.provide(
-                "HTTP/1.1 200 OK\r\n"
-                "Content-Length: 5\r\n"
-                "\r\n"
-                "hello");
+        pr.start();
+        feed(pr,
+            "HTTP/1.1 200 OK\r\n"
+            "Content-Length: 5\r\n"
+            "\r\n"
+            "hello");
 
-            pr.start();
-            auto [ec] = co_await message_reader{ &stream, &pr }.read_header();
-            BOOST_TEST(!ec);
-            BOOST_TEST(pr.got_header());
-            // the whole body arrived with the header, so the message
-            // is already complete (arrival semantics)
-            BOOST_TEST(pr.got_body());
+        system::error_code ec;
+        pr.parse_header(ec);
+        BOOST_TEST(!ec);
+        BOOST_TEST(pr.got_header());
+        // the whole body arrived with the header, so the message
+        // is already complete (arrival semantics)
+        BOOST_TEST(pr.got_body());
 
-            BOOST_TEST(pr.get().status() == http::status::ok);
-            BOOST_TEST_EQ(pr.get().status_int(), 200);
-            BOOST_TEST(pr.get().reason() == "OK");
+        BOOST_TEST(pr.get().status() == http::status::ok);
+        BOOST_TEST_EQ(pr.get().status_int(), 200);
+        BOOST_TEST(pr.get().reason() == "OK");
 
-            char buf[8];
-            auto [bec, n] = co_await message_reader{ &stream, &pr }
-                .read(capy::make_buffer(buf));
-            BOOST_TEST(bec == capy::cond::eof);
-            BOOST_TEST_EQ(n, 5);
-            BOOST_TEST(std::string_view(buf, n) == "hello");
-        }());
+        char buf[8];
+        capy::mutable_buffer mb(buf, sizeof(buf));
+        auto n = pr.read_some({ &mb, 1 }, ec);
+        BOOST_TEST(!ec);
+        BOOST_TEST_EQ(n, 5);
+        BOOST_TEST(std::string_view(buf, n) == "hello");
+
+        n = pr.read_some({ &mb, 1 }, ec);
+        BOOST_TEST(ec == capy::cond::eof);
+        BOOST_TEST_EQ(n, 0);
     }
 
     void
     test_head_response()
     {
-        capy::test::read_stream server;
-        capy::any_read_stream stream(&server);
         response_parser pr(response_parser::config{});
 
-        capy::test::run_blocking()([&]() -> capy::task<>
-        {
-            // Response to a HEAD request: framing fields are present but no
-            // body follows. start(true) tells the parser not to read one.
-            server.provide(
-                "HTTP/1.1 200 OK\r\n"
-                "Content-Length: 5\r\n"
-                "\r\n");
+        // Response to a HEAD request: framing fields are present but no
+        // body follows. start(true) tells the parser not to read one.
+        pr.start(true);
+        feed(pr,
+            "HTTP/1.1 200 OK\r\n"
+            "Content-Length: 5\r\n"
+            "\r\n");
 
-            pr.start(true);
-            auto [ec] = co_await message_reader{ &stream, &pr }.read_header();
-            BOOST_TEST(!ec);
-            BOOST_TEST(pr.got_header());
-            BOOST_TEST(pr.got_body());
-            BOOST_TEST_EQ(pr.get().status_int(), 200);
-        }());
+        system::error_code ec;
+        pr.parse_header(ec);
+        BOOST_TEST(!ec);
+        BOOST_TEST(pr.got_header());
+        BOOST_TEST(pr.got_body());
+        BOOST_TEST_EQ(pr.get().status_int(), 200);
     }
 
     void

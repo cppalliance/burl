@@ -59,13 +59,20 @@ namespace burl
     The body can be retrieved three ways, which
     differ in where the octets end up:
 
-    @li @ref body returns the whole body in place,
-        without copying,
+    @li @ref flatten_body returns the whole body in
+        place, without copying,
     @li @ref read_some copies into caller-supplied
         memory, or lets an installed decoder write
         into it directly, and
     @li @ref pull borrows the parser's own buffers,
         which @ref consume then releases.
+
+    Each parses the header first when it has not
+    been parsed already, so a caller with no
+    interest in the header never has to call @ref
+    parse_header. Installing a decoder does require
+    it, because @ref set_decoder must run after the
+    header and before any body octet.
 
     @par Errors
 
@@ -317,19 +324,36 @@ public:
 
     /** Return the octets which may be received directly.
 
-        Returns the number of octets which may be
-        read from the stream straight into
-        caller-supplied memory, bypassing the
-        parser's buffer entirely, or zero when that
-        is not permitted. Report octets received
-        this way with @ref commit_direct.
+        Body octets may be read from the stream
+        straight into caller-supplied memory,
+        bypassing the parser's buffer, when every
+        one of these holds:
 
-        This is zero unless the header has been
-        parsed, no decoder is installed, the payload
-        has a known size or is delimited by the end
-        of the stream, the buffer holds no payload
-        octets, the stream has not ended, and the
-        body limit has not been reached.
+        @li the header has been parsed,
+
+        @li the payload has a known size or is
+        delimited by the end of the stream,
+
+        @li no @ref decoder is installed,
+
+        @li the buffer holds no payload octets,
+
+        @li @ref commit_eof has not been called, and
+
+        @li the body limit permits more octets: a
+        known size must fit within what remains of
+        the limit, and a payload delimited by the
+        end of the stream must not have reached it.
+
+        Otherwise body octets must be received
+        through @ref prepare and @ref commit.
+
+        @return The number of octets which may be
+        received directly, or zero when that is not
+        permitted. For a payload of known size this
+        is what remains of the payload; for one
+        delimited by the end of the stream it is
+        what remains of the body limit.
 
         @see @ref commit_direct.
     */
@@ -373,36 +397,42 @@ public:
     void
     parse_header(system::error_code& ec);
 
-    /** Return the complete body in place.
+    /** Flatten the body in place and return it.
 
-        Reads the remainder of the body into the
-        parser's own buffer and returns a view of
-        the whole body, without copying. A chunked
-        payload is coalesced in place.
+        Coalesces the buffered body octets into a
+        contiguous range in the parser's own buffer
+        and returns a view of them, without copying.
+        A chunked payload is de-chunked in place.
+        Parses the header first if @ref got_header
+        returns false.
 
         @par Preconditions
-        @li `this->got_header() == true`
-        @li No octet of the body has been retrieved
-            by @ref read_some or @ref pull.
+        @ref start has been called.
 
         @param ec Set to the error, if any occurred.
-        Set to @ref http::error::in_place_overflow if
-        the body does not fit in the buffer.
+        Set to @ref http::error::need_data until the
+        complete body is buffered, or to
+        @ref http::error::in_place_overflow if the
+        body does not fit in the buffer.
 
-        @return A view of the body, valid until the
-        parser is modified.
+        @return A view of the body octets flattened
+        so far, valid until the parser is modified.
+        The body is complete when no error is
+        reported.
     */
     BOOST_BURL_DECL
     std::string_view
-    body(system::error_code& ec);
+    flatten_body(system::error_code& ec);
 
     /** Copy body octets into caller-supplied memory.
 
         When a decoder is installed, it writes its
-        output into `buffers` directly.
+        output into `buffers` directly. Parses the
+        header first if @ref got_header returns
+        false.
 
         @par Preconditions
-        `this->got_header() == true`
+        @ref start has been called.
 
         @param buffers The destination.
 
@@ -422,10 +452,11 @@ public:
 
         Fills `dest` with descriptors referring to
         the parser's own buffers. Release them with
-        @ref consume.
+        @ref consume. Parses the header first if
+        @ref got_header returns false.
 
         @par Preconditions
-        `this->got_header() == true`
+        @ref start has been called.
 
         @param dest The descriptors to fill.
 
@@ -490,7 +521,7 @@ protected:
     BOOST_BURL_DECL
     parser(
         config const& cfg,
-        bool is_request);
+        bool is_req);
 
     parser(parser&& other) noexcept = default;
 
@@ -523,18 +554,6 @@ private:
     need_more() const noexcept;
 
     std::size_t
-    raw_limit_rem() const noexcept;
-
-    std::size_t
-    dec_limit_rem() const noexcept;
-
-    bool
-    payload_sized() const noexcept;
-
-    std::size_t
-    payload_rem() const noexcept;
-
-    std::size_t
     trailer_extent() const noexcept;
 
     std::error_code
@@ -553,14 +572,11 @@ private:
     decoder * dec_ = nullptr;
     detail::circular_buffer in_;
     detail::circular_buffer out_;
-    std::uint64_t chunk_rem_ = 0;
-    std::uint64_t transferred_ = 0;
-    std::uint64_t decoded_ = 0;
+    std::uint64_t rem_ = 0;
     std::uint64_t body_limit_ = 0;
-    std::uint64_t payload_size_ = 0;
+    std::uint64_t limit_rem_ = 0;
     std::error_code dec_err_;
     http::payload payload_ = http::payload::none;
-    bool is_req_ : 1 = true;
     bool head_ : 1 = false;
     bool started_ : 1 = false;
     bool got_header_ : 1 = false;

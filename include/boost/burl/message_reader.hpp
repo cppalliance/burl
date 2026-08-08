@@ -70,10 +70,10 @@ namespace burl
     buffer. Use @ref read_some instead when the
     octets have to land in memory of your choosing.
 
-    Every operation drives @ref parser::parse_header
-    first, so reading a body without having read the
-    header explicitly works as expected. This serves
-    the caller who has no interest in the header:
+    Every operation parses the header first, so
+    reading a body without having read the header
+    explicitly works as expected. This serves the
+    caller who has no interest in the header:
     anything decided from it, installing a decoder
     above all, needs @ref read_header called
     explicitly, because @ref parser::set_decoder
@@ -290,14 +290,10 @@ capy::io_task<std::string_view>
 message_reader<S>::
 read_body_(S& stream, parser& pr)
 {
-    if(!pr.got_header())
-        if(auto [ec] = co_await read_header_(stream, pr); ec)
-            co_return { ec, {} };
-
     for(;;)
     {
         system::error_code ec;
-        auto const sv = pr.body(ec);
+        auto const sv = pr.flatten_body(ec);
         if(ec != http::error::need_data)
             co_return { std::error_code(ec), sv };
         if(auto [rec] = co_await refill_(stream, pr); rec)
@@ -314,10 +310,6 @@ read_some_(
     parser& pr,
     MB buffers)
 {
-    if(!pr.got_header())
-        if(auto [ec] = co_await read_header_(stream, pr); ec)
-            co_return { ec, 0 };
-
     capy::buffer_param bp(buffers);
 
     for(;;)
@@ -380,10 +372,6 @@ pull_(
     parser& pr,
     std::span<capy::const_buffer> dest)
 {
-    if(!pr.got_header())
-        if(auto [ec] = co_await read_header_(stream, pr); ec)
-            co_return { ec, {} };
-
     for(;;)
     {
         system::error_code ec;
