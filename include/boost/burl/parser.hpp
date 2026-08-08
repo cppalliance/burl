@@ -458,6 +458,32 @@ public:
     void
     consume(std::size_t n) noexcept;
 
+    /** Copy the trailer fields into a container.
+
+        Appends each field in the trailer section
+        of a chunked payload to `f`, in the order
+        received.
+
+        @par Preconditions
+        `this->got_header() == true`
+
+        @par Exception Safety
+        Basic guarantee. An exception from the
+        container leaves the parser unchanged;
+        fields already appended remain, and the
+        call may be retried.
+
+        @param f The container to append to.
+
+        @param ec Set to the error, if any
+        occurred.
+    */
+    BOOST_BURL_DECL
+    void
+    parse_trailer(
+        fields_base& f,
+        system::error_code& ec);
+
 protected:
     parser() = default;
 
@@ -507,6 +533,9 @@ private:
 
     std::size_t
     payload_rem() const noexcept;
+
+    std::size_t
+    trailer_extent() const noexcept;
 
     std::error_code
     walk_chunks(chunk_fn f, bool dry = false);

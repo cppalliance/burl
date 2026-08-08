@@ -150,21 +150,34 @@ linearize(char* floor) noexcept
     else if(len != 0)
     {
         auto const bufs = data();
-        auto const* a = static_cast<char const*>(bufs[0].data());
-        auto an       = bufs[0].size();
-        auto const* b = static_cast<char const*>(bufs[1].data());
-        auto const bn = bufs[1].size();
-        char* base    = floor;
-        do
+        auto const* a   = static_cast<char const*>(bufs[0].data());
+        auto an         = bufs[0].size();
+        auto const* b   = static_cast<char const*>(bufs[1].data());
+        auto const bn   = bufs[1].size();
+        auto const gap  = static_cast<std::size_t>(ptr - floor) + (cap - len);
+
+        // leapfrogging to the floor runs ceil(an / gap) rounds
+        // and re-moves the wrapped range each round; past a
+        // bound the in-place rotate is cheaper, and it is the
+        // only option when gap == 0
+        if(an <= gap * 16)
         {
-            auto* bp = (std::min)(base + an, const_cast<char*>(a) - bn);
-            b = static_cast<char const*>(std::memmove(bp, b, bn));
-            auto chunk_a = static_cast<std::size_t>(b - base);
-            std::memcpy(base, a, chunk_a);
-            an   -= chunk_a;
-            base += chunk_a;
-            a    += chunk_a;
-        } while(an);
+            char* base = floor;
+            do
+            {
+                auto const k = (std::min)(an, gap);
+                b = static_cast<char const*>(std::memmove(base + k, b, bn));
+                std::memcpy(base, a, k);
+                an   -= k;
+                base += k;
+                a    += k;
+            } while(an);
+        }
+        else
+        {
+            std::rotate(ptr, ptr + pos, ptr + cap);
+            p = ptr;
+        }
     }
     cap = static_cast<std::size_t>((ptr + cap) - p);
     ptr = p;

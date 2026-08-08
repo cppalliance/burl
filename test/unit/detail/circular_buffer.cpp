@@ -279,6 +279,73 @@ public:
     }
 
     void
+    testLinearizeFullWrapped()
+    {
+        // full and wrapped with no room below: the segments
+        // cannot leapfrog and the contents rotate in place
+        char store[8];
+        circular_buffer cb{ store, sizeof(store) };
+        put(cb, "abcdefgh");
+        cb.consume(3);
+        put(cb, "XYZ");
+        BOOST_TEST(cb.full());
+        BOOST_TEST(cb.wrapped());
+
+        auto* p = cb.linearize(store);
+        BOOST_TEST_EQ(p, store);
+        BOOST_TEST_EQ(cb.ptr, store);
+        BOOST_TEST_EQ(cb.cap, sizeof(store));
+        BOOST_TEST_EQ(cb.pos, 0);
+        BOOST_TEST(cb.full());
+        BOOST_TEST(!cb.wrapped());
+        BOOST_TEST(str(cb.data()) == "defghXYZ");
+    }
+
+    void
+    testLinearizeFullWrappedBelowBase()
+    {
+        // full and wrapped with room below: the leapfrog lands
+        // at the floor and the capacity grows
+        char store[12];
+        circular_buffer cb{ store + 4, 8 };
+        put(cb, "abcdefgh");
+        cb.consume(3);
+        put(cb, "XYZ");
+        BOOST_TEST(cb.full());
+        BOOST_TEST(cb.wrapped());
+
+        auto* p = cb.linearize(store);
+        BOOST_TEST_EQ(p, store);
+        BOOST_TEST_EQ(cb.ptr, store);
+        BOOST_TEST_EQ(cb.cap, sizeof(store));
+        BOOST_TEST_EQ(cb.pos, 0);
+        BOOST_TEST(str(cb.data()) == "defghXYZ");
+    }
+
+    void
+    testLinearizeWrappedManyRounds()
+    {
+        // the gap is too small for the leapfrog: the contents
+        // rotate in place instead, and the room below the
+        // buffer stays unreclaimed
+        char store[21];
+        circular_buffer cb{ store + 1, 20 };
+        put(cb, "abcdefghijklmnopqrst");
+        cb.consume(3);
+        put(cb, "XYZ");
+        BOOST_TEST(cb.full());
+        BOOST_TEST(cb.wrapped());
+
+        auto* p = cb.linearize(store);
+        BOOST_TEST_EQ(p, store + 1);
+        BOOST_TEST_EQ(cb.ptr, store + 1);
+        BOOST_TEST_EQ(cb.cap, 20);
+        BOOST_TEST_EQ(cb.pos, 0);
+        BOOST_TEST(!cb.wrapped());
+        BOOST_TEST(str(cb.data()) == "defghijklmnopqrstXYZ");
+    }
+
+    void
     run()
     {
         testEmpty();
@@ -292,6 +359,9 @@ public:
         testLinearizeWrappedOverlap();
         testLinearizeWrappedLongFront();
         testLinearizeWrappedBelowBase();
+        testLinearizeFullWrapped();
+        testLinearizeFullWrappedBelowBase();
+        testLinearizeWrappedManyRounds();
     }
 };
 

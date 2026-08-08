@@ -11,7 +11,9 @@
 #include <boost/burl/parser.hpp>
 
 #include <boost/burl/error.hpp>
+#include <boost/burl/fields.hpp>
 #include <boost/burl/message_reader.hpp>
+#include <boost/burl/static_fields.hpp>
 
 #include <boost/capy/error.hpp>
 #include <boost/capy/io/any_read_stream.hpp>
@@ -1252,6 +1254,554 @@ public:
             // octets past it are detected
             BOOST_TEST(pr.has_buffered_data());
         }());
+    }
+
+    void
+    testTrailerReadSome()
+    {
+        capy::test::read_stream server;
+        capy::any_read_stream stream(&server);
+        test_parser pr({}, &stream);
+
+        capy::test::run_blocking()([&]() -> capy::task<>
+        {
+            server.provide(
+                "HTTP/1.1 200 OK\r\n"
+                "Transfer-Encoding: chunked\r\n"
+                "\r\n"
+                "5\r\nhello\r\n"
+                "0\r\n"
+                "Expires: never\r\n"
+                "X-Dup: 1\r\n"
+                "X-Dup: 2\r\n"
+                "\r\n"
+                "NEXT");
+
+            pr.start();
+            char buf[16];
+            auto [ec, n] = co_await pr.read_some(capy::make_buffer(buf));
+            BOOST_TEST(!ec);
+            BOOST_TEST_EQ(n, 5);
+            auto [ec2, n2] = co_await pr.read_some(capy::make_buffer(buf));
+            BOOST_TEST(ec2 == capy::cond::eof);
+            BOOST_TEST_EQ(n2, 0);
+            BOOST_TEST(pr.got_body());
+
+            // the retained trailer does not count as data
+            // beyond the message; the pipelined octets do
+            BOOST_TEST(pr.has_buffered_data());
+
+            fields f;
+            system::error_code tec;
+            pr.parse_trailer(f, tec);
+            BOOST_TEST(!tec);
+            BOOST_TEST_EQ(f.size(), 3u);
+
+            // insertion order, known-field resolution, and
+            // duplicates are preserved
+            BOOST_TEST((*f.begin()).name == "Expires");
+            BOOST_TEST(f.at(http::field::expires) == "never");
+            auto r  = f.find_all("X-Dup");
+            auto it = r.begin();
+            BOOST_TEST(*it == "1");
+            BOOST_TEST(*++it == "2");
+
+            // each call appends again
+            pr.parse_trailer(f, tec);
+            BOOST_TEST(!tec);
+            BOOST_TEST_EQ(f.size(), 6u);
+        }());
+    }
+
+    void
+    testTrailerReadBody()
+    {
+        capy::test::read_stream server;
+        capy::any_read_stream stream(&server);
+        test_parser pr({}, &stream);
+
+        capy::test::run_blocking()([&]() -> capy::task<>
+        {
+            server.provide(
+                "HTTP/1.1 200 OK\r\n"
+                "Transfer-Encoding: chunked\r\n"
+                "\r\n"
+                "5\r\nhello\r\n"
+                "6\r\n world\r\n"
+                "0\r\n"
+                "X-Trailer: v\r\n"
+                "\r\n"
+                "HTTP/1.1 200 OK\r\n"
+                "Content-Length: 3\r\n"
+                "\r\n"
+                "bye");
+
+            pr.start();
+            auto [ec, body] = co_await pr.read_body();
+            BOOST_TEST(!ec);
+            BOOST_TEST(body == "hello world");
+
+            fields f;
+            system::error_code tec;
+            pr.parse_trailer(f, tec);
+            BOOST_TEST(!tec);
+            BOOST_TEST_EQ(f.size(), 1u);
+            BOOST_TEST(f.at("X-Trailer") == "v");
+
+            // a flattened trailer is extracted in place: the
+            // view returned by read_body survives
+            BOOST_TEST(body == "hello world");
+            BOOST_TEST(pr.has_buffered_data());
+
+            // the undelivered view and the trailer are both
+            // skipped by the restart
+            pr.start();
+            auto [ec2, body2] = co_await pr.read_body();
+            BOOST_TEST(!ec2);
+            BOOST_TEST(body2 == "bye");
+            BOOST_TEST(!pr.has_buffered_data());
+        }());
+    }
+
+    void
+    testTrailerPullConsume()
+    {
+        capy::test::read_stream server;
+        capy::any_read_stream stream(&server);
+        test_parser pr({}, &stream);
+
+        capy::test::run_blocking()([&]() -> capy::task<>
+        {
+            server.provide(
+                "HTTP/1.1 200 OK\r\n"
+                "Transfer-Encoding: chunked\r\n"
+                "\r\n"
+                "3\r\nabc\r\n"
+                "0\r\n"
+                "X-T: v\r\n"
+                "\r\n");
+
+            pr.start();
+
+            {
+                // the dry window: pull has described the whole
+                // message, but until it reports eof the framing
+                // is not finalized and the trailer is unavailable
+                capy::const_buffer arr[2];
+                auto [ec, bufs] = co_await pr.pull(arr);
+                BOOST_TEST(!ec);
+                BOOST_TEST(pr.got_body());
+                fields f;
+                system::error_code tec;
+                pr.parse_trailer(f, tec);
+                BOOST_TEST(tec == http::error::incomplete);
+                BOOST_TEST_EQ(f.size(), 0u);
+            }
+
+            std::string got;
+            for(;;)
+            {
+                capy::const_buffer arr[2];
+                auto [ec, bufs] = co_await pr.pull(arr);
+                if(ec)
+                {
+                    BOOST_TEST(ec == capy::cond::eof);
+                    break;
+                }
+                for(auto b : bufs)
+                    got.append(
+                        static_cast<char const*>(b.data()), b.size());
+                pr.consume(capy::buffer_size(bufs));
+            }
+            BOOST_TEST(got == "abc");
+
+            fields f;
+            system::error_code tec;
+            pr.parse_trailer(f, tec);
+            BOOST_TEST(!tec);
+            BOOST_TEST_EQ(f.size(), 1u);
+            BOOST_TEST(f.at("X-T") == "v");
+        }());
+    }
+
+    void
+    testTrailerEmptyAndNonChunked()
+    {
+        {
+            // an empty trailer section appends nothing
+            capy::test::read_stream server;
+            capy::any_read_stream stream(&server);
+            test_parser pr({}, &stream);
+
+            capy::test::run_blocking()([&]() -> capy::task<>
+            {
+                server.provide(
+                    "HTTP/1.1 200 OK\r\n"
+                    "Transfer-Encoding: chunked\r\n"
+                    "\r\n"
+                    "0\r\n\r\n");
+
+                pr.start();
+                auto [ec, body] = co_await pr.read_body();
+                BOOST_TEST(!ec);
+                BOOST_TEST(body == "");
+                BOOST_TEST(!pr.has_buffered_data());
+
+                fields f;
+                system::error_code tec;
+                pr.parse_trailer(f, tec);
+                BOOST_TEST(!tec);
+                BOOST_TEST(f.empty());
+            }());
+        }
+        {
+            // non-chunked messages have no trailer
+            capy::test::read_stream server;
+            capy::any_read_stream stream(&server);
+            test_parser pr({}, &stream);
+
+            capy::test::run_blocking()([&]() -> capy::task<>
+            {
+                server.provide(
+                    "HTTP/1.1 200 OK\r\n"
+                    "Content-Length: 5\r\n"
+                    "\r\n"
+                    "hello");
+
+                pr.start();
+                auto [ec, body] = co_await pr.read_body();
+                BOOST_TEST(!ec);
+                BOOST_TEST(body == "hello");
+
+                fields f;
+                system::error_code tec;
+                pr.parse_trailer(f, tec);
+                BOOST_TEST(!tec);
+                BOOST_TEST(f.empty());
+            }());
+        }
+    }
+
+    void
+    testTrailerObsFold()
+    {
+        capy::test::read_stream server;
+        capy::any_read_stream stream(&server);
+        test_parser pr({}, &stream);
+
+        capy::test::run_blocking()([&]() -> capy::task<>
+        {
+            server.provide(
+                "HTTP/1.1 200 OK\r\n"
+                "Transfer-Encoding: chunked\r\n"
+                "\r\n"
+                "0\r\n"
+                "X-A: 1\r\n"
+                " fold\r\n"
+                "X-B: 2\r\n"
+                "\r\n");
+
+            pr.start();
+            auto [ec, body] = co_await pr.read_body();
+            BOOST_TEST(!ec);
+
+            fields f;
+            system::error_code tec;
+            pr.parse_trailer(f, tec);
+            BOOST_TEST(!tec);
+            BOOST_TEST_EQ(f.size(), 2u);
+            BOOST_TEST(f.at("X-A") == "1   fold");
+            BOOST_TEST(f.at("X-B") == "2");
+
+            // the in-place unfolding is stable under re-parsing
+            pr.parse_trailer(f, tec);
+            BOOST_TEST(!tec);
+            BOOST_TEST_EQ(f.size(), 4u);
+            BOOST_TEST(f.at("X-A") == "1   fold");
+        }());
+    }
+
+    void
+    testTrailerByteByByte()
+    {
+        // one octet per read exercises the rescan of a partially
+        // received trailer; completion must not double-append
+        capy::test::read_stream server({}, 1);
+        capy::any_read_stream stream(&server);
+        test_parser pr({}, &stream);
+
+        capy::test::run_blocking()([&]() -> capy::task<>
+        {
+            server.provide(
+                "HTTP/1.1 200 OK\r\n"
+                "Transfer-Encoding: chunked\r\n"
+                "\r\n"
+                "5\r\nhello\r\n"
+                "0\r\n"
+                "X-A: 1\r\n"
+                "X-B: 2\r\n"
+                "\r\n");
+
+            pr.start();
+            auto [ec, body] = co_await pr.read_body();
+            BOOST_TEST(!ec);
+            BOOST_TEST(body == "hello");
+
+            fields f;
+            system::error_code tec;
+            pr.parse_trailer(f, tec);
+            BOOST_TEST(!tec);
+            BOOST_TEST_EQ(f.size(), 2u);
+            BOOST_TEST(f.at("X-A") == "1");
+            BOOST_TEST(f.at("X-B") == "2");
+        }());
+    }
+
+    void
+    testTrailerLimit()
+    {
+        // a field line of exactly max_field octets is accepted;
+        // one more is rejected
+        for(bool over : { false, true })
+        {
+            capy::test::read_stream server;
+            capy::any_read_stream stream(&server);
+            parser::config cfg;
+            cfg.hdr_limits.max_field = 32;
+            test_parser pr(cfg, &stream);
+
+            capy::test::run_blocking()([&]() -> capy::task<>
+            {
+                // "X-Name: " + value + CRLF == 32 octets
+                std::string const value(over ? 23 : 22, 'a');
+                server.provide(
+                    "HTTP/1.1 200 OK\r\n"
+                    "Transfer-Encoding: chunked\r\n"
+                    "\r\n"
+                    "0\r\n"
+                    "X-Name: " + value + "\r\n"
+                    "\r\n");
+
+                pr.start();
+                auto [ec, body] = co_await pr.read_body();
+                BOOST_TEST(!ec);
+
+                fields f;
+                system::error_code tec;
+                pr.parse_trailer(f, tec);
+                if(over)
+                {
+                    BOOST_TEST(tec == http::error::field_size_limit);
+                    BOOST_TEST(f.empty());
+                }
+                else
+                {
+                    BOOST_TEST(!tec);
+                    BOOST_TEST(f.at("X-Name") == value);
+                }
+            }());
+        }
+    }
+
+    void
+    testTrailerBadField()
+    {
+        {
+            // a line which is structurally a trailer but not a
+            // field completes the message; only extraction fails,
+            // and fields parsed before the error remain
+            capy::test::read_stream server;
+            capy::any_read_stream stream(&server);
+            test_parser pr({}, &stream);
+
+            capy::test::run_blocking()([&]() -> capy::task<>
+            {
+                server.provide(
+                    "HTTP/1.1 200 OK\r\n"
+                    "Transfer-Encoding: chunked\r\n"
+                    "\r\n"
+                    "0\r\n"
+                    "X-A: v\r\n"
+                    "junk\r\n"
+                    "\r\n"
+                    "HTTP/1.1 204 No Content\r\n"
+                    "\r\n");
+
+                pr.start();
+                auto [ec, body] = co_await pr.read_body();
+                BOOST_TEST(!ec);
+                BOOST_TEST(pr.got_body());
+
+                fields f;
+                system::error_code tec;
+                pr.parse_trailer(f, tec);
+                BOOST_TEST(tec == http::error::bad_field_name);
+                BOOST_TEST_EQ(f.size(), 1u);
+                BOOST_TEST(f.at("X-A") == "v");
+
+                // the failure does not poison the stream
+                pr.start();
+                auto [hec] = co_await pr.read_header();
+                BOOST_TEST(!hec);
+                BOOST_TEST_EQ(pr.get().status_int(), 204);
+            }());
+        }
+        {
+            // a bare LF inside a trailer field survives completion
+            // and is rejected at extraction
+            capy::test::read_stream server;
+            capy::any_read_stream stream(&server);
+            test_parser pr({}, &stream);
+
+            capy::test::run_blocking()([&]() -> capy::task<>
+            {
+                server.provide(
+                    "HTTP/1.1 200 OK\r\n"
+                    "Transfer-Encoding: chunked\r\n"
+                    "\r\n"
+                    "0\r\n"
+                    "X-B: v\n\r\n"
+                    "\r\n");
+
+                pr.start();
+                auto [ec, body] = co_await pr.read_body();
+                BOOST_TEST(!ec);
+
+                fields f;
+                system::error_code tec;
+                pr.parse_trailer(f, tec);
+                BOOST_TEST(tec == http::error::bad_line_ending);
+                BOOST_TEST(f.empty());
+            }());
+        }
+    }
+
+    void
+    testTrailerStaticFields()
+    {
+        capy::test::read_stream server;
+        capy::any_read_stream stream(&server);
+        test_parser pr({}, &stream);
+
+        capy::test::run_blocking()([&]() -> capy::task<>
+        {
+            server.provide(
+                "HTTP/1.1 200 OK\r\n"
+                "Transfer-Encoding: chunked\r\n"
+                "\r\n"
+                "0\r\n"
+                "X-Trailer: value\r\n"
+                "\r\n");
+
+            pr.start();
+            auto [ec, body] = co_await pr.read_body();
+            BOOST_TEST(!ec);
+
+            // a container too small throws in the caller's frame;
+            // the trailer remains available for a retry
+            char small[8];
+            static_fields sf(small, sizeof(small));
+            system::error_code tec;
+            BOOST_TEST_THROWS(
+                pr.parse_trailer(sf, tec), std::length_error);
+
+            fields f;
+            pr.parse_trailer(f, tec);
+            BOOST_TEST(!tec);
+            BOOST_TEST_EQ(f.size(), 1u);
+            BOOST_TEST(f.at("X-Trailer") == "value");
+        }());
+    }
+
+    void
+    testTrailerStraddleWrap()
+    {
+        // streaming leaves the retained trailer wherever the final
+        // chunk landed in the circular buffer. Sweeping the trailer
+        // length walks the section across the wrap point, so some
+        // iterations straddle it at every position: mid-name,
+        // mid-value, at the CRLF, and at the terminal empty line.
+        // Filling the buffer afterwards makes extraction rearrange
+        // a completely full buffer in some iterations.
+        for(std::size_t len = 0; len <= 48; ++len)
+        {
+            capy::test::read_stream server({}, 1);
+            capy::any_read_stream stream(&server);
+            parser::config cfg;
+            cfg.hdr_limits.max_size = 96;
+            cfg.in_buffer = 64;
+            test_parser pr(cfg, &stream);
+
+            capy::test::run_blocking()([&]() -> capy::task<>
+            {
+                std::string const value(len, 'a');
+                std::string const chunk(16, 'b');
+                std::string wire =
+                    "HTTP/1.1 200 OK\r\n"
+                    "Transfer-Encoding: chunked\r\n"
+                    "\r\n";
+                for(int i = 0; i != 4; ++i)
+                    wire += "10\r\n" + chunk + "\r\n";
+                wire += "0\r\n"
+                    "X-T: " + value + "\r\n"
+                    "\r\n";
+                server.provide(wire);
+
+                pr.start();
+                auto [hec] = co_await pr.read_header();
+                BOOST_TEST(!hec);
+
+                // consume the body as it arrives so the write
+                // position advances and later octets wrap
+                std::size_t total = 0;
+                for(;;)
+                {
+                    char buf[16];
+                    auto [ec, n] = co_await pr.read_some(
+                        capy::make_buffer(buf));
+                    total += n;
+                    if(ec)
+                    {
+                        BOOST_TEST(ec == capy::cond::eof);
+                        break;
+                    }
+                }
+                BOOST_TEST_EQ(total, 64);
+
+                // pipelined octets can refill the buffer to the
+                // brim before extraction; alternate so both a
+                // full and a partially filled buffer are
+                // rearranged
+                if(len % 2 == 0)
+                {
+                    for(;;)
+                    {
+                        auto const pb = pr.prepare();
+                        auto const n = capy::buffer_size(pb);
+                        if(n == 0)
+                            break;
+                        for(auto b : pb)
+                            std::memset(b.data(), 'Z', b.size());
+                        pr.commit(n);
+                    }
+                }
+
+                fields f;
+                system::error_code tec;
+                pr.parse_trailer(f, tec);
+                BOOST_TEST(!tec);
+                BOOST_TEST_EQ(f.size(), 1u);
+                BOOST_TEST(f.at("X-T") == value);
+
+                // the rearrangement preserves the section
+                pr.parse_trailer(f, tec);
+                BOOST_TEST(!tec);
+                BOOST_TEST_EQ(f.size(), 2u);
+
+                BOOST_TEST(pr.has_buffered_data() ==
+                    (len % 2 == 0));
+            }());
+        }
     }
 
     void
@@ -2735,6 +3285,56 @@ public:
     }
 
     void
+    testDecoderChunkedTrailer()
+    {
+        // the trailer is outside the coded content: extraction
+        // works alongside an installed decoder
+        capy::test::read_stream server;
+        capy::any_read_stream stream(&server);
+        test_parser pr({}, &stream);
+        test_decoder dec;
+
+        capy::test::run_blocking()([&]() -> capy::task<>
+        {
+            server.provide(
+                "HTTP/1.1 200 OK\r\n"
+                "Transfer-Encoding: chunked\r\n"
+                "\r\n"
+                "3\r\nabc\r\n"
+                "0\r\n"
+                "X-T: v\r\n"
+                "\r\n");
+
+            pr.start();
+            auto [hec] = co_await pr.read_header();
+            BOOST_TEST(!hec);
+            pr.set_decoder(&dec);
+
+            std::string got;
+            for(;;)
+            {
+                char buf[8];
+                auto [ec, n] = co_await pr.read_some(capy::make_buffer(buf));
+                got.append(buf, n);
+                if(ec)
+                {
+                    BOOST_TEST(ec == capy::cond::eof);
+                    break;
+                }
+            }
+            BOOST_TEST(got == decoded("abc"));
+            BOOST_TEST(pr.got_body());
+
+            fields f;
+            system::error_code tec;
+            pr.parse_trailer(f, tec);
+            BOOST_TEST(!tec);
+            BOOST_TEST_EQ(f.size(), 1u);
+            BOOST_TEST(f.at("X-T") == "v");
+        }());
+    }
+
+    void
     testDecoderChunkedEarlyEof()
     {
         capy::test::read_stream server;
@@ -3812,6 +4412,16 @@ public:
         testChunkedReadBodySplitMidChunk();
         testChunkedReadBodyPipelined();
         testChunkedTrailersAndExtensions();
+        testTrailerReadSome();
+        testTrailerReadBody();
+        testTrailerPullConsume();
+        testTrailerEmptyAndNonChunked();
+        testTrailerObsFold();
+        testTrailerByteByByte();
+        testTrailerLimit();
+        testTrailerBadField();
+        testTrailerStaticFields();
+        testTrailerStraddleWrap();
         testChunkedPullSmallDest();
         testChunkedBadFraming();
         testChunkedBadFramingWithData();
@@ -3858,6 +4468,7 @@ public:
         testDecoderReadBodyHardError();
         testDecoderPullTwiceWithoutConsume();
         testDecoderChunked();
+        testDecoderChunkedTrailer();
         testDecoderChunkedEarlyEof();
         testDecoderChunkedIncomplete();
         testDecoderToEof();

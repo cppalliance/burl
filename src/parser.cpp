@@ -11,6 +11,7 @@
 
 #include <boost/burl/error.hpp>
 
+#include "detail/grammar.hpp"
 #include "detail/util.hpp"
 
 #include <boost/assert.hpp>
@@ -33,6 +34,8 @@ namespace burl
 {
 
 using detail::clamp;
+using detail::parse_field;
+using detail::parse_limited;
 
 using http::condition::need_more_input;
 using http::error::bad_payload;
@@ -312,7 +315,8 @@ has_buffered_data() const noexcept
     switch(payload_)
     {
     case payload::chunked:
-        return in_.size() > chunk_rem_;
+        return in_.size() > chunk_rem_ +
+            (fin_chunk_ ? trailer_extent() : 0);
     case payload::size:
         return in_.size() > payload_rem();
     case payload::to_eof:
@@ -375,14 +379,33 @@ payload_rem() const noexcept
     return clamp(payload_size_ - transferred_);
 }
 
+std::size_t
+parser::
+trailer_extent() const noexcept
+{
+    BOOST_ASSERT(fin_chunk_);
+    chained_sequence cs(in_.data());
+    cs.advance(clamp(chunk_rem_));
+    auto const t0 = cs.size();
+    BOOST_VERIFY(! skip_trailer(cs));
+    return t0 - cs.size();
+}
+
 void
 parser::
 start(bool head)
 {
     BOOST_ASSERT(!started_ || got_body_);
 
-    if(payload_sized() && got_body_)
+    if(payload_sized())
+    {
         in_.consume(payload_rem());
+    }
+    else if(fin_chunk_)
+    {
+        in_.consume(
+            clamp(chunk_rem_) + trailer_extent());
+    }
 
     hp_.reset(
         in_.linearize(buf_.get()));
@@ -413,6 +436,7 @@ reset() noexcept
     started_    = false;
     got_header_ = false;
     got_body_   = false;
+    fin_chunk_  = false;
     eof_        = false;
 }
 
@@ -437,7 +461,7 @@ parser::
 commit_eof() noexcept
 {
     eof_ = true;
-    if(got_header_ && payload_ == payload::to_eof)
+    if(payload_ == payload::to_eof)
         got_body_ = true;
 }
 
@@ -499,13 +523,14 @@ loop:
     // final chunk
     if(size == 0)
     {
+        auto const t0 = cs.size(); // trailer start
         if(auto ec = skip_trailer(cs); ec)
             return ec;
         got_body_ = true;
         if(!dry)
         {
             fin_chunk_ = true;
-            in_.consume(in_.size() - cs.size());
+            in_.consume(in_.size() - t0);
         }
         return f({}, true).ec;
     }
@@ -571,11 +596,12 @@ flatten_chunks()
 
         if(size == 0)
         {
+            auto const t0 = cs.pos(); // trailer start
             if(auto ec = skip_trailer(cs); ec)
                 return bail(ec);
             got_body_  = true;
             fin_chunk_ = true;
-            keep = cs.pos();
+            keep = t0;
             return bail({});
         }
 
@@ -1078,7 +1104,10 @@ pull(
         if(wec != need_more_input)
         {
             if(wec == capy::error::eof)
-                consume(0); // chunk trailer
+            {
+                // finish the framing, retain the trailer
+                consume(0);
+            }
             ec = wec;
             return {};
         }
@@ -1150,6 +1179,60 @@ consume(std::size_t n) noexcept
         in_.consume(n);
         transferred_ += n;
         return;
+    }
+}
+
+void
+parser::
+parse_trailer(
+    fields_base& f,
+    system::error_code& ec)
+{
+    ec = {};
+
+    if(payload_ != payload::chunked)
+        return;
+
+    if(! fin_chunk_)
+    {
+        ec = incomplete;
+        return;
+    }
+
+    auto const limit = hp_.limits().max_field + 1u; // 1u for obs lookahead
+    char const* it   = in_.ptr + in_.pos + clamp(chunk_rem_);
+    char const* end  = in_.ptr + clamp(in_.pos + in_.len, in_.cap);
+
+    while(it != end && *it != '\r')
+    {
+        auto const it0 = it;
+        std::string_view name, value;
+        parse_limited(
+            [&name, &value](auto& it, auto end, auto& ec)
+            {
+                parse_field(it, end, name, value, ec);
+            },
+            it,
+            end,
+            limit,
+            http::error::field_size_limit,
+            ec);
+        if(ec)
+        {
+            if(ec == need_data)
+            {
+                BOOST_ASSERT(in_.wrapped());
+                auto const off = static_cast<std::size_t>(
+                    it0 - (in_.ptr + in_.pos));
+                in_.linearize(in_.ptr);
+                it  = in_.ptr + off;
+                end = in_.ptr + in_.len;
+                ec  = {};
+                continue;
+            }
+            return;
+        }
+        f.append(name, value);
     }
 }
 
