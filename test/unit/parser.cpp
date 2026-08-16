@@ -310,7 +310,7 @@ class parser_test
         process(
             capy::mutable_buffer out,
             capy::const_buffer in,
-            bool eof) override
+            bool more) override
         {
             if(fail_ec && consumed_total >= fail_at)
                 return { 0, 0, fail_ec };
@@ -344,7 +344,7 @@ class parser_test
                 r.ec = capy::error::eof;
                 return r;
             }
-            if(eof && n == in.size() && !ignore_eof)
+            if(!more && n == in.size() && !ignore_eof)
             {
                 auto const t = (std::min)(
                     out.size() - n, trailer.size() - trailer_pos_);

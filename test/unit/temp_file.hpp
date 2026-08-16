@@ -12,6 +12,7 @@
 
 #include <filesystem>
 #include <fstream>
+#include <random>
 #include <string_view>
 
 namespace boost
@@ -29,7 +30,7 @@ struct temp_file
     {
         path = std::filesystem::temp_directory_path() /
             ("burl_test_" +
-                std::to_string(std::rand()) +
+                std::to_string(std::random_device{}()) +
                 std::string(extension));
 
         std::ofstream ofs(path, std::ios::binary);

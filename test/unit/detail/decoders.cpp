@@ -64,11 +64,11 @@ class decoders_test
         {
             auto const n =
                 input.size() < in_step ? input.size() : in_step;
-            auto const eof = n == input.size();
+            auto const more = n != input.size();
             auto const res = dec.process(
                 capy::mutable_buffer(out.data(), out.size()),
                 capy::const_buffer(input.data(), n),
-                eof);
+                more);
             r.body.append(out.data(), res.produced);
             input.remove_prefix(res.consumed);
             if(res.ec)
@@ -80,7 +80,7 @@ class decoders_test
             }
             // no forward progress at the end of input
             // would repeat forever
-            if(eof && res.consumed == 0 && res.produced == 0)
+            if(!more && res.consumed == 0 && res.produced == 0)
                 break;
         }
         r.leftover = input.size();
@@ -301,7 +301,7 @@ public:
         auto const res = dec->process(
             capy::mutable_buffer(buf, sizeof(buf)),
             capy::const_buffer("HTTP/1.1 200 OK", 15),
-            true);
+            false);
         BOOST_TEST(res.ec == capy::cond::eof);
         BOOST_TEST_EQ(res.consumed, 0u);
         BOOST_TEST_EQ(res.produced, 0u);
@@ -393,7 +393,7 @@ public:
         auto const res = dec->process(
             capy::mutable_buffer(buf, sizeof(buf)),
             capy::const_buffer("HTTP/1.1 200 OK", 15),
-            true);
+            false);
         BOOST_TEST(res.ec == capy::cond::eof);
         BOOST_TEST_EQ(res.consumed, 0u);
         BOOST_TEST_EQ(res.produced, 0u);

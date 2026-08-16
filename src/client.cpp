@@ -18,15 +18,14 @@
 #include "detail/decoders.hpp"
 #include "detail/drain_body.hpp"
 #include "detail/redirect.hpp"
-#include "detail/serializer.hpp"
 
 #include <boost/capy/buffers/make_buffer.hpp>
 #include <boost/capy/ex/execution_context.hpp>
-#include <boost/capy/io/any_write_stream.hpp>
-#include <boost/capy/write.hpp>
 #include <boost/corosio/timeout.hpp>
 #include <boost/burl/message_reader.hpp>
+#include <boost/burl/message_writer.hpp>
 #include <boost/burl/response_parser.hpp>
+#include <boost/burl/serializer.hpp>
 
 #include <chrono>
 #include <optional>
@@ -229,7 +228,7 @@ client::execute_impl(
             .dec_buffer = config_.response_inplace_buffer,
             .body_limit = config_.response_body_limit
         });
-    detail::serializer sr({});
+    serializer sr({});
 
     auto url             = request.url;
     auto trusted         = true;
@@ -261,18 +260,18 @@ client::execute_impl(
 
         // TODO: expect100timeout
 
-        capy::any_write_stream stream(&conn);
-        sr.reset(&stream, &head);
+        sr.start(&head);
+        message_writer writer(&conn, &sr);
         if(request.body.has_value())
         {
-            http::any_buffer_sink sink(&sr);
+            http::any_buffer_sink sink(&writer);
             std::tie(ec) = co_await request.body.write(sink);
             if(ec)
                 co_return { ec, response{} };
         }
         if(!sr.is_done())
         {
-            std::tie(ec) = co_await sr.write_eof();
+            std::tie(ec) = co_await writer.write_eof();
             if(ec)
                 co_return { ec, response{} };
         }

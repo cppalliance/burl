@@ -795,7 +795,7 @@ decode_some(
                 return { std::error_code(), cons };
             auto const lim = clamp(limit_rem_);
             auto const r = dec_->process(
-                prefix(out, lim), in, last);
+                prefix(out, lim), in, !last);
             in += r.consumed;
             cons += r.consumed;
             prod += r.produced;

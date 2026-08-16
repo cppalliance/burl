@@ -137,7 +137,7 @@ public:
 
             @param in The octets to decode.
 
-            @param eof True when `in` ends the
+            @param more False when `in` ends the
             payload.
 
             @return The octets consumed and
@@ -147,7 +147,7 @@ public:
         process(
             capy::mutable_buffer out,
             capy::const_buffer in,
-            bool eof) = 0;
+            bool more) = 0;
     };
 
     /// Settings which apply for the life of the parser.

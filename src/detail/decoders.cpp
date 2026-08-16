@@ -64,7 +64,7 @@ public:
     process(
         capy::mutable_buffer out,
         capy::const_buffer in,
-        bool eof) override
+        bool more) override
     {
         strm_.next_in = static_cast<unsigned char*>(
             const_cast<void*>(in.data()));
@@ -74,7 +74,7 @@ public:
         strm_.avail_out = saturate(out.size());
 
         auto const rs = ::inflate(
-            &strm_, eof ? Z_FINISH : Z_NO_FLUSH);
+            &strm_, more ? Z_NO_FLUSH : Z_FINISH);
 
         auto const ec = [&]() -> std::error_code
         {

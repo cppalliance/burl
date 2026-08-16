@@ -65,11 +65,11 @@ enum class error
     */
     proxy_unsupported_version,
 
-    /** The request body size did not match its content length.
+    /** The message body size did not match its content length.
 
-        The number of bytes produced by the request body
-        differed from the `Content-Length` declared for the
-        request.
+        The number of bytes produced by the message body
+        differed from the `Content-Length` declared for it,
+        or a body was supplied for a message that has none.
     */
     body_size_mismatch,
 

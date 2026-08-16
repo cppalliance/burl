@@ -51,7 +51,7 @@ error_category::message(int ev) const
     case error::proxy_unsupported_version:
         return "unsupported proxy protocol version";
     case error::body_size_mismatch:
-        return "request body size did not match content length";
+        return "message body size did not match content length";
     case error::decode_error:
         return "response body could not be decoded";
     default:
