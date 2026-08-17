@@ -1393,7 +1393,8 @@ public:
             return s + "\r\n";
         };
 
-        for(std::uint16_t mf : { 0u, 1u, 3u, 8u, 100u })
+        for(std::uint16_t mf : std::initializer_list<
+            std::uint16_t>{ 0, 1, 3, 8, 100 })
         {
             // the smallest max_size which can carry
             // mf fields, and a couple of larger ones
@@ -1512,9 +1513,12 @@ public:
 
         for(auto const& h : hs)
         for(std::uint32_t ms = 0; ms <= 120; ++ms)
-        for(std::uint16_t msl : { 0, 17, 64, 4096 })
-        for(std::uint16_t mfd : { 0, 9, 40, 4096 })
-        for(std::uint16_t mfl : { 0, 1, 3, 100 })
+        for(std::uint16_t msl : std::initializer_list<
+            std::uint16_t>{ 0, 17, 64, 4096 })
+        for(std::uint16_t mfd : std::initializer_list<
+            std::uint16_t>{ 0, 9, 40, 4096 })
+        for(std::uint16_t mfl : std::initializer_list<
+            std::uint16_t>{ 0, 1, 3, 100 })
         {
             header_limits const lim{
                 .max_size       = ms,
