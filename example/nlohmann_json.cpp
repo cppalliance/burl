@@ -84,7 +84,7 @@ tag_invoke(burl::body_to_tag<nlohmann::json>, burl::response& resp)
     auto doc = nlohmann::json::parse(sv, nullptr, false);
     if(doc.is_discarded())
         co_return { make_error_code(std::errc::bad_message), {} };
-    co_return { {}, std::move(doc) };
+    co_return { std::error_code(), std::move(doc) };
 }
 // end::body_to[]
 

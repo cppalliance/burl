@@ -106,7 +106,7 @@ public:
             ioc.get_executor(),
             [&](capy::io_result<fs::path> res)
             {
-                BOOST_TEST(!res.ec);
+                BOOST_TEST(!get<0>(res));
                 BOOST_TEST_EQ(get<1>(res), dest.path);
                 BOOST_TEST_EQ(read_file(dest.path), "frag1frag2frag3");
             })(r.try_as<fs::path>(dest.path));
@@ -127,7 +127,7 @@ public:
             ioc.get_executor(),
             [&](capy::io_result<fs::path> res)
             {
-                BOOST_TEST(res.ec);
+                BOOST_TEST(get<0>(res));
                 BOOST_TEST_EQ(get<1>(res), "");
                 BOOST_TEST_EQ(read_file(dest.path), "original contents");
             })(r.try_as<fs::path>(dest.path));
@@ -150,7 +150,7 @@ public:
             ioc.get_executor(),
             [&](capy::io_result<fs::path> res)
             {
-                BOOST_TEST_EQ(res.ec, http::error::incomplete);
+                BOOST_TEST_EQ(get<0>(res), http::error::incomplete);
                 BOOST_TEST_EQ(get<1>(res), dest.path);
                 BOOST_TEST_EQ(read_file(dest.path), "Payl");
             })(r.try_as<fs::path>(dest.path));

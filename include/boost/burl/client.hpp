@@ -302,7 +302,7 @@ public:
                 {
                     auto [a, b] = capy::test::make_stream_pair();
                     // drive b from the test; hand a to the client
-                    co_return { {}, capy::any_stream(std::move(a)) };
+                    co_return { std::error_code(), capy::any_stream(std::move(a)) };
                 };
             @endcode
         */

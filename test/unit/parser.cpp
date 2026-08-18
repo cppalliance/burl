@@ -189,7 +189,7 @@ struct test_parser : parser
                 auto const rn = direct_read(
                     capy::buffer_slice(mbs, 0, lim));
                 if(rn != 0)
-                    return { {}, rn };
+                    return { std::error_code(), rn };
                 continue;
             }
 
@@ -233,7 +233,7 @@ struct test_parser : parser
                 return { ec, total };
         }
 
-        return { {}, total };
+        return { std::error_code(), total };
     }
 
     std::pair<std::error_code, std::span<capy::const_buffer>>

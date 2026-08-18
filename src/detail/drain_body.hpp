@@ -39,7 +39,7 @@ drain_body(
     while(!parser.got_body())
     {
         if(attempts-- == 0)
-            co_return { {}, false };
+            co_return { std::error_code(), false };
 
         capy::const_buffer arr[8];
         auto [ec, bufs] = co_await reader.pull(arr);
@@ -51,7 +51,7 @@ drain_body(
         }
         parser.consume(capy::buffer_size(bufs));
     }
-    co_return { {}, true };
+    co_return { std::error_code(), true };
 }
 
 } // namespace detail

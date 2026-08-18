@@ -75,8 +75,8 @@ struct body_from_tag
     {
         auto [ec, sv] = co_await resp.try_as_view();
         if(ec)
-            co_return { ec, {} };
-        co_return { {}, my_type{ sv } };
+            co_return { ec, my_type{} };
+        co_return { std::error_code(), my_type{ sv } };
     }
     @endcode
 

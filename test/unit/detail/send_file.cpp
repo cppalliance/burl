@@ -39,7 +39,7 @@ class send_file_test
         http::any_buffer_sink sink(&bs);
         capy::run_async(
             ioc.get_executor(),
-            [&](capy::io_result<> r) { ret = r.ec; })
+            [&](capy::io_result<> r) { ret = std::get<0>(r); })
                 (send_file(sink, path, size));
         ioc.run();
         return ret;

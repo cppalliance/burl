@@ -65,7 +65,7 @@ struct scripted_net
             if(n < close_after.size() && close_after[n])
                 srv.close();
             servers.push_back(std::move(srv));
-            co_return { {}, capy::any_stream(std::move(cli)) };
+            co_return { std::error_code(), capy::any_stream(std::move(cli)) };
         };
         return cfg;
     }

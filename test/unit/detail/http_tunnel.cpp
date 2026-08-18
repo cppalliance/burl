@@ -35,7 +35,7 @@ class http_tunnel_test
     {
         std::error_code ret;
         capy::test::run_blocking(
-            [&](capy::io_result<> rs){ ret = rs.ec;})
+            [&](capy::io_result<> rs){ ret = std::get<0>(rs);})
                 (open_http_tunnel(&client, target, proxy));
         return ret;
     }

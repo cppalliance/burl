@@ -255,9 +255,9 @@ client::execute_impl(
                 head.set(field::cookie, cookies);
         }
 
-        auto [cec, conn] = co_await pool_->acquire(url);
-        if(cec)
-            co_return { cec, {} };
+        auto [ec, conn] = co_await pool_->acquire(url);
+        if(ec)
+            co_return { ec, response{} };
 
         // TODO: expect100timeout
 
@@ -266,22 +266,24 @@ client::execute_impl(
         if(request.body.has_value())
         {
             http::any_buffer_sink sink(&sr);
-            if(auto [wec] = co_await request.body.write(sink); wec)
-                co_return { wec, {} };
+            std::tie(ec) = co_await request.body.write(sink);
+            if(ec)
+                co_return { ec, response{} };
         }
         if(!sr.is_done())
         {
-            if(auto [wec] = co_await sr.write_eof(); wec)
-                co_return { wec, {} };
+            std::tie(ec) = co_await sr.write_eof();
+            if(ec)
+                co_return { ec, response{} };
         }
 
         parser.reset();
         parser.start(is_head);
 
-        auto [rec] = co_await message_reader{
+        std::tie(ec) = co_await message_reader{
             &conn, &parser }.read_header();
-        if(rec)
-            co_return { rec, {} };
+        if(ec)
+            co_return { ec, response{} };
 
         // extract cookies
         if(config_.cookies)
@@ -299,10 +301,10 @@ client::execute_impl(
 
         if(!is_redirect || !followlocation)
         {
-            auto ec = std::error_code{};
             auto status_int = parser.get().status_int();
-            if(status_int >= 400)
-                ec = std::error_code(status_int, burl_category());
+            ec = status_int >= 400
+                ? std::error_code(status_int, burl_category())
+                : std::error_code();
 
             std::unique_ptr<parser::decoder> dec;
             if(auto_decode && !is_head)
@@ -327,7 +329,7 @@ client::execute_impl(
             conn.return_to_pool();
 
         if(maxredirs-- == 0)
-            co_return { error::too_many_redirects, {} };
+            co_return { error::too_many_redirects, response{} };
 
         // Set the Referer header to the URL we are leaving.
         if(config_.autoreferer)
@@ -341,7 +343,7 @@ client::execute_impl(
         // Prepare the next request to follow the redirect
         url = detail::resolve_location(parser.get(), url);
         if(url.empty())
-            co_return { error::bad_redirect_response, {} };
+            co_return { error::bad_redirect_response, response{} };
 
         // Change the method according to RFC 9110, Section 15.4.4.
         if(need_method_change && head.method() != http::method::head)

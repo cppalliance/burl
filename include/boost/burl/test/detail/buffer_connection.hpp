@@ -74,7 +74,7 @@ private:
             auto const n = capy::buffer_copy(
                 bufs, capy::buffer_slice(b, head_pos_));
             head_pos_ += n;
-            co_return { {}, n };
+            co_return { std::error_code(), n };
         }
 
         if(auto ec = fuse_.maybe_fail())
@@ -92,7 +92,7 @@ private:
             ++idx_;
             pos_ = 0;
         }
-        co_return { {}, n };
+        co_return { std::error_code(), n };
     }
 
     capy::io_task<std::size_t>

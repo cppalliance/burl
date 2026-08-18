@@ -36,11 +36,13 @@ open_socks5_tunnel(
     urls::url_view target,
     urls::url_view proxy)
 {
+    std::error_code ec;
+
     // Greeting: offer username/password auth only when credentials are present.
     if(proxy.has_userinfo())
     {
         std::uint8_t greeting[4] = { 0x05, 0x02, 0x00, 0x02 };
-        auto [ec, n] =
+        std::tie(ec, std::ignore) =
             co_await capy::write(stream, capy::make_buffer(greeting));
         if(ec)
             co_return ec;
@@ -48,16 +50,16 @@ open_socks5_tunnel(
     else
     {
         std::uint8_t greeting[3] = { 0x05, 0x01, 0x00 };
-        auto [ec, n] =
+        std::tie(ec, std::ignore) =
             co_await capy::write(stream, capy::make_buffer(greeting));
         if(ec)
             co_return ec;
     }
 
     std::uint8_t greeting_resp[2];
-    if(auto [ec, n] =
-           co_await capy::read(stream, capy::make_buffer(greeting_resp));
-       ec)
+    std::tie(ec, std::ignore) =
+        co_await capy::read(stream, capy::make_buffer(greeting_resp));
+    if(ec)
         co_return ec;
 
     if(greeting_resp[0] != 0x05)
@@ -80,15 +82,15 @@ open_socks5_tunnel(
         auth_req.push_back(static_cast<char>(pass.decoded_size()));
         pass.decode({}, urls::string_token::append_to(auth_req));
 
-        if(auto [ec, n] =
-               co_await capy::write(stream, capy::make_buffer(auth_req));
-           ec)
+        std::tie(ec, std::ignore) =
+            co_await capy::write(stream, capy::make_buffer(auth_req));
+        if(ec)
             co_return ec;
 
         std::uint8_t auth_resp[2];
-        if(auto [ec, n] =
-               co_await capy::read(stream, capy::make_buffer(auth_resp));
-           ec)
+        std::tie(ec, std::ignore) =
+            co_await capy::read(stream, capy::make_buffer(auth_resp));
+        if(ec)
             co_return ec;
 
         if(auth_resp[1] != 0x00)
@@ -141,15 +143,16 @@ open_socks5_tunnel(
     conn_req.push_back(static_cast<char>((port >> 8) & 0xFF));
     conn_req.push_back(static_cast<char>(port & 0xFF));
 
-    if(auto [ec, n] = co_await capy::write(stream, capy::make_buffer(conn_req));
-       ec)
+    std::tie(ec, std::ignore) =
+        co_await capy::write(stream, capy::make_buffer(conn_req));
+    if(ec)
         co_return ec;
 
     // connection response
     std::uint8_t reply_head[5];
-    if(auto [ec, n] =
-           co_await capy::read(stream, capy::make_buffer(reply_head));
-       ec)
+    std::tie(ec, std::ignore) =
+        co_await capy::read(stream, capy::make_buffer(reply_head));
+    if(ec)
         co_return ec;
 
     if(reply_head[1] != 0x00)
@@ -173,9 +176,9 @@ open_socks5_tunnel(
 
     std::string reply_tail;
     reply_tail.resize(tail);
-    if(auto [ec, n] =
-           co_await capy::read(stream, capy::make_buffer(reply_tail));
-       ec)
+    std::tie(ec, std::ignore) =
+        co_await capy::read(stream, capy::make_buffer(reply_tail));
+    if(ec)
         co_return ec;
 
     co_return {};

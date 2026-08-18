@@ -195,7 +195,7 @@ write_some(Buffers buffers)
     if(should_coalesce(avail))
     {
         do_commit(capy::buffer_copy(do_prepare(), buffers));
-        co_return { {}, avail };
+        co_return { std::error_code(), avail };
     }
     co_return co_await process(
         capy::buffer_param(buffers).data(), false);

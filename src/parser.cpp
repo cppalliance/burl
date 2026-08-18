@@ -491,7 +491,7 @@ loop:
             fin_chunk_ = true;
             in_.consume(in_.size() - t0);
         }
-        return f({}, true).ec;
+        return std::get<0>(f({}, true));
     }
 
 invoke:
@@ -792,7 +792,7 @@ decode_some(
         {
             auto const out = first(outbufs.data());
             if(out.size() == 0)
-                return { {}, cons };
+                return { std::error_code(), cons };
             auto const lim = clamp(limit_rem_);
             auto const r = dec_->process(
                 prefix(out, lim), in, last);
@@ -804,17 +804,17 @@ decode_some(
             if(r.ec)
             {
                 dec_err_ = r.ec;
-                return { {}, cons };
+                return { std::error_code(), cons };
             }
             if(r.produced == 0 && r.consumed == 0)
             {
                 if(lim == 0)
                     return { body_too_large, cons };
                 dec_err_ = error::decode_error;
-                return { {}, cons };
+                return { std::error_code(), cons };
             }
             if(in.size() == 0)
-                return { {}, cons };
+                return { std::error_code(), cons };
         }
     };
 
@@ -914,7 +914,7 @@ read_some(
             outbufs.consume(n);
             if(take < b.size())
                 return { body_too_large, n };
-            return { {}, n };
+            return { std::error_code(), n };
         });
         if(read != 0)
             return read;
@@ -1015,13 +1015,13 @@ pull(
             if(b.size() == 0)
                 return { capy::error::eof, 0 };
             if(n == dest.size())
-                return { {}, 0 };
+                return { std::error_code(), 0 };
             if(lim == 0)
                 return { body_too_large, 0 };
             auto const take = clamp(b.size(), lim);
             lim -= take;
             dest[n++] = { b.data(), take };
-            return { {}, take };
+            return { std::error_code(), take };
         },
         true);
         if(n != 0)
@@ -1102,7 +1102,7 @@ consume(std::size_t n) noexcept
         {
             auto const take = clamp(b.size(), n);
             n -= take;
-            return { {}, take };
+            return { std::error_code(), take };
         });
         return;
     default:

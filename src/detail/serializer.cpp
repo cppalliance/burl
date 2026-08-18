@@ -239,7 +239,7 @@ encode(
             if(n != tail.size())
                 in = tail[n++];
             else if(!eof)
-                co_return { {}, consumed };
+                co_return { std::error_code(), consumed };
         }
 
         if(out_len_ == out_cap_)
@@ -276,7 +276,7 @@ encode(
         }
 
         if(!eof && consumed != 0)
-            co_return { {}, consumed };
+            co_return { std::error_code(), consumed };
     }
 }
 
@@ -365,7 +365,7 @@ flush(
     len = 0;
     hdr_sent_ = true;
     done_ = eof;
-    co_return { {}, consumed };
+    co_return { std::error_code(), consumed };
 }
 
 } // namespace detail

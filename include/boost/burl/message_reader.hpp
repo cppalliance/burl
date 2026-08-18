@@ -330,7 +330,7 @@ read_some_(
             else if(rec)
                 co_return { rec, rn };
             if(rn != 0)
-                co_return { {}, rn };
+                co_return { std::error_code(), rn };
             continue;
         }
 
@@ -361,7 +361,7 @@ read_(
             co_return { ec, total };
     }
 
-    co_return { {}, total };
+    co_return { std::error_code(), total };
 }
 
 template<capy::ReadStream S>

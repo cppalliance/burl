@@ -50,15 +50,18 @@ open_http_tunnel(
         req.set(http::field::proxy_authorization, value);
     }
 
-    if(auto [ec, n] =
-           co_await capy::write(stream, capy::make_buffer(req.buffer()));
-       ec)
+    std::error_code ec;
+
+    std::tie(ec, std::ignore) = co_await capy::write(
+        stream, capy::make_buffer(req.buffer()));
+    if(ec)
         co_return ec;
 
     response_parser parser(response_parser::config{});
     parser.start();
-    if(auto [ec] = co_await message_reader{
-        &stream, &parser }.read_header(); ec)
+    std::tie(ec) = co_await message_reader{
+        &stream, &parser }.read_header();
+    if(ec)
         co_return { error::proxy_connect_failed };
 
     auto status = parser.get().status();

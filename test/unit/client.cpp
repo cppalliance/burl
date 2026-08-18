@@ -52,7 +52,7 @@ class client_test
                 auto n = capy::buffer_copy(
                     mb, capy::make_buffer(rd_buf));
                 rd_buf.clear();
-                co_return { {}, n };
+                co_return { std::error_code(), n };
             }
     
             auto [ec] = co_await corosio::delay(10s);
@@ -62,7 +62,7 @@ class client_test
         capy::io_task<std::size_t>
         write_some(auto cb)
         {
-            co_return { {}, capy::buffer_size(cb) };
+            co_return { std::error_code(), capy::buffer_size(cb) };
         }
     };
 
@@ -837,7 +837,7 @@ public:
             cfg.connect_handler =
                 [](urls::url_view) -> capy::io_task<capy::any_stream>
             {
-                co_return { {},
+                co_return { std::error_code(),
                             capy::any_stream{
                                 slow_stream{ "HTTP/1.1 200 OK\r\n"
                                                 "Cont" } } };
@@ -864,7 +864,7 @@ public:
             cfg.timeout = 10ms;
             cfg.connect_handler = [](urls::url_view) -> capy::io_task<capy::any_stream>
             {
-                co_return { {}, capy::any_stream{
+                co_return { std::error_code(), capy::any_stream{
                     slow_stream{
                         "HTTP/1.1 200 OK\r\n"
                         "Content-Length: 5\r\n"

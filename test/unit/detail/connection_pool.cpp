@@ -125,7 +125,7 @@ class connection_pool_test
         for(;;)
         {
             if(auto pos = buf.find(delim); pos != std::string::npos)
-                co_return { {}, pos + delim.size() };
+                co_return { std::error_code(), pos + delim.size() };
             char tmp[256];
             auto [ec, n] = co_await s.read_some(capy::make_buffer(tmp));
             buf.append(tmp, n);
@@ -350,11 +350,11 @@ public:
             if(auto [ec] = co_await corosio::delay(1s); ec)
             {
                 BOOST_TEST_EQ(ec, capy::error::canceled);
-                co_return { ec, {} };
+                co_return { ec, capy::any_stream{} };
             }
             BOOST_TEST_FAIL();
             auto [cli, srv] = capy::test::make_stream_pair();
-            co_return { {}, capy::any_stream(std::move(cli)) };
+            co_return { std::error_code(), capy::any_stream(std::move(cli)) };
         };
 
         auto client_task = [&]() -> capy::task<>
@@ -380,7 +380,7 @@ public:
         cfg.io_timeout = 10ms;
         cfg.connect_handler = [](urls::url_view) -> capy::io_task<capy::any_stream>
         {
-            co_return { {}, capy::any_stream{ slow_stream{} } };
+            co_return { std::error_code(), capy::any_stream{ slow_stream{} } };
         };
 
         auto client_task = [&]() -> capy::task<>

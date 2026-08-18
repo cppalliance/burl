@@ -61,7 +61,7 @@ check_io_body(
     http::any_buffer_sink sink(&bs);
     capy::run_async(
         ioc.get_executor(),
-        [&](capy::io_result<> res) {ec = res.ec; })
+        [&](capy::io_result<> res) {ec = std::get<0>(res); })
             (body.write(sink));
     ioc.run();
 

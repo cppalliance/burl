@@ -107,7 +107,7 @@ tag_invoke(body_to_tag<json::value>, response& resp)
                 parser.finish(ec);
                 if(ec)
                     co_return { ec, {} };
-                co_return { {}, parser.release() };
+                co_return { std::error_code(), parser.release() };
             }
             co_return { ec, {} };
         }
@@ -138,7 +138,7 @@ tag_invoke(body_to_tag<json::object>, response& resp)
     auto r = jv.try_as_object();
     if(r.has_error())
         co_return { r.error(), {} };
-    co_return { {}, std::move(*r) };
+    co_return { std::error_code(), std::move(*r) };
 }
 
 any_request_body
@@ -156,7 +156,7 @@ tag_invoke(body_to_tag<json::array>, response& resp)
     auto r = jv.try_as_array();
     if(r.has_error())
         co_return { r.error(), {} };
-    co_return { {}, std::move(*r) };
+    co_return { std::error_code(), std::move(*r) };
 }
 
 any_request_body
@@ -174,7 +174,7 @@ tag_invoke(body_to_tag<json::string>, response& resp)
     auto r = jv.try_as_string();
     if(r.has_error())
         co_return { r.error(), {} };
-    co_return { {}, std::move(*r) };
+    co_return { std::error_code(), std::move(*r) };
 }
 
 } // namespace burl
