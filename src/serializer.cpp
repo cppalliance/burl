@@ -16,6 +16,7 @@
 #include <boost/capy/buffers/buffer_copy.hpp>
 #include <boost/capy/buffers/make_buffer.hpp>
 #include <boost/capy/cond.hpp>
+#include <boost/url/grammar/ci_string.hpp>
 
 #include <algorithm>
 #include <utility>
@@ -246,7 +247,6 @@ decide_framing_(std::uint64_t total) noexcept
         return;
     if(payload_ == payload::chunked || payload_ == payload::to_eof)
     {
-        msg_->erase(http::field::transfer_encoding);
         msg_->set_content_length(total);
         payload_ = payload::size;
         owed_ = total;
