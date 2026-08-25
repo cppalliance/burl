@@ -81,17 +81,12 @@ tag_invoke(
     response& resp,
     std::filesystem::path dest)
 {
+    using enum corosio::file_base::flags;
+
     corosio::stream_file f(co_await capy::this_coro::executor);
-    // TODO: switch to a non-throwing open() overload once available.
-    try
-    {
-        using enum corosio::file_base::flags;
-        f.open(dest, write_only | create | exclusive);
-    }
-    catch(std::system_error const& e)
-    {
-        co_return { e.code(), {} };
-    }
+
+    if(auto ec = f.open(dest, write_only | create | exclusive))
+        co_return { ec, {} };
 
     auto src = resp.as_buffer_source();
     auto [ec, n] = co_await http::push_to(src, f);

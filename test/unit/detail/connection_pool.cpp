@@ -87,7 +87,8 @@ class connection_pool_test
         explicit loopback_server(corosio::io_context& ioc)
             : ioc_{ ioc }
         {
-            acceptor_.open();
+            if(auto ec = acceptor_.open())
+                throw std::system_error(ec);
             acceptor_.set_option(
                 corosio::socket_option::reuse_address(true));
             if(auto ec = acceptor_.bind({}))

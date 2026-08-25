@@ -35,15 +35,8 @@ send_file(
     bool call_eof)
 {
     corosio::stream_file f(co_await capy::this_coro::executor);
-    // TODO: switch to a non-throwing open() overload once available.
-    try
-    {
-        f.open(path, corosio::file_base::read_only);
-    }
-    catch(std::system_error const& e)
-    {
-        co_return { e.code() };
-    }
+    if(auto ec = f.open(path, corosio::file_base::read_only))
+        co_return { ec };
 
     auto remaining = size;
     while(remaining > 0)
