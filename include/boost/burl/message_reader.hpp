@@ -13,7 +13,6 @@
 #include <boost/burl/parser.hpp>
 
 #include <boost/assert.hpp>
-#include <boost/capy/buffers/buffer_param.hpp>
 #include <boost/capy/buffers/buffer_slice.hpp>
 #include <boost/capy/buffers/consuming_buffers.hpp>
 #include <boost/capy/concept/read_stream.hpp>
@@ -310,20 +309,17 @@ read_some_(
     parser& pr,
     MB buffers)
 {
-    capy::buffer_param bp(buffers);
-
     for(;;)
     {
         system::error_code ec;
-        auto const n = pr.read_some(bp.data(), ec);
+        auto const n = pr.read_some(buffers, ec);
         if(ec != http::error::need_data)
             co_return { std::error_code(ec), n };
 
         if(auto const lim = pr.direct_capacity(); lim != 0)
         {
-            auto const mbs = bp.data();
             auto [rec, rn] = co_await stream.read_some(
-                capy::buffer_slice(mbs, 0, lim));
+                capy::buffer_slice(buffers, 0, lim));
             pr.commit_direct(rn);
             if(rec == capy::cond::eof)
                 pr.commit_eof();

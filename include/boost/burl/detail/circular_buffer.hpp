@@ -50,6 +50,9 @@ struct circular_buffer
     std::array<capy::mutable_buffer, 2>
     prepare() const noexcept;
 
+    capy::mutable_buffer
+    prepare_one() const noexcept;
+
     void
     commit(std::size_t n) noexcept;
 

@@ -132,6 +132,60 @@ public:
     }
 
     void
+    testPrepare()
+    {
+        char store[8];
+        circular_buffer cb{ store, sizeof(store) };
+
+        // prepare_one is always the first prepare region
+        auto check = [&](
+            std::size_t off, std::size_t n0, std::size_t n1)
+        {
+            auto const pb = cb.prepare();
+            BOOST_TEST_EQ(pb[0].data(), store + off);
+            BOOST_TEST_EQ(pb[0].size(), n0);
+            BOOST_TEST_EQ(pb[1].size(), n1);
+            if(n1 != 0)
+                BOOST_TEST_EQ(pb[1].data(), store);
+            auto const mb = cb.prepare_one();
+            BOOST_TEST_EQ(mb.data(), pb[0].data());
+            BOOST_TEST_EQ(mb.size(), pb[0].size());
+        };
+
+        // empty: the whole store, in one region
+        check(0, 8, 0);
+
+        // contents at the front: the free region is
+        // the contiguous tail
+        put(cb, "abcde");
+        check(5, 3, 0);
+
+        // contents in the middle: the free region is split
+        // around the end of the store
+        cb.consume(2);
+        check(5, 3, 2);
+
+        // the write position lands exactly on the end:
+        // the free region is contiguous at the front
+        put(cb, "fgh");
+        BOOST_TEST(!cb.wrapped());
+        check(0, 2, 0);
+
+        // wrapped contents: the free region is contiguous
+        // between the write and read positions
+        put(cb, "X");
+        BOOST_TEST(cb.wrapped());
+        check(1, 1, 0);
+
+        // full: nothing to prepare
+        put(cb, "Y");
+        BOOST_TEST(cb.full());
+        check(2, 0, 0);
+        BOOST_TEST_EQ(cb.prepare_one().size(), 0);
+        BOOST_TEST(str(cb.data()) == "cdefghXY");
+    }
+
+    void
     testReset()
     {
         char store[8];
@@ -351,6 +405,7 @@ public:
         testEmpty();
         testFillAndDrain();
         testWrapAround();
+        testPrepare();
         testReset();
         testShedAndSlide();
         testLinearizeEmpty();

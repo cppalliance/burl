@@ -16,7 +16,6 @@
 
 #include <boost/capy/buffers.hpp>
 #include <boost/capy/buffers/buffer_copy.hpp>
-#include <boost/capy/buffers/buffer_param.hpp>
 #include <boost/capy/buffers/buffer_slice.hpp>
 #include <boost/capy/buffers/consuming_buffers.hpp>
 #include <boost/capy/buffers/make_buffer.hpp>
@@ -174,44 +173,22 @@ struct test_parser : parser
             if(auto ec = read_header(); ec)
                 return { ec, 0 };
 
-        capy::buffer_param bp(buffers);
-
-        for(;;)
-        {
-            system::error_code ec;
-            auto const n = parser::read_some(bp.data(), ec);
-            if(ec != http::error::need_data)
-                return { ec, n };
-
-            if(auto const lim = direct_capacity(); lim != 0)
-            {
-                auto const mbs = bp.data();
-                auto const rn = direct_read(
-                    capy::buffer_slice(mbs, 0, lim));
-                if(rn != 0)
-                    return { std::error_code(), rn };
-                continue;
-            }
-
-            refill();
-        }
-    }
-
-    // hand the parser the span exactly as given, with no
-    // buffer_param in between to drop the empty buffers
-    std::pair<std::error_code, std::size_t>
-    read_some_raw(std::span<capy::mutable_buffer const> buffers)
-    {
-        if(! got_header())
-            if(auto ec = read_header(); ec)
-                return { ec, 0 };
-
         for(;;)
         {
             system::error_code ec;
             auto const n = parser::read_some(buffers, ec);
             if(ec != http::error::need_data)
                 return { ec, n };
+
+            if(auto const lim = direct_capacity(); lim != 0)
+            {
+                auto const rn = direct_read(
+                    capy::buffer_slice(buffers, 0, lim));
+                if(rn != 0)
+                    return { std::error_code(), rn };
+                continue;
+            }
+
             refill();
         }
     }
@@ -3119,7 +3096,7 @@ public:
             BOOST_TEST(!hec);
             pr.set_decoder(&dec);
 
-            auto [ec, n] = pr.read_some_raw(dest());
+            auto [ec, n] = pr.read_some(dest());
             BOOST_TEST(!ec);
             BOOST_TEST_EQ(n, 5);
             BOOST_TEST(std::string_view(buf, n) == decoded("hello"));
@@ -3140,10 +3117,64 @@ public:
             BOOST_TEST(!hec);
             pr.set_decoder(&dec);
 
-            auto [ec, n] = pr.read_some_raw(dest());
+            auto [ec, n] = pr.read_some(dest());
             BOOST_TEST(!ec);
             BOOST_TEST_EQ(n, 5);
             BOOST_TEST(std::string_view(buf, n) == decoded("hello"));
+        }
+    }
+
+    void
+    testReadSomeSplitDestination()
+    {
+        // the body lands contiguously across a destination
+        // split into buffers smaller than the body, including
+        // when the split falls in the middle of a chunk
+        char b1[3];
+        char b2[8];
+        auto dest = [&]
+        {
+            return std::array<capy::mutable_buffer, 2>{
+                capy::mutable_buffer{ b1, sizeof(b1) },
+                capy::mutable_buffer{ b2, sizeof(b2) } };
+        };
+        {
+            test_parser pr;
+            pr.provide(
+                "HTTP/1.1 200 OK\r\n"
+                "Content-Length: 5\r\n"
+                "\r\n"
+                "hello");
+
+            pr.start();
+            auto hec = pr.read_header();
+            BOOST_TEST(!hec);
+
+            auto [ec, n] = pr.read_some(dest());
+            BOOST_TEST(!ec);
+            BOOST_TEST_EQ(n, 5);
+            BOOST_TEST(std::string_view(b1, 3) == "hel");
+            BOOST_TEST(std::string_view(b2, 2) == "lo");
+        }
+        {
+            test_parser pr;
+            pr.provide(
+                "HTTP/1.1 200 OK\r\n"
+                "Transfer-Encoding: chunked\r\n"
+                "\r\n"
+                "2\r\nhe\r\n"
+                "3\r\nllo\r\n"
+                "0\r\n\r\n");
+
+            pr.start();
+            auto hec = pr.read_header();
+            BOOST_TEST(!hec);
+
+            auto [ec, n] = pr.read_some(dest());
+            BOOST_TEST(!ec);
+            BOOST_TEST_EQ(n, 5);
+            BOOST_TEST(std::string_view(b1, 3) == "hel");
+            BOOST_TEST(std::string_view(b2, 2) == "lo");
         }
     }
 
@@ -4265,6 +4296,7 @@ public:
         testDecoderNoPayload();
         testDecoderReadSomeEmptyBuffer();
         testDecoderReadSomeLeadingEmptyBuffer();
+        testReadSomeSplitDestination();
         testDecoderBodyAfterStreaming();
         testDecoderReadBodyHardError();
         testDecoderPullTwiceWithoutConsume();

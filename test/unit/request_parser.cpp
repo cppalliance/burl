@@ -62,12 +62,12 @@ public:
 
         char buf[8];
         capy::mutable_buffer mb(buf, sizeof(buf));
-        auto n = pr.read_some({ &mb, 1 }, ec);
+        auto n = pr.read_some(mb, ec);
         BOOST_TEST(!ec);
         BOOST_TEST_EQ(n, 5);
         BOOST_TEST(std::string_view(buf, n) == "hello");
 
-        n = pr.read_some({ &mb, 1 }, ec);
+        n = pr.read_some(mb, ec);
         BOOST_TEST(ec == capy::cond::eof);
         BOOST_TEST_EQ(n, 0);
     }

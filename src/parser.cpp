@@ -16,7 +16,6 @@
 
 #include <boost/assert.hpp>
 #include <boost/capy/buffers/buffer_copy.hpp>
-#include <boost/capy/buffers/consuming_buffers.hpp>
 #include <boost/capy/cond.hpp>
 #include <boost/capy/error.hpp>
 #include <boost/capy/io_result.hpp>
@@ -249,16 +248,6 @@ prefix(auto buf, std::size_t n) noexcept
     return { buf.data(), clamp(buf.size(), n) };
 };
 
-auto
-first(auto const& bs) noexcept
-    -> decltype(*begin(bs))
-{
-    for(auto b : bs)
-        if(b.size() != 0)
-            return b;
-    return {};
-}
-
 } // namespace
 
 struct parser::chunk_fn
@@ -321,7 +310,7 @@ bool
 parser::
 has_buffered_data() const noexcept
 {
-    return in_.size() > rem_ + trailer_extent();
+    return in_.size() > rem_ + trailer_extent_();
 }
 
 std::array<capy::const_buffer, 2>
@@ -333,7 +322,7 @@ buffered_data() const noexcept
 
 std::error_code
 parser::
-need_more() const noexcept
+need_more_() const noexcept
 {
     if(eof_)
         return incomplete;
@@ -344,7 +333,7 @@ need_more() const noexcept
 
 std::size_t
 parser::
-trailer_extent() const noexcept
+trailer_extent_() const noexcept
 {
     if(!fin_chunk_)
         return 0;
@@ -362,7 +351,7 @@ start(bool head)
     BOOST_ASSERT(!started_ || got_body_);
 
     in_.consume(
-        clamp(rem_) + trailer_extent());
+        clamp(rem_) + trailer_extent_());
     hp_.reset(
         in_.linearize(buf_.get()));
 
@@ -452,14 +441,14 @@ commit_direct(std::size_t n) noexcept
 
 std::error_code
 parser::
-walk_chunks(chunk_fn f, bool dry)
+walk_chunks_(chunk_fn f, bool dry)
 {
     chained_sequence cs = in_.data();
     std::uint64_t size  = rem_;
 
     if(fin_chunk_)
     {
-        // from flatten_chunks
+        // from flatten_chunks_
         auto const b = in_.first(clamp(rem_));
         auto const [ec, n] = f(b, true);
         if(!dry)
@@ -522,7 +511,7 @@ invoke:
 
 std::error_code
 parser::
-flatten_chunks()
+flatten_chunks_()
 {
     if(fin_chunk_)
         return {};
@@ -689,8 +678,8 @@ flatten_body(system::error_code& ec)
                 ec = in_place_overflow;
                 break;
             }
-            auto pb = out_.prepare();
-            auto const n = decode_some(pb, ec);
+            auto const n = decode_some_(
+                out_.prepare_one(), ec);
             out_.commit(n);
             if(ec == capy::cond::eof)
             {
@@ -717,12 +706,12 @@ flatten_body(system::error_code& ec)
             }
             if(fin_chunk_)
                 break;
-            if(auto fec = flatten_chunks(); fec)
+            if(auto fec = flatten_chunks_(); fec)
             {
                 if(fec != need_more_input)
                     ec = fec;
                 else
-                    ec = need_more();
+                    ec = need_more_();
                 break;
             }
         }
@@ -733,7 +722,7 @@ flatten_body(system::error_code& ec)
         if(rem_ > limit_rem_)
             ec = body_too_large;
         else if(!got_body_)
-            ec = need_more();
+            ec = need_more_();
         return { in_.linearize(in_.ptr), clamp(rem_, in_.len) };
     }
     case payload::to_eof:
@@ -741,7 +730,7 @@ flatten_body(system::error_code& ec)
         if(in_.size() > limit_rem_)
             ec = body_too_large;
         else if(!got_body_)
-            ec = need_more();
+            ec = need_more_();
         return { in_.linearize(in_.ptr), in_.len };
     }
     default:
@@ -765,14 +754,13 @@ get_request() const
 
 std::size_t
 parser::
-decode_some(
-    std::span<capy::mutable_buffer const> buffers,
+decode_some_(
+    capy::mutable_buffer dest,
     system::error_code& ec)
 {
-    if(capy::buffer_empty(buffers))
+    if(dest.size() == 0)
         return 0;
 
-    auto outbufs = capy::consuming_buffers(buffers);
     std::size_t prod = 0;
     auto decode =
     [&](capy::const_buffer in, bool last)
@@ -790,17 +778,14 @@ decode_some(
         std::size_t cons = 0;
         for(;;)
         {
-            auto const out = first(outbufs.data());
-            if(out.size() == 0)
-                return { std::error_code(), cons };
             auto const lim = clamp(limit_rem_);
             auto const r = dec_->process(
-                prefix(out, lim), in, !last);
+                prefix(dest, lim), in, !last);
+            dest += r.produced;
             in += r.consumed;
             cons += r.consumed;
             prod += r.produced;
             limit_rem_ -= r.produced;
-            outbufs.consume(r.produced);
             if(r.ec)
             {
                 dec_err_ = r.ec;
@@ -813,7 +798,7 @@ decode_some(
                 dec_err_ = bad_payload;
                 return { std::error_code(), cons };
             }
-            if(in.size() == 0)
+            if(dest.size() == 0 || in.size() == 0)
                 return { std::error_code(), cons };
         }
     };
@@ -822,13 +807,13 @@ decode_some(
     {
     case payload::chunked:
     {
-        auto const wec = walk_chunks(decode);
+        auto const wec = walk_chunks_(decode);
         if(prod != 0)
             return prod;
         if(wec != need_more_input)
             ec = wec;
         else
-            ec = need_more();
+            ec = need_more_();
         return 0;
     }
     case payload::size:
@@ -839,7 +824,7 @@ decode_some(
             auto const in = in_.first(clamp(rem_));
             if(in.size() == 0 && !got_body_)
             {
-                ec = need_more();
+                ec = need_more_();
                 return 0;
             }
             auto [dec_ec, cons] = decode(
@@ -865,8 +850,8 @@ decode_some(
 
 std::size_t
 parser::
-read_some(
-    std::span<capy::mutable_buffer const> buffers,
+read_some_(
+    capy::mutable_buffer dest,
     system::error_code& ec)
 {
     parse_header(ec);
@@ -878,17 +863,17 @@ read_some(
         if(!out_.empty())
         {
             auto const n = capy::buffer_copy(
-                buffers, out_.data());
+                dest, out_.data());
             out_.consume(n);
             return n;
         }
-        return decode_some(buffers, ec);
+        return decode_some_(dest, ec);
     }
 
     auto copy = [&](std::size_t at_most)
     {
         auto const n = capy::buffer_copy(
-            buffers, in_.data(), at_most);
+            dest, in_.data(), at_most);
         in_.consume(n);
         rem_ -= n;
         limit_rem_ -= n;
@@ -901,17 +886,15 @@ read_some(
     {
         std::size_t read = 0;
         std::size_t lim = clamp(limit_rem_);
-        auto outbufs = capy::consuming_buffers(buffers);
-        auto const wec = walk_chunks(
+        auto const wec = walk_chunks_(
         [&](capy::const_buffer b, bool)
             -> capy::io_result<std::size_t>
         {
             auto const take = clamp(b.size(), lim);
             lim -= take;
-            auto const n = capy::buffer_copy(
-                outbufs.data(), b, take);
+            auto const n = capy::buffer_copy(dest, b, take);
+            dest += n;
             read += n;
-            outbufs.consume(n);
             if(take < b.size())
                 return { body_too_large, n };
             return { std::error_code(), n };
@@ -920,7 +903,7 @@ read_some(
             return read;
         if(wec == need_more_input)
         {
-            ec = need_more();
+            ec = need_more_();
             return 0;
         }
         if(wec)
@@ -949,7 +932,7 @@ read_some(
             ec = capy::error::eof;
             return 0;
         }
-        ec = need_more();
+        ec = need_more_();
         return 0;
     }
     case payload::to_eof:
@@ -968,7 +951,7 @@ read_some(
             ec = capy::error::eof;
             return 0;
         }
-        ec = need_more();
+        ec = need_more_();
         return 0;
     }
     default:
@@ -993,8 +976,8 @@ pull(
     {
         if(!out_.empty())
             return collect(dest, out_.data());
-        auto pb = out_.prepare();
-        auto const n = decode_some(pb, ec);
+        auto const n = decode_some_(
+            out_.prepare_one(), ec);
         out_.commit(n);
         if(ec && n == 0)
             return {};
@@ -1008,7 +991,7 @@ pull(
     {
         std::size_t n = 0;
         std::size_t lim = clamp(limit_rem_);
-        auto const wec = walk_chunks(
+        auto const wec = walk_chunks_(
         [&](capy::const_buffer b, bool)
             -> capy::io_result<std::size_t>
         {
@@ -1036,7 +1019,7 @@ pull(
             ec = wec;
             return {};
         }
-        ec = need_more();
+        ec = need_more_();
         return {};
     }
     case payload::size:
@@ -1056,7 +1039,7 @@ pull(
             ec = capy::error::eof;
             return {};
         }
-        ec = need_more();
+        ec = need_more_();
         return {};
     }
     case payload::to_eof:
@@ -1075,7 +1058,7 @@ pull(
             ec = capy::error::eof;
             return {};
         }
-        ec = need_more();
+        ec = need_more_();
         return {};
     }
     default:
@@ -1096,7 +1079,7 @@ consume(std::size_t n) noexcept
     switch(payload_)
     {
     case payload::chunked:
-        walk_chunks(
+        walk_chunks_(
         [&](capy::const_buffer b, bool)
             -> capy::io_result<std::size_t>
         {

@@ -442,10 +442,10 @@ public:
 
         @return The number of octets written.
     */
-    BOOST_BURL_DECL
+    template<capy::MutableBufferSequence MB>
     std::size_t
     read_some(
-        std::span<capy::mutable_buffer const> buffers,
+        MB const& buffers,
         system::error_code& ec);
 
     /** Return available body octets in place.
@@ -551,20 +551,26 @@ private:
     struct chunk_fn;
 
     std::error_code
-    need_more() const noexcept;
+    need_more_() const noexcept;
 
     std::size_t
-    trailer_extent() const noexcept;
+    trailer_extent_() const noexcept;
 
     std::error_code
-    walk_chunks(chunk_fn f, bool dry = false);
+    walk_chunks_(chunk_fn f, bool dry = false);
 
     std::error_code
-    flatten_chunks();
+    flatten_chunks_();
+
+    BOOST_BURL_DECL
+    std::size_t
+    read_some_(
+        capy::mutable_buffer dest,
+        system::error_code& ec);
 
     std::size_t
-    decode_some(
-        std::span<capy::mutable_buffer const> buffers,
+    decode_some_(
+        capy::mutable_buffer dest,
         system::error_code& ec);
 
     std::unique_ptr<char[]> buf_;
@@ -585,6 +591,37 @@ private:
     bool fin_chunk_ : 1 = false;
     bool eof_ : 1 = false;
 };
+
+//------------------------------------------------
+
+template<capy::MutableBufferSequence MB>
+std::size_t
+parser::
+read_some(
+    MB const& buffers,
+    system::error_code& ec)
+{
+    std::size_t n = 0;
+    auto const end = capy::end(buffers);
+    for(auto it = capy::begin(buffers); it != end; ++it)
+    {
+        capy::mutable_buffer const b(*it);
+        if(b.size() == 0)
+            continue;
+        auto const m = read_some_(b, ec);
+        if(ec)
+        {
+            // reported on the next call
+            if(n != 0)
+                ec = {};
+            break;
+        }
+        n += m;
+        if(m < b.size())
+            break;
+    }
+    return n;
+}
 
 } // namespace burl
 } // namespace boost

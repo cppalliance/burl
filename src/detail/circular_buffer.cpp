@@ -83,6 +83,16 @@ prepare() const noexcept
         { ptr, free - (cap - w) } } };
 }
 
+capy::mutable_buffer
+circular_buffer::
+prepare_one() const noexcept
+{
+    std::size_t w = pos + len;
+    if(w >= cap)
+        w -= cap;
+    return { ptr + w, clamp(cap - len, cap - w) };
+}
+
 void
 circular_buffer::
 commit(std::size_t n) noexcept
