@@ -71,12 +71,7 @@ namespace burl
 
     Every operation parses the header first, so
     reading a body without having read the header
-    explicitly works as expected. This serves the
-    caller who has no interest in the header:
-    anything decided from it, installing a decoder
-    above all, needs @ref read_header called
-    explicitly, because @ref parser::set_decoder
-    requires a parsed header and an untouched body.
+    explicitly works as expected.
 
     This type satisfies @ref capy::ReadStream, @ref
     http::ReadSource, and @ref http::BufferSource,

@@ -11,6 +11,8 @@
 
 #include <boost/burl/error.hpp>
 
+#include "detail/content_coding.hpp"
+#include "detail/decoders.hpp"
 #include "detail/grammar.hpp"
 #include "detail/util.hpp"
 
@@ -32,9 +34,11 @@ namespace burl
 {
 
 using detail::clamp;
+using detail::content_coding;
+using detail::distance;
+using detail::make_decoder;
 using detail::parse_field;
 using detail::parse_limited;
-using detail::distance;
 
 using http::condition::need_more_input;
 using http::error::bad_payload;
@@ -281,6 +285,7 @@ parser(
     config const& cfg,
     bool is_req)
     : body_limit_(cfg.body_limit)
+    , decode_(cfg.decode)
 {
     auto const h_cap = head_parser::bytes_needed(
         cfg.hdr_limits, cfg.in_buffer);
@@ -355,7 +360,7 @@ start(bool head)
     hp_.reset(
         in_.linearize(buf_.get()));
 
-    dec_        = nullptr;
+    dec_.reset();
     rem_        = 0;
     limit_rem_  = body_limit_;
     dec_err_    = {};
@@ -636,6 +641,9 @@ parse_header(system::error_code& ec)
         break;
     }
 
+    if(decode_ && payload_ != payload::none)
+        dec_ = make_decoder(content_coding(h));
+
     if(!got_body_)
     {
         in_.slide(buf_.get());
@@ -647,9 +655,10 @@ parse_header(system::error_code& ec)
 
 void
 parser::
-set_decoder(decoder* dec) noexcept
+set_decoder(
+    std::unique_ptr<detail::decoder> dec) noexcept
 {
-    dec_ = dec;
+    dec_ = std::move(dec);
 }
 
 void

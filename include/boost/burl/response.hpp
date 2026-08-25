@@ -83,7 +83,6 @@ class response
     urls::url url_;
     detail::pooled_connection conn_;
     response_parser parser_;
-    std::unique_ptr<parser::decoder> decoder_;
     std::optional<clock::time_point> deadline_;
 
     BOOST_BURL_DECL
@@ -91,7 +90,6 @@ class response
         urls::url url,
         detail::pooled_connection conn,
         response_parser parser,
-        std::unique_ptr<parser::decoder> dec,
         std::optional<clock::time_point> deadline);
 
 public:

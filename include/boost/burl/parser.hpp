@@ -12,6 +12,7 @@
 
 #include <boost/burl/detail/circular_buffer.hpp>
 #include <boost/burl/detail/config.hpp>
+#include <boost/burl/detail/decoder.hpp>
 #include <boost/burl/head_parser.hpp>
 #include <boost/burl/request_head_base.hpp>
 #include <boost/burl/response_head_base.hpp>
@@ -51,8 +52,7 @@ namespace burl
     @li the message header, with O(1) access to the
         start line,
     @li all or part of the message body, and
-    @li decoded output when a @ref decoder is
-        installed.
+    @li decoded output when the body is encoded.
 
     @par Operations
 
@@ -62,7 +62,7 @@ namespace burl
     @li @ref flatten_body returns the whole body in
         place, without copying,
     @li @ref read_some copies into caller-supplied
-        memory, or lets an installed decoder write
+        memory, or lets the content decoder write
         into it directly, and
     @li @ref pull borrows the parser's own buffers,
         which @ref consume then releases.
@@ -70,9 +70,17 @@ namespace burl
     Each parses the header first when it has not
     been parsed already, so a caller with no
     interest in the header never has to call @ref
-    parse_header. Installing a decoder does require
-    it, because @ref set_decoder must run after the
-    header and before any body octet.
+    parse_header.
+
+    @par Content Decoding
+
+    When @ref config::decode is set, a body whose
+    `Content-Encoding` is `gzip`, `deflate`, `br`,
+    or `zstd` is decoded as it is parsed, using the
+    decode service installed for that coding in the
+    system context. A body whose coding has no
+    installed service, or which the parser does not
+    know, is delivered as sent.
 
     @par Errors
 
@@ -101,55 +109,6 @@ namespace burl
 class parser
 {
 public:
-    /** A content decoder.
-
-        Installed with @ref set_decoder before body
-        parsing begins, a decoder transforms the
-        payload octets as they arrive.
-    */
-    struct decoder
-    {
-        /// The outcome of a call to @ref process.
-        struct result
-        {
-            /// The number of input octets consumed.
-            std::size_t consumed;
-
-            /// The number of output octets produced.
-            std::size_t produced;
-
-            /** The error, if any.
-
-                Set to `capy::error::eof` once the
-                decoder has produced the complete
-                output.
-            */
-            std::error_code ec;
-        };
-
-        /// Destructor.
-        virtual ~decoder() = default;
-
-        /** Transform payload octets.
-
-            @param out The destination for decoded
-            output.
-
-            @param in The octets to decode.
-
-            @param more False when `in` ends the
-            payload.
-
-            @return The octets consumed and
-            produced, and the error if any.
-        */
-        virtual result
-        process(
-            capy::mutable_buffer out,
-            capy::const_buffer in,
-            bool more) = 0;
-    };
-
     /// Settings which apply for the life of the parser.
     struct config
     {
@@ -164,6 +123,15 @@ public:
 
         /// The default maximum body size.
         std::uint64_t body_limit = std::uint64_t(-1);
+
+        /** Whether to decode the body.
+
+            When true, a body whose `Content-Encoding`
+            names a coding with a decode service
+            installed in the system context is decoded
+            as it is parsed.
+        */
+        bool decode = true;
     };
 
     //--------------------------------------------
@@ -243,22 +211,6 @@ public:
     BOOST_BURL_DECL
     void
     reset() noexcept;
-
-    /** Install a content decoder.
-
-        The decoder must remain valid until the
-        message has been parsed. Passing `nullptr`
-        removes a previously installed decoder.
-
-        @par Preconditions
-        `this->got_header() == true` and no body
-        octet has been parsed.
-
-        @param dec The decoder to install.
-    */
-    BOOST_BURL_DECL
-    void
-    set_decoder(decoder* dec) noexcept;
 
     /** Set the maximum body size.
 
@@ -383,10 +335,9 @@ public:
     /** Parse the message header.
 
         Returns as soon as the header is complete,
-        so that @ref set_decoder and @ref
-        set_body_limit can be called before any body
-        octet is parsed. Has no effect once @ref
-        got_header returns true.
+        so that @ref set_body_limit can be called
+        before any body octet is parsed. Has no
+        effect once @ref got_header returns true.
 
         @par Preconditions
         @ref start has been called.
@@ -426,8 +377,8 @@ public:
 
     /** Copy body octets into caller-supplied memory.
 
-        When a decoder is installed, it writes its
-        output into `buffers` directly. Parses the
+        When the body is decoded, the decoder writes
+        its output into `buffers` directly. Parses the
         header first if @ref got_header returns
         false.
 
@@ -547,6 +498,11 @@ protected:
     burl::request_head_base const&
     get_request() const;
 
+    BOOST_BURL_DECL
+    void
+    set_decoder(
+        std::unique_ptr<detail::decoder> dec) noexcept;
+
 private:
     struct chunk_fn;
 
@@ -575,7 +531,7 @@ private:
 
     std::unique_ptr<char[]> buf_;
     head_parser hp_;
-    decoder * dec_ = nullptr;
+    std::unique_ptr<detail::decoder> dec_;
     detail::circular_buffer in_;
     detail::circular_buffer out_;
     std::uint64_t rem_ = 0;
@@ -583,6 +539,7 @@ private:
     std::uint64_t limit_rem_ = 0;
     std::error_code dec_err_;
     http::payload payload_ = http::payload::none;
+    bool decode_ : 1 = false;
     bool head_ : 1 = false;
     bool started_ : 1 = false;
     bool got_header_ : 1 = false;

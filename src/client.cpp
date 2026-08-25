@@ -14,8 +14,6 @@
 #include "detail/base64.hpp"
 #include "detail/can_reuse_conn.hpp"
 #include "detail/connection_pool.hpp"
-#include "detail/content_coding.hpp"
-#include "detail/decoders.hpp"
 #include "detail/drain_body.hpp"
 #include "detail/redirect.hpp"
 
@@ -228,7 +226,8 @@ client::execute_impl(
             .hdr_limits = {},
             .in_buffer  = config_.response_inplace_buffer,
             .dec_buffer = config_.response_inplace_buffer,
-            .body_limit = config_.response_body_limit
+            .body_limit = config_.response_body_limit,
+            .decode     = auto_decode
         });
     serializer sr({});
 
@@ -307,18 +306,9 @@ client::execute_impl(
                 ? std::error_code(status_int, burl_category())
                 : std::error_code();
 
-            std::unique_ptr<parser::decoder> dec;
-            if(auto_decode && !is_head)
-            {
-                dec = detail::make_decoder(
-                    detail::content_coding(parser.get()));
-                parser.set_decoder(dec.get());
-            }
-
             co_return {
                 ec,
-                response{ url, std::move(conn), std::move(parser),
-                    std::move(dec), deadline }
+                response{ url, std::move(conn), std::move(parser), deadline }
             };
         }
 

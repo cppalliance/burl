@@ -35,7 +35,7 @@ namespace
 {
 
 class zlib_decoder final
-    : public parser::decoder
+    : public decoder
 {
     http::zlib::inflate_service& svc_;
     http::zlib::stream strm_ = {};
@@ -105,7 +105,7 @@ public:
 };
 
 class brotli_decoder final
-    : public parser::decoder
+    : public decoder
 {
     http::brotli::decode_service& svc_;
     http::brotli::decoder_state* state_;
@@ -162,7 +162,7 @@ public:
 };
 
 class zstd_decoder final
-    : public parser::decoder
+    : public decoder
 {
     http::zstd::decompress_service& svc_;
     http::zstd::dctx* ctx_;
@@ -222,7 +222,7 @@ public:
 
 } // namespace
 
-std::unique_ptr<parser::decoder>
+std::unique_ptr<decoder>
 make_decoder(http::content_coding coding)
 {
     auto const& ctx = capy::get_system_context();

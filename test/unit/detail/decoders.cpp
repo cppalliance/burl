@@ -45,7 +45,7 @@ class decoders_test
 
     static decode_result
     run_decoder(
-        parser::decoder& dec,
+        decoder& dec,
         std::string_view input,
         std::size_t in_step,
         std::size_t out_step)

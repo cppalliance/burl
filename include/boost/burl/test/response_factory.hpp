@@ -280,7 +280,7 @@ public:
         }());
 
         return response{
-            url_, std::move(conn), std::move(parser), {}, deadline_ };
+            url_, std::move(conn), std::move(parser), deadline_ };
     }
 
 private:

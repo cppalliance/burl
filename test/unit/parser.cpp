@@ -21,7 +21,9 @@
 #include <boost/capy/buffers/make_buffer.hpp>
 #include <boost/capy/cond.hpp>
 #include <boost/capy/error.hpp>
+#include <boost/capy/ex/system_context.hpp>
 #include <boost/http/error.hpp>
+#include <boost/http/zlib.hpp>
 
 #include <algorithm>
 #include <array>
@@ -56,6 +58,34 @@ struct test_parser : parser
         bool is_request = false)
         : parser(cfg, is_request)
     {
+    }
+
+    // Install a test decoder, which the test keeps
+    // owning so that it can inspect it afterwards.
+    template<class D>
+    void
+    set_decoder(D& dec)
+    {
+        struct forwarder : detail::decoder
+        {
+            D& d;
+
+            explicit
+            forwarder(D& d_) noexcept
+                : d(d_)
+            {
+            }
+
+            result
+            process(
+                capy::mutable_buffer out,
+                capy::const_buffer in,
+                bool more) override
+            {
+                return d.process(out, in, more);
+            }
+        };
+        parser::set_decoder(std::make_unique<forwarder>(dec));
     }
 
     //--------------------------------------------
@@ -272,7 +302,7 @@ class parser_test
     // trailer first), finishing exactly at `eof_at` consumed octets
     // (zlib-style, or early), failing at `fail_at` alongside partial
     // output, or never finishing at all (a truncated stream).
-    struct test_decoder : parser::decoder
+    struct test_decoder : detail::decoder
     {
         std::string trailer;
         std::error_code fail_ec;
@@ -2054,7 +2084,7 @@ public:
         pr.start();
         auto hec = pr.read_header();
         BOOST_TEST(!hec);
-        pr.set_decoder(&dec);
+        pr.set_decoder(dec);
 
         char buf[16];
         {
@@ -2089,7 +2119,7 @@ public:
         pr.start();
         auto hec = pr.read_header();
         BOOST_TEST(!hec);
-        pr.set_decoder(&dec);
+        pr.set_decoder(dec);
 
         auto [ec, body] = pr.read_body();
         BOOST_TEST(!ec);
@@ -2138,7 +2168,7 @@ public:
         pr.start();
         auto hec = pr.read_header();
         BOOST_TEST(!hec);
-        pr.set_decoder(&dec);
+        pr.set_decoder(dec);
 
         char buf[16];
         {
@@ -2510,7 +2540,7 @@ public:
         pr.start();
         auto hec = pr.read_header();
         BOOST_TEST(!hec);
-        pr.set_decoder(&dec);
+        pr.set_decoder(dec);
 
         char buf[16];
         {
@@ -2543,7 +2573,7 @@ public:
         pr.start();
         auto hec = pr.read_header();
         BOOST_TEST(!hec);
-        pr.set_decoder(&dec);
+        pr.set_decoder(dec);
 
         auto [ec, body] = pr.read_body();
         BOOST_TEST(!ec);
@@ -2690,7 +2720,7 @@ public:
         pr.start();
         auto hec = pr.read_header();
         BOOST_TEST(!hec);
-        pr.set_decoder(&dec);
+        pr.set_decoder(dec);
 
         char buf[16];
         {
@@ -2795,7 +2825,7 @@ public:
         pr.start();
         auto hec = pr.read_header();
         BOOST_TEST(!hec);
-        pr.set_decoder(&dec);
+        pr.set_decoder(dec);
 
         char buf[16];
         {
@@ -2828,7 +2858,7 @@ public:
         pr.start();
         auto hec = pr.read_header();
         BOOST_TEST(!hec);
-        pr.set_decoder(&dec);
+        pr.set_decoder(dec);
 
         char buf[16];
         {
@@ -2860,7 +2890,7 @@ public:
         pr.start();
         auto hec = pr.read_header();
         BOOST_TEST(!hec);
-        pr.set_decoder(&dec);
+        pr.set_decoder(dec);
 
         std::string got;
         for(;;)
@@ -2893,7 +2923,7 @@ public:
         pr.start();
         auto hec = pr.read_header();
         BOOST_TEST(!hec);
-        pr.set_decoder(&dec);
+        pr.set_decoder(dec);
 
         char buf[16];
         {
@@ -2931,7 +2961,7 @@ public:
         pr.start();
         auto hec = pr.read_header();
         BOOST_TEST(!hec);
-        pr.set_decoder(&dec);
+        pr.set_decoder(dec);
 
         char buf[16];
         // the cleanly decoded bytes are delivered first
@@ -2961,7 +2991,7 @@ public:
         pr.start();
         auto hec = pr.read_header();
         BOOST_TEST(!hec);
-        pr.set_decoder(&dec);
+        pr.set_decoder(dec);
 
         char buf[16];
         // the bytes decoded before the failure are delivered first
@@ -2991,7 +3021,7 @@ public:
         pr.start();
         auto hec = pr.read_header();
         BOOST_TEST(!hec);
-        pr.set_decoder(&dec);
+        pr.set_decoder(dec);
 
         capy::const_buffer arr[2];
         {
@@ -3024,7 +3054,7 @@ public:
         pr.start();
         auto hec = pr.read_header();
         BOOST_TEST(!hec);
-        pr.set_decoder(&dec);
+        pr.set_decoder(dec);
 
         // a bodiless message ends the decode path without
         // ever invoking the decoder
@@ -3050,7 +3080,7 @@ public:
         pr.start();
         auto hec = pr.read_header();
         BOOST_TEST(!hec);
-        pr.set_decoder(&dec);
+        pr.set_decoder(dec);
 
         // an empty destination transfers nothing and is
         // not an error
@@ -3094,7 +3124,7 @@ public:
             pr.start();
             auto hec = pr.read_header();
             BOOST_TEST(!hec);
-            pr.set_decoder(&dec);
+            pr.set_decoder(dec);
 
             auto [ec, n] = pr.read_some(dest());
             BOOST_TEST(!ec);
@@ -3115,7 +3145,7 @@ public:
             pr.start();
             auto hec = pr.read_header();
             BOOST_TEST(!hec);
-            pr.set_decoder(&dec);
+            pr.set_decoder(dec);
 
             auto [ec, n] = pr.read_some(dest());
             BOOST_TEST(!ec);
@@ -3193,7 +3223,7 @@ public:
         pr.start();
         auto hec = pr.read_header();
         BOOST_TEST(!hec);
-        pr.set_decoder(&dec);
+        pr.set_decoder(dec);
 
         char buf[3];
         {
@@ -3225,7 +3255,7 @@ public:
         pr.start();
         auto hec = pr.read_header();
         BOOST_TEST(!hec);
-        pr.set_decoder(&dec);
+        pr.set_decoder(dec);
 
         // the in-place body cannot be completed; the output
         // produced before the failure is still viewable
@@ -3249,7 +3279,7 @@ public:
         pr.start();
         auto hec = pr.read_header();
         BOOST_TEST(!hec);
-        pr.set_decoder(&dec);
+        pr.set_decoder(dec);
 
         capy::const_buffer arr[2];
         {
@@ -3290,7 +3320,7 @@ public:
         pr.start();
         auto hec = pr.read_header();
         BOOST_TEST(!hec);
-        pr.set_decoder(&dec);
+        pr.set_decoder(dec);
 
         std::string got;
         for(;;)
@@ -3329,7 +3359,7 @@ public:
         pr.start();
         auto hec = pr.read_header();
         BOOST_TEST(!hec);
-        pr.set_decoder(&dec);
+        pr.set_decoder(dec);
 
         std::string got;
         for(;;)
@@ -3371,7 +3401,7 @@ public:
         pr.start();
         auto hec = pr.read_header();
         BOOST_TEST(!hec);
-        pr.set_decoder(&dec);
+        pr.set_decoder(dec);
 
         char buf[16];
         // the cleanly decoded bytes are delivered first
@@ -3400,7 +3430,7 @@ public:
         pr.start();
         auto hec = pr.read_header();
         BOOST_TEST(!hec);
-        pr.set_decoder(&dec);
+        pr.set_decoder(dec);
 
         char buf[16];
         // the cleanly decoded bytes are delivered first
@@ -3412,6 +3442,71 @@ public:
         auto [ec2, n2] = pr.read_some(capy::make_buffer(buf));
         BOOST_TEST(ec2 == http::error::incomplete);
         BOOST_TEST_EQ(n2, 0);
+    }
+
+    void
+    testDecodeGzip()
+    {
+#ifdef BOOST_HTTP_HAS_ZLIB
+        auto& ctx = capy::get_system_context();
+        if(!ctx.has_service<http::zlib::inflate_service>())
+            http::zlib::install_inflate_service(ctx);
+
+        // gzip("hello world")
+        static char const gz[] =
+                "\x1f\x8b\x08\x00\x00\x00\x00\x00\x02\xff\xcb\x48"
+                "\xcd\xc9\xc9\x57\x28\xcf\x2f\xca\x49\x01\x00\x85"
+                "\x11\x4a\x0d\x0b\x00\x00\x00";
+        std::string const body(gz, sizeof(gz) - 1);
+        auto const msg = std::string(
+            "HTTP/1.1 200 OK\r\n"
+            "Content-Encoding: gzip\r\n"
+            "Content-Length: ") +
+            std::to_string(body.size()) + "\r\n\r\n" + body;
+
+        auto read_all = [](test_parser& pr)
+        {
+            std::string got;
+            char buf[16];
+            for(;;)
+            {
+                auto [ec, n] = pr.read_some(capy::make_buffer(buf));
+                got.append(buf, n);
+                if(ec)
+                {
+                    BOOST_TEST(ec == capy::cond::eof);
+                    break;
+                }
+            }
+            return got;
+        };
+
+        // the parser selects the decoder from the header
+        {
+            test_parser pr;
+            pr.provide(msg);
+            pr.start();
+            BOOST_TEST(read_all(pr) == "hello world");
+        }
+
+        // decoding disabled: the body is delivered as sent
+        {
+            parser::config cfg;
+            cfg.decode = false;
+            test_parser pr(cfg);
+            pr.provide(msg);
+            pr.start();
+            BOOST_TEST(read_all(pr) == body);
+        }
+
+        // HEAD: no body, nothing to decode
+        {
+            test_parser pr;
+            pr.provide(msg);
+            pr.start(true);
+            BOOST_TEST(read_all(pr).empty());
+        }
+#endif
     }
 
     void
@@ -3433,7 +3528,7 @@ public:
         pr.start();
         auto hec = pr.read_header();
         BOOST_TEST(!hec);
-        pr.set_decoder(&dec);
+        pr.set_decoder(dec);
 
         char buf[16];
         {
@@ -3457,7 +3552,7 @@ public:
     // decoder that echoes 5 body bytes (+1), then treats any further
     // input as a trailer it consumes WITHOUT producing output, and
     // finishes (like a gzip CRC/ISIZE trailer)
-    struct trailer_consuming_decoder : parser::decoder
+    struct trailer_consuming_decoder : detail::decoder
     {
         std::uint64_t consumed_total = 0;
         bool finished = false;
@@ -3496,7 +3591,7 @@ public:
         pr.start();
         auto hec = pr.read_header();
         BOOST_TEST(!hec);
-        pr.set_decoder(&dec);
+        pr.set_decoder(dec);
 
         char buf[16];
         {
@@ -3533,7 +3628,7 @@ public:
         pr.start();
         auto hec = pr.read_header();
         BOOST_TEST(!hec);
-        pr.set_decoder(&dec);
+        pr.set_decoder(dec);
 
         auto [ec, body] = pr.read_body();
         BOOST_TEST(!ec);
@@ -3562,7 +3657,7 @@ public:
         pr.start();
         auto hec = pr.read_header();
         BOOST_TEST(!hec);
-        pr.set_decoder(&dec);
+        pr.set_decoder(dec);
 
         std::string got;
         {
@@ -4031,7 +4126,7 @@ public:
             pr.start();
             auto ec = pr.read_header();
             BOOST_TEST(!ec);
-            pr.set_decoder(&dec);
+            pr.set_decoder(dec);
             BOOST_TEST_EQ(pr.direct_capacity(), 0u);
         }
         {
@@ -4191,7 +4286,7 @@ public:
             pr.start();
             auto ec = pr.read_header();
             BOOST_TEST(!ec);
-            pr.set_decoder(&dec);
+            pr.set_decoder(dec);
 
             auto [bec, body] = pr.read_body();
             BOOST_TEST(!bec);
@@ -4305,6 +4400,7 @@ public:
         testDecoderChunkedEarlyEof();
         testDecoderChunkedIncomplete();
         testDecoderToEof();
+        testDecodeGzip();
         testDecoderToEofTrailerSeparateRead();
         testDecoderReadBody();
         testDecoderReadBodyOverflowThenStream();

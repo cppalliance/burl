@@ -26,12 +26,10 @@ response::response(
     urls::url url,
     detail::pooled_connection conn,
     response_parser parser,
-    std::unique_ptr<parser::decoder> dec,
     std::optional<clock::time_point> deadline)
     : url_(std::move(url))
     , conn_(std::move(conn))
     , parser_(std::move(parser))
-    , decoder_(std::move(dec))
     , deadline_(deadline)
 {
 }
@@ -40,7 +38,6 @@ response::response(response&& other) noexcept
     : url_(std::move(other.url_))
     , conn_(std::move(other.conn_))
     , parser_(std::move(other.parser_))
-    , decoder_(std::move(other.decoder_))
     , deadline_(other.deadline_)
 {
 }
@@ -55,7 +52,6 @@ response::operator=(response&& other) noexcept
         url_      = std::move(other.url_);
         conn_     = std::move(other.conn_);
         parser_   = std::move(other.parser_);
-        decoder_  = std::move(other.decoder_);
         deadline_ = other.deadline_;
     }
     return *this;

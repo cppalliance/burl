@@ -10,7 +10,7 @@
 #ifndef BOOST_BURL_SRC_DETAIL_DECODERS_HPP
 #define BOOST_BURL_SRC_DETAIL_DECODERS_HPP
 
-#include <boost/burl/parser.hpp>
+#include <boost/burl/detail/decoder.hpp>
 
 #include <boost/http/metadata.hpp>
 
@@ -23,7 +23,7 @@ namespace burl
 namespace detail
 {
 
-std::unique_ptr<parser::decoder>
+std::unique_ptr<decoder>
 make_decoder(http::content_coding coding);
 
 } // namespace detail
