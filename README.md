@@ -25,8 +25,8 @@ One line to make a request.
 - **Automatic redirects** — 301/302/303/307/308 with standards-compliant
   method changes, `Referer` handling, and credential stripping on
   cross-origin hops.
-- **Content encodings** — transparent `gzip`, `deflate`, and `br` decoding
-  when the corresponding decode service is installed.
+- **Content encodings** — transparent `gzip`, `deflate`, `br`, and `zstd`
+  decoding when the corresponding decode service is installed.
 - **Cookies** — RFC 6265bis jar with optional public-suffix validation (libpsl).
 - **Authentication** — Basic and Bearer, per client or per request.
 - **Proxies** — `http`, `socks5`, with credentials.

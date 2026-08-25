@@ -11,6 +11,9 @@
 #include <boost/burl.hpp>
 #include <boost/capy.hpp>
 #include <boost/corosio.hpp>
+#include <boost/http/brotli.hpp>
+#include <boost/http/zlib.hpp>
+#include <boost/http/zstd.hpp>
 #include <boost/json.hpp>
 #include <boost/hash2/sha2.hpp>
 
@@ -566,6 +569,18 @@ main(int argc, char* argv[])
 
     corosio::io_context ioc;
     corosio::tls_context tls_ctx;
+
+    // Install avialable decoder services.
+    [[maybe_unused]] auto& ctx = capy::get_system_context();
+#ifdef BOOST_HTTP_HAS_BROTLI
+    http::brotli::install_decode_service(ctx);
+#endif
+#ifdef BOOST_HTTP_HAS_ZLIB
+    http::zlib::install_inflate_service(ctx);
+#endif
+#ifdef BOOST_HTTP_HAS_ZSTD
+    http::zstd::install_decompress_service(ctx);
+#endif
 
     capy::run_async(
         ioc.get_executor(),

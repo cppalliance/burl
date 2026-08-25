@@ -72,14 +72,6 @@ enum class error
         or a body was supplied for a message that has none.
     */
     body_size_mismatch,
-
-    /** The response body could not be decoded.
-
-        Decoding the response body according to its
-        `Content-Encoding` failed because the compressed
-        data was corrupt or invalid.
-    */
-    decode_error,
 };
 
 /** Error conditions corresponding to sets of error codes.

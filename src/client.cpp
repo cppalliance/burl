@@ -21,11 +21,15 @@
 
 #include <boost/capy/buffers/make_buffer.hpp>
 #include <boost/capy/ex/execution_context.hpp>
+#include <boost/capy/ex/system_context.hpp>
 #include <boost/corosio/timeout.hpp>
 #include <boost/burl/message_reader.hpp>
 #include <boost/burl/message_writer.hpp>
 #include <boost/burl/response_parser.hpp>
 #include <boost/burl/serializer.hpp>
+#include <boost/http/brotli/decode.hpp>
+#include <boost/http/zlib/inflate.hpp>
+#include <boost/http/zstd/decompress.hpp>
 
 #include <chrono>
 #include <optional>
@@ -95,16 +99,14 @@ client::client(
           std::make_shared<detail::connection_pool>(
               exec, std::move(tls_ctx), cfg))
 {
-    // Disable codings whose decoder was not compiled in.
-#ifndef BOOST_BURL_HAS_BROTLI
-    config_.brotli = false;
-#endif
-#ifndef BOOST_BURL_HAS_ZLIB
-    config_.deflate = config_.gzip = false;
-#endif
-#ifndef BOOST_BURL_HAS_ZSTD
-    config_.zstd = false;
-#endif
+    // Disable codings whose decoder service is unavailable.
+    auto const& ctx = capy::get_system_context();
+    if(!ctx.has_service<http::brotli::decode_service>())
+        config_.brotli = false;
+    if(!ctx.has_service<http::zlib::inflate_service>())
+        config_.deflate = config_.gzip = false;
+    if(!ctx.has_service<http::zstd::decompress_service>())
+        config_.zstd = false;
 }
 
 void

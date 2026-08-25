@@ -22,6 +22,9 @@
 #include <boost/capy/test/stream.hpp>
 #include <boost/corosio/delay.hpp>
 #include <boost/corosio/tls_context.hpp>
+#include <boost/http/brotli/decode.hpp>
+#include <boost/http/zlib/inflate.hpp>
+#include <boost/http/zstd/decompress.hpp>
 #include <boost/url/url.hpp>
 
 #include "scripted_net.hpp"
@@ -697,7 +700,12 @@ public:
     void
     testGzipDecode()
     {
-#ifdef BOOST_BURL_HAS_ZLIB
+#ifdef BOOST_HTTP_HAS_ZLIB
+        if(!capy::get_system_context()
+            .has_service<http::zlib::inflate_service>())
+            http::zlib::install_inflate_service(
+                capy::get_system_context());
+
         scripted_net net;
         net.run([&]() -> capy::task<>
         {
@@ -742,7 +750,12 @@ public:
     void
     testBrotliDecode()
     {
-#ifdef BOOST_BURL_HAS_BROTLI
+#ifdef BOOST_HTTP_HAS_BROTLI
+        if(!capy::get_system_context()
+            .has_service<http::brotli::decode_service>())
+            http::brotli::install_decode_service(
+                capy::get_system_context());
+
         scripted_net net;
         net.run([&]() -> capy::task<>
         {
@@ -785,7 +798,12 @@ public:
     void
     testZstdDecode()
     {
-#ifdef BOOST_BURL_HAS_ZSTD
+#ifdef BOOST_HTTP_HAS_ZSTD
+        if(!capy::get_system_context()
+            .has_service<http::zstd::decompress_service>())
+            http::zstd::install_decompress_service(
+                capy::get_system_context());
+
         scripted_net net;
         net.run([&]() -> capy::task<>
         {
@@ -821,6 +839,51 @@ public:
             BOOST_TEST(
                 net.written(0).find("Accept-Encoding: zstd\r\n") !=
                 std::string::npos);
+        });
+#endif
+    }
+
+    void
+    testZstdDecodeTruncated()
+    {
+#ifdef BOOST_HTTP_HAS_ZSTD
+        if(!capy::get_system_context()
+            .has_service<http::zstd::decompress_service>())
+            http::zstd::install_decompress_service(
+                capy::get_system_context());
+
+        scripted_net net;
+        net.run([&]() -> capy::task<>
+        {
+            // zstd("hello world") minus its last three
+            // octets; the framing is intact, the frame
+            // is not.
+            static char const zs[] =
+                "\x28\xb5\x2f\xfd\x20\x0b\x59\x00\x00\x68\x65\x6c"
+                "\x6c\x6f\x20\x77\x6f";
+            auto const body = std::string(zs, sizeof(zs) - 1);
+
+            net.scripts = { std::string(
+                "HTTP/1.1 200 OK\r\n"
+                "Content-Encoding: zstd\r\n"
+                "Content-Length: " +
+                std::to_string(body.size()) +
+                "\r\n\r\n" + body) };
+
+            auto cfg = net.config();
+            cfg.zstd = true;
+            client c(
+                co_await capy::this_coro::executor,
+                corosio::tls_context(),
+                cfg);
+
+            auto [ec, r] = co_await c
+                .get("http://example.com/z")
+                .send();
+            BOOST_TEST(!ec);
+
+            auto [ec2, text] = co_await r.try_as_view();
+            BOOST_TEST(ec2 == http::error::bad_payload);
         });
 #endif
     }
@@ -1067,6 +1130,7 @@ public:
         testGzipDecode();
         testBrotliDecode();
         testZstdDecode();
+        testZstdDecodeTruncated();
         testTimeoutHeader();
         testTimeoutBody();
         testTimeoutOverride();

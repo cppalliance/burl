@@ -139,11 +139,11 @@ public:
             When enabled, `br` is included in the
             `Accept-Encoding` header and response
             bodies are decoded transparently.
-            Effective only when the library was built
-            with Brotli support
-            (`BOOST_BURL_HAS_BROTLI`). Not applied
-            when the request carries an explicit
-            `Accept-Encoding` header.
+            Effective only when the Brotli decode
+            service is installed in the system
+            context. Not applied when the request
+            carries an explicit `Accept-Encoding`
+            header.
         */
         bool brotli = true;
 
@@ -153,9 +153,9 @@ public:
             the `Accept-Encoding` header and
             response bodies are decoded
             transparently. Effective only when the
-            library was built with zlib support
-            (`BOOST_BURL_HAS_ZLIB`). Not applied when
-            the request carries an explicit
+            zlib inflate service is installed in the
+            system context. Not applied when the
+            request carries an explicit
             `Accept-Encoding` header.
         */
         bool deflate = true;
@@ -165,11 +165,11 @@ public:
             When enabled, `gzip` is included in the
             `Accept-Encoding` header and response
             bodies are decoded transparently.
-            Effective only when the library was built
-            with zlib support
-            (`BOOST_BURL_HAS_ZLIB`). Not applied when
-            the request carries an explicit
-            `Accept-Encoding` header.
+            Effective only when the zlib inflate
+            service is installed in the system
+            context. Not applied when the request
+            carries an explicit `Accept-Encoding`
+            header.
         */
         bool gzip = true;
 
@@ -178,11 +178,11 @@ public:
             When enabled, `zstd` is included in the
             `Accept-Encoding` header and response
             bodies are decoded transparently.
-            Effective only when the library was built
-            with zstd support
-            (`BOOST_BURL_HAS_ZSTD`). Not applied when
-            the request carries an explicit
-            `Accept-Encoding` header.
+            Effective only when the zstd decompress
+            service is installed in the system
+            context. Not applied when the request
+            carries an explicit `Accept-Encoding`
+            header.
         */
         bool zstd = true;
 
@@ -335,9 +335,9 @@ public:
     /** Constructor.
 
         Constructs a client with the provided
-        configuration. Content codings whose
-        decoder was not compiled into the library
-        are disabled, regardless of the
+        configuration. Content codings whose decode
+        service is not installed in the system
+        context are disabled, regardless of the
         configuration.
 
         @param exec The executor used to perform

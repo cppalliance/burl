@@ -9,26 +9,20 @@
 
 #include "decoders.hpp"
 
-#include <boost/burl/error.hpp>
-
 #include <boost/capy/error.hpp>
+#include <boost/capy/ex/system_context.hpp>
+#include <boost/http/brotli/decode.hpp>
+#include <boost/http/zlib/error.hpp>
+#include <boost/http/zlib/flush.hpp>
+#include <boost/http/zlib/inflate.hpp>
+#include <boost/http/zlib/stream.hpp>
+#include <boost/http/zstd/decompress.hpp>
+#include <boost/http/zstd/types.hpp>
 
 #include <cstdint>
 #include <limits>
 #include <new>
 #include <system_error>
-
-#ifdef BOOST_BURL_HAS_ZLIB
-#include <zlib.h>
-#endif
-
-#ifdef BOOST_BURL_HAS_BROTLI
-#include <brotli/decode.h>
-#endif
-
-#ifdef BOOST_BURL_HAS_ZSTD
-#include <zstd.h>
-#endif
 
 namespace boost
 {
@@ -40,24 +34,27 @@ namespace detail
 namespace
 {
 
-#ifdef BOOST_BURL_HAS_ZLIB
 class zlib_decoder final
     : public parser::decoder
 {
-    z_stream strm_ = {};
+    http::zlib::inflate_service& svc_;
+    http::zlib::stream strm_ = {};
 
 public:
     // window_bits: 15 for zlib/deflate, 15 + 16 for gzip.
-    explicit
-    zlib_decoder(int window_bits)
+    zlib_decoder(
+        http::zlib::inflate_service& svc,
+        int window_bits)
+        : svc_(svc)
     {
-        if(inflateInit2(&strm_, window_bits) != Z_OK)
+        if(svc_.init2(strm_, window_bits) !=
+            static_cast<int>(http::zlib::error::ok))
             throw std::bad_alloc();
     }
 
     ~zlib_decoder() override
     {
-        inflateEnd(&strm_);
+        svc_.inflate_end(strm_);
     }
 
     result
@@ -73,15 +70,19 @@ public:
             static_cast<unsigned char*>(out.data());
         strm_.avail_out = saturate(out.size());
 
-        auto const rs = ::inflate(
-            &strm_, more ? Z_NO_FLUSH : Z_FINISH);
+        auto const rs = static_cast<http::zlib::error>(
+            svc_.inflate(
+                strm_,
+                more ? http::zlib::no_flush
+                     : http::zlib::finish));
 
         auto const ec = [&]() -> std::error_code
         {
-            if(rs == Z_STREAM_END)
+            if(rs == http::zlib::error::stream_end)
                 return capy::error::eof;
-            if(rs != Z_OK && rs != Z_BUF_ERROR)
-                return error::decode_error;
+            if(rs != http::zlib::error::ok &&
+                rs != http::zlib::error::buf_err)
+                return rs;
             return {};
         }();
 
@@ -102,17 +103,18 @@ public:
         return static_cast<unsigned>(n);
     }
 };
-#endif // BOOST_BURL_HAS_ZLIB
 
-#ifdef BOOST_BURL_HAS_BROTLI
 class brotli_decoder final
     : public parser::decoder
 {
-    BrotliDecoderState* state_;
+    http::brotli::decode_service& svc_;
+    http::brotli::decoder_state* state_;
 
 public:
-    brotli_decoder()
-        : state_(BrotliDecoderCreateInstance(
+    explicit
+    brotli_decoder(http::brotli::decode_service& svc)
+        : svc_(svc)
+        , state_(svc.create_instance(
               nullptr, nullptr, nullptr))
     {
         if(!state_)
@@ -121,7 +123,7 @@ public:
 
     ~brotli_decoder() override
     {
-        BrotliDecoderDestroyInstance(state_);
+        svc_.destroy_instance(state_);
     }
 
     result
@@ -135,7 +137,7 @@ public:
         auto* next_out = static_cast<std::uint8_t*>(out.data());
         auto available_out = out.size();
 
-        auto const rs = BrotliDecoderDecompressStream(
+        auto const rs = svc_.decompress_stream(
             state_,
             &available_in,
             &next_in,
@@ -145,10 +147,10 @@ public:
 
         auto const ec = [&]() -> std::error_code
         {
-            if(BrotliDecoderIsFinished(state_))
+            if(svc_.is_finished(state_))
                 return capy::error::eof;
-            if(rs == BROTLI_DECODER_RESULT_ERROR)
-                return error::decode_error;
+            if(rs == http::brotli::decoder_result::error)
+                return svc_.get_error_code(state_);
             return {};
         }();
 
@@ -158,46 +160,56 @@ public:
             .ec       = ec };
     }
 };
-#endif // BOOST_BURL_HAS_BROTLI
 
-#ifdef BOOST_BURL_HAS_ZSTD
 class zstd_decoder final
     : public parser::decoder
 {
-    ZSTD_DStream* strm_;
+    http::zstd::decompress_service& svc_;
+    http::zstd::dctx* ctx_;
+    // A payload is a sequence of frames (RFC 8878
+    // Section 3.1.1); it ends at a frame boundary.
+    bool at_boundary_ = true;
 
 public:
-    zstd_decoder()
-        : strm_(ZSTD_createDStream())
+    explicit
+    zstd_decoder(http::zstd::decompress_service& svc)
+        : svc_(svc)
+        , ctx_(svc.create_dctx())
     {
-        if(!strm_)
+        if(!ctx_)
             throw std::bad_alloc();
-        ZSTD_initDStream(strm_);
     }
 
     ~zstd_decoder() override
     {
-        ZSTD_freeDStream(strm_);
+        svc_.free_dctx(ctx_);
     }
 
     result
     process(
         capy::mutable_buffer out,
         capy::const_buffer in,
-        bool) override
+        bool more) override
     {
-        ZSTD_inBuffer in_buf{ in.data(), in.size(), 0 };
-        ZSTD_outBuffer out_buf{ out.data(), out.size(), 0 };
+        http::zstd::in_buffer in_buf{ in.data(), in.size(), 0 };
+        http::zstd::out_buffer out_buf{ out.data(), out.size(), 0 };
 
         auto const rs =
-            ZSTD_decompressStream(strm_, &out_buf, &in_buf);
+            svc_.decompress_stream(ctx_, out_buf, in_buf);
 
         auto const ec = [&]() -> std::error_code
         {
+            if(svc_.is_error(rs))
+                return svc_.get_error_code(rs);
+            // zero marks the end of a frame; decoding
+            // resumes on the next one, skippable
+            // frames included
             if(rs == 0)
+                at_boundary_ = true;
+            else if(in_buf.pos != 0)
+                at_boundary_ = false;
+            if(!more && in_buf.pos == in_buf.size && at_boundary_)
                 return capy::error::eof;
-            if(ZSTD_isError(rs))
-                return error::decode_error;
             return {};
         }();
 
@@ -207,29 +219,35 @@ public:
             .ec       = ec };
     }
 };
-#endif // BOOST_BURL_HAS_ZSTD
 
 } // namespace
 
 std::unique_ptr<parser::decoder>
 make_decoder(http::content_coding coding)
 {
+    auto const& ctx = capy::get_system_context();
     switch(coding)
     {
-#ifdef BOOST_BURL_HAS_ZLIB
     case http::content_coding::deflate:
-        return std::make_unique<zlib_decoder>(15);
+        if(auto* svc = ctx.find_service<
+            http::zlib::inflate_service>())
+            return std::make_unique<zlib_decoder>(*svc, 15);
+        break;
     case http::content_coding::gzip:
-        return std::make_unique<zlib_decoder>(15 + 16);
-#endif
-#ifdef BOOST_BURL_HAS_BROTLI
+        if(auto* svc = ctx.find_service<
+            http::zlib::inflate_service>())
+            return std::make_unique<zlib_decoder>(*svc, 15 + 16);
+        break;
     case http::content_coding::br:
-        return std::make_unique<brotli_decoder>();
-#endif
-#ifdef BOOST_BURL_HAS_ZSTD
+        if(auto* svc = ctx.find_service<
+            http::brotli::decode_service>())
+            return std::make_unique<brotli_decoder>(*svc);
+        break;
     case http::content_coding::zstd:
-        return std::make_unique<zstd_decoder>();
-#endif
+        if(auto* svc = ctx.find_service<
+            http::zstd::decompress_service>())
+            return std::make_unique<zstd_decoder>(*svc);
+        break;
     default:
         break;
     }

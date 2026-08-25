@@ -14,6 +14,10 @@
 
 #include <boost/capy/cond.hpp>
 #include <boost/capy/error.hpp>
+#include <boost/capy/ex/system_context.hpp>
+#include <boost/http/brotli.hpp>
+#include <boost/http/zlib.hpp>
+#include <boost/http/zstd.hpp>
 
 #include "test_suite.hpp"
 
@@ -21,18 +25,6 @@
 #include <string>
 #include <string_view>
 #include <system_error>
-
-#ifdef BOOST_BURL_HAS_ZLIB
-#include <zlib.h>
-#endif
-
-#ifdef BOOST_BURL_HAS_BROTLI
-#include <brotli/encode.h>
-#endif
-
-#ifdef BOOST_BURL_HAS_ZSTD
-#include <zstd.h>
-#endif
 
 namespace boost
 {
@@ -102,49 +94,55 @@ class decoders_test
         return body;
     }
 
-#ifdef BOOST_BURL_HAS_ZLIB
+#ifdef BOOST_HTTP_HAS_ZLIB
     static std::string
     zlib_compress(std::string_view body, int window_bits)
     {
-        z_stream st = {};
-        if(deflateInit2(
-            &st,
-            Z_DEFAULT_COMPRESSION,
-            Z_DEFLATED,
+        auto& svc = *capy::get_system_context()
+            .find_service<http::zlib::deflate_service>();
+
+        http::zlib::stream st = {};
+        if(svc.init2(
+            st,
+            http::zlib::default_compression,
+            http::zlib::deflated,
             window_bits,
             8,
-            Z_DEFAULT_STRATEGY) != Z_OK)
+            http::zlib::default_strategy) !=
+                static_cast<int>(http::zlib::error::ok))
             return {};
 
         std::string out(
-            deflateBound(
-                &st, static_cast<unsigned long>(body.size())),
+            svc.bound(st, static_cast<unsigned long>(body.size())),
             '\0');
         st.next_in = reinterpret_cast<unsigned char*>(
             const_cast<char*>(body.data()));
         st.avail_in = static_cast<unsigned>(body.size());
         st.next_out = reinterpret_cast<unsigned char*>(out.data());
         st.avail_out = static_cast<unsigned>(out.size());
-        auto const rs = deflate(&st, Z_FINISH);
+        auto const rs = svc.deflate(st, http::zlib::finish);
         out.resize(out.size() - st.avail_out);
-        deflateEnd(&st);
-        if(rs != Z_STREAM_END)
+        svc.deflate_end(st);
+        if(rs != static_cast<int>(http::zlib::error::stream_end))
             return {};
         return out;
     }
 #endif
 
-#ifdef BOOST_BURL_HAS_BROTLI
+#ifdef BOOST_HTTP_HAS_BROTLI
     static std::string
     brotli_compress(std::string_view body)
     {
+        auto& svc = *capy::get_system_context()
+            .find_service<http::brotli::encode_service>();
+
         std::size_t encoded_size =
-            BrotliEncoderMaxCompressedSize(body.size()) + 64;
+            svc.max_compressed_size(body.size()) + 64;
         std::string out(encoded_size, '\0');
-        if(!BrotliEncoderCompress(
-            BROTLI_DEFAULT_QUALITY,
-            BROTLI_DEFAULT_WINDOW,
-            BROTLI_MODE_GENERIC,
+        if(!svc.compress(
+            http::brotli::default_quality,
+            http::brotli::default_window,
+            http::brotli::encoder_mode::generic,
             body.size(),
             reinterpret_cast<std::uint8_t const*>(body.data()),
             &encoded_size,
@@ -155,18 +153,21 @@ class decoders_test
     }
 #endif
 
-#ifdef BOOST_BURL_HAS_ZSTD
+#ifdef BOOST_HTTP_HAS_ZSTD
     static std::string
     zstd_compress(std::string_view body)
     {
-        std::string out(ZSTD_compressBound(body.size()), '\0');
-        auto const n = ZSTD_compress(
+        auto& svc = *capy::get_system_context()
+            .find_service<http::zstd::compress_service>();
+
+        std::string out(svc.compress_bound(body.size()), '\0');
+        auto const n = svc.compress(
             out.data(),
             out.size(),
             body.data(),
             body.size(),
-            ZSTD_CLEVEL_DEFAULT);
-        if(ZSTD_isError(n))
+            svc.default_level());
+        if(svc.is_error(n))
             return {};
         out.resize(n);
         return out;
@@ -184,8 +185,8 @@ public:
         BOOST_TEST(
             make_decoder(http::content_coding::compress) == nullptr);
 
-        // Availability of each decoder follows the build configuration.
-#ifdef BOOST_BURL_HAS_ZLIB
+        // Availability of each decoder follows the installed services.
+#ifdef BOOST_HTTP_HAS_ZLIB
         BOOST_TEST(
             make_decoder(http::content_coding::deflate) != nullptr);
         BOOST_TEST(
@@ -196,14 +197,14 @@ public:
         BOOST_TEST(
             make_decoder(http::content_coding::gzip) == nullptr);
 #endif
-#ifdef BOOST_BURL_HAS_BROTLI
+#ifdef BOOST_HTTP_HAS_BROTLI
         BOOST_TEST(
             make_decoder(http::content_coding::br) != nullptr);
 #else
         BOOST_TEST(
             make_decoder(http::content_coding::br) == nullptr);
 #endif
-#ifdef BOOST_BURL_HAS_ZSTD
+#ifdef BOOST_HTTP_HAS_ZSTD
         BOOST_TEST(
             make_decoder(http::content_coding::zstd) != nullptr);
 #else
@@ -212,7 +213,7 @@ public:
 #endif
     }
 
-#ifdef BOOST_BURL_HAS_ZLIB
+#ifdef BOOST_HTTP_HAS_ZLIB
     void
     test_zlib_round_trip()
     {
@@ -322,6 +323,24 @@ public:
     }
 
     void
+    test_zlib_second_member()
+    {
+        // A gzip payload is a single member. As with
+        // curl and the browsers, a second member is
+        // not decoded; the parser rejects it as
+        // trailing octets.
+        auto const first = make_body(200);
+        auto const second = zlib_compress(make_body(100), 15 + 16);
+        auto const input = zlib_compress(first, 15 + 16) + second;
+
+        auto dec = make_decoder(http::content_coding::gzip);
+        auto const r = run_decoder(*dec, input, 3, 64);
+        BOOST_TEST(r.finished);
+        BOOST_TEST(r.body == first);
+        BOOST_TEST_EQ(r.leftover, second.size());
+    }
+
+    void
     test_zlib_invalid()
     {
         std::string_view const input =
@@ -331,11 +350,11 @@ public:
         auto const r = run_decoder(
             *dec, input, input.size(), 64);
         BOOST_TEST(!r.finished);
-        BOOST_TEST(r.ec == error::decode_error);
+        BOOST_TEST(r.ec == http::zlib::error::data_err);
     }
-#endif // BOOST_BURL_HAS_ZLIB
+#endif // BOOST_HTTP_HAS_ZLIB
 
-#ifdef BOOST_BURL_HAS_BROTLI
+#ifdef BOOST_HTTP_HAS_BROTLI
     void
     test_brotli_round_trip()
     {
@@ -409,11 +428,11 @@ public:
         auto const r = run_decoder(
             *dec, input, input.size(), 64);
         BOOST_TEST(!r.finished);
-        BOOST_TEST(r.ec == error::decode_error);
+        BOOST_TEST(r.ec == http::brotli::error::format_padding_1);
     }
-#endif // BOOST_BURL_HAS_BROTLI
+#endif // BOOST_HTTP_HAS_BROTLI
 
-#ifdef BOOST_BURL_HAS_ZSTD
+#ifdef BOOST_HTTP_HAS_ZSTD
     void
     test_zstd_round_trip()
     {
@@ -480,32 +499,216 @@ public:
         auto const r = run_decoder(
             *dec, input, input.size(), 64);
         BOOST_TEST(!r.finished);
-        BOOST_TEST(r.ec == error::decode_error);
+        BOOST_TEST(r.ec == http::zstd::error::prefix_unknown);
     }
-#endif // BOOST_BURL_HAS_ZSTD
+
+    static std::string
+    zstd_skippable_frame(std::string_view content)
+    {
+        // magic 0x184D2A50 and the content size,
+        // both little-endian (RFC 8878 Section 3.1.2)
+        std::string frame = "\x50\x2A\x4D\x18";
+        auto const n = content.size();
+        frame += static_cast<char>(n & 0xFF);
+        frame += static_cast<char>((n >> 8) & 0xFF);
+        frame += static_cast<char>((n >> 16) & 0xFF);
+        frame += static_cast<char>((n >> 24) & 0xFF);
+        frame += content;
+        return frame;
+    }
+
+    void
+    test_zstd_multi_frame()
+    {
+        // concatenated frames decode to the
+        // concatenation of their contents
+        auto const first = make_body(200);
+        auto const second = make_body(300);
+        auto const third = make_body(10);
+        auto const compressed = zstd_compress(first) +
+            zstd_compress(second) + zstd_compress(third);
+
+        // single pass
+        {
+            auto dec = make_decoder(http::content_coding::zstd);
+            auto const r = run_decoder(
+                *dec, compressed, compressed.size(), 1024);
+            BOOST_TEST(!r.ec);
+            BOOST_TEST(r.finished);
+            BOOST_TEST(r.body == first + second + third);
+            BOOST_TEST_EQ(r.leftover, 0u);
+        }
+
+        // starved input and output
+        {
+            auto dec = make_decoder(http::content_coding::zstd);
+            auto const r = run_decoder(*dec, compressed, 3, 7);
+            BOOST_TEST(!r.ec);
+            BOOST_TEST(r.finished);
+            BOOST_TEST(r.body == first + second + third);
+            BOOST_TEST_EQ(r.leftover, 0u);
+        }
+    }
+
+    void
+    test_zstd_skippable_frame()
+    {
+        auto const body = make_body(200);
+
+        // leading, trailing, and in between
+        {
+            auto const compressed =
+                zstd_skippable_frame("pzstd") +
+                zstd_compress(body) +
+                zstd_skippable_frame({}) +
+                zstd_compress(body) +
+                zstd_skippable_frame("seek table");
+
+            auto dec = make_decoder(http::content_coding::zstd);
+            auto const r = run_decoder(*dec, compressed, 5, 64);
+            BOOST_TEST(!r.ec);
+            BOOST_TEST(r.finished);
+            BOOST_TEST(r.body == body + body);
+            BOOST_TEST_EQ(r.leftover, 0u);
+        }
+
+        // nothing but a skippable frame is an empty body
+        {
+            auto const compressed = zstd_skippable_frame("meta");
+
+            auto dec = make_decoder(http::content_coding::zstd);
+            auto const r = run_decoder(
+                *dec, compressed, compressed.size(), 64);
+            BOOST_TEST(!r.ec);
+            BOOST_TEST(r.finished);
+            BOOST_TEST(r.body.empty());
+            BOOST_TEST_EQ(r.leftover, 0u);
+        }
+    }
+
+    void
+    test_zstd_frame_end_before_payload_end()
+    {
+        // The frame completes while more payload may
+        // follow; the end of the payload is signalled
+        // afterwards with no further octets.
+        auto const body = make_body(50);
+        auto const compressed = zstd_compress(body);
+
+        auto dec = make_decoder(http::content_coding::zstd);
+        char buf[1024];
+        auto res = dec->process(
+            capy::mutable_buffer(buf, sizeof(buf)),
+            capy::const_buffer(compressed.data(), compressed.size()),
+            true);
+        BOOST_TEST(!res.ec);
+        BOOST_TEST_EQ(res.consumed, compressed.size());
+        BOOST_TEST(std::string_view(buf, res.produced) == body);
+
+        res = dec->process(
+            capy::mutable_buffer(buf, sizeof(buf)),
+            capy::const_buffer(),
+            false);
+        BOOST_TEST(res.ec == capy::cond::eof);
+        BOOST_TEST_EQ(res.consumed, 0u);
+        BOOST_TEST_EQ(res.produced, 0u);
+    }
+
+    void
+    test_zstd_truncated()
+    {
+        auto const body = make_body(200);
+        auto compressed = zstd_compress(body);
+        compressed.resize(compressed.size() - 3);
+
+        // single pass
+        {
+            auto dec = make_decoder(http::content_coding::zstd);
+            auto const r = run_decoder(
+                *dec, compressed, compressed.size(), 1024);
+            BOOST_TEST(!r.finished);
+            BOOST_TEST(!r.ec);
+            BOOST_TEST_EQ(r.leftover, 0u);
+        }
+
+        // starved input and output
+        {
+            auto dec = make_decoder(http::content_coding::zstd);
+            auto const r = run_decoder(*dec, compressed, 3, 7);
+            BOOST_TEST(!r.finished);
+            BOOST_TEST(!r.ec);
+            BOOST_TEST_EQ(r.leftover, 0u);
+        }
+
+        // cut inside the second frame
+        {
+            auto input = zstd_compress(body) + compressed;
+
+            auto dec = make_decoder(http::content_coding::zstd);
+            auto const r = run_decoder(*dec, input, input.size(), 1024);
+            BOOST_TEST(!r.finished);
+            BOOST_TEST(!r.ec);
+            BOOST_TEST_EQ(r.leftover, 0u);
+            BOOST_TEST(r.body == body);
+        }
+    }
+
+    void
+    test_zstd_trailing_garbage()
+    {
+        // octets after the last frame are not a frame
+        auto const body = make_body(200);
+        auto const input = zstd_compress(body) + "PIPELINED";
+
+        auto dec = make_decoder(http::content_coding::zstd);
+        auto const r = run_decoder(*dec, input, input.size(), 1024);
+        BOOST_TEST(!r.finished);
+        BOOST_TEST(r.ec == http::zstd::error::prefix_unknown);
+        BOOST_TEST(r.body == body);
+    }
+#endif // BOOST_HTTP_HAS_ZSTD
 
     void
     run()
     {
-#ifdef BOOST_BURL_HAS_ZLIB
+        [[maybe_unused]] auto& ctx = capy::get_system_context();
+#ifdef BOOST_HTTP_HAS_ZLIB
+        if(!ctx.has_service<http::zlib::inflate_service>())
+            http::zlib::install_inflate_service(ctx);
+        if(!ctx.has_service<http::zlib::deflate_service>())
+            http::zlib::install_deflate_service(ctx);
         test_zlib_round_trip();
         test_zlib_large();
         test_zlib_empty_body();
         test_zlib_finished_latch();
         test_zlib_trailing_garbage();
+        test_zlib_second_member();
         test_zlib_invalid();
 #endif
-#ifdef BOOST_BURL_HAS_BROTLI
+#ifdef BOOST_HTTP_HAS_BROTLI
+        if(!ctx.has_service<http::brotli::decode_service>())
+            http::brotli::install_decode_service(ctx);
+        if(!ctx.has_service<http::brotli::encode_service>())
+            http::brotli::install_encode_service(ctx);
         test_brotli_round_trip();
         test_brotli_large();
         test_brotli_finished_latch();
         test_brotli_invalid();
 #endif
-#ifdef BOOST_BURL_HAS_ZSTD
+#ifdef BOOST_HTTP_HAS_ZSTD
+        if(!ctx.has_service<http::zstd::decompress_service>())
+            http::zstd::install_decompress_service(ctx);
+        if(!ctx.has_service<http::zstd::compress_service>())
+            http::zstd::install_compress_service(ctx);
         test_zstd_round_trip();
         test_zstd_large();
         test_zstd_empty_body();
         test_zstd_invalid();
+        test_zstd_multi_frame();
+        test_zstd_skippable_frame();
+        test_zstd_frame_end_before_payload_end();
+        test_zstd_truncated();
+        test_zstd_trailing_garbage();
 #endif
         test_make_decoder();
     }

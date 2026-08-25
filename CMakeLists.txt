@@ -195,33 +195,6 @@ endif ()
 
 #-------------------------------------------------
 #
-# Compression backends (optional)
-#
-#-------------------------------------------------
-
-# zlib: deflate and gzip content codings
-find_package(ZLIB)
-if (ZLIB_FOUND)
-    target_link_libraries(boost_burl PRIVATE ZLIB::ZLIB)
-    target_compile_definitions(boost_burl PUBLIC BOOST_BURL_HAS_ZLIB)
-endif ()
-
-# Brotli: br content coding (decoding only)
-find_package(Brotli)
-if (Brotli_FOUND)
-    target_link_libraries(boost_burl PRIVATE Brotli::common Brotli::decoder)
-    target_compile_definitions(boost_burl PUBLIC BOOST_BURL_HAS_BROTLI)
-endif ()
-
-# Zstandard: zstd content coding
-find_package(Zstd)
-if (Zstd_FOUND)
-    target_link_libraries(boost_burl PRIVATE Zstd::Zstd)
-    target_compile_definitions(boost_burl PUBLIC BOOST_BURL_HAS_ZSTD)
-endif ()
-
-#-------------------------------------------------
-#
 # Tests
 #
 #-------------------------------------------------

@@ -8,7 +8,12 @@
 #
 
 add_executable(burl_example_usage usage.cpp)
-target_link_libraries(burl_example_usage PRIVATE Boost::burl Boost::hash2)
+target_link_libraries(burl_example_usage PRIVATE
+    Boost::burl
+    Boost::hash2
+    $<TARGET_NAME_IF_EXISTS:Boost::http_zlib>
+    $<TARGET_NAME_IF_EXISTS:Boost::http_brotli>
+    $<TARGET_NAME_IF_EXISTS:Boost::http_zstd>)
 
 find_package(nlohmann_json QUIET)
 if (nlohmann_json_FOUND)

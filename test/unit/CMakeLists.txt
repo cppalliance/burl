@@ -22,10 +22,9 @@ add_executable(boost_burl_tests ${PFILES})
 target_link_libraries(boost_burl_tests PRIVATE
     boost_capy_test_suite_main
     Boost::burl
-    $<TARGET_NAME_IF_EXISTS:ZLIB::ZLIB>
-    $<TARGET_NAME_IF_EXISTS:Brotli::common>
-    $<TARGET_NAME_IF_EXISTS:Brotli::encoder>
-    $<TARGET_NAME_IF_EXISTS:Zstd::Zstd>)
+    $<TARGET_NAME_IF_EXISTS:Boost::http_zlib>
+    $<TARGET_NAME_IF_EXISTS:Boost::http_brotli>
+    $<TARGET_NAME_IF_EXISTS:Boost::http_zstd>)
 
 target_include_directories(boost_burl_tests PRIVATE . ../../)
 

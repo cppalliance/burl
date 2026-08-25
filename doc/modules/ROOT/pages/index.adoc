@@ -36,8 +36,8 @@ non-throwing alternatives.
   timeouts and per-host caps
 * *Automatic redirects* — 301/302/303/307/308 with standards-compliant method
   changes, `Referer` handling, and credential stripping on cross-origin hops
-* *Content decoding* — transparent `gzip`, `deflate`, and `br` when the
-  corresponding decode service is installed
+* *Content decoding* — transparent `gzip`, `deflate`, `br`, and `zstd` when
+  the corresponding decode service is installed
 * *Cookies* — an RFC 6265bis jar with optional public-suffix validation, and
   persistence in the Netscape cookie file format
 * *Authentication* — Basic and Bearer, set per client or per request
@@ -90,8 +90,9 @@ Burl is a focused HTTP/1.1 client. It does not provide:
 
 Boost.Burl is built on Boost.Capy, Boost.Corosio, and Boost.Http, and uses
 Boost.URL, Boost.JSON, and Boost.System. Content decoding requires Boost.Http
-built with zlib (`gzip`, `deflate`) and brotli (`br`). Public-suffix
-validation of cookies requires libpsl.
+built with zlib (`gzip`, `deflate`), brotli (`br`), and zstd (`zstd`), with
+the corresponding decode services installed in the system context.
+Public-suffix validation of cookies requires libpsl.
 
 == Code Conventions
 

@@ -810,7 +810,7 @@ decode_some(
             {
                 if(lim == 0)
                     return { body_too_large, cons };
-                dec_err_ = error::decode_error;
+                dec_err_ = bad_payload;
                 return { std::error_code(), cons };
             }
             if(in.size() == 0)

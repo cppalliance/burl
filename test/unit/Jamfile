@@ -10,13 +10,13 @@
 import testing ;
 import ac ;
 
-using brotli ;
-
 project
     : requirements
       $(c20-requires)
       <library>/boost/burl//boost_burl
-      [ ac.check-library /brotli//brotlienc : <library>/brotli//brotlienc : ]
+      [ ac.check-library /boost/http//boost_http_zlib : <library>/boost/http//boost_http_zlib : ]
+      [ ac.check-library /boost/http//boost_http_brotli : <library>/boost/http//boost_http_brotli : ]
+      [ ac.check-library /boost/http//boost_http_zstd : <library>/boost/http//boost_http_zstd : ]
       <source>../../../capy/extra/test_suite/test_main.cpp
       <source>../../../capy/extra/test_suite/test_suite.cpp
       <include>.
