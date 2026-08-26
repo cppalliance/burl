@@ -51,7 +51,7 @@ public:
             "\r\n"
             "hello");
 
-        system::error_code ec;
+        std::error_code ec;
         pr.parse_header(ec);
         BOOST_TEST(!ec);
         BOOST_TEST(pr.got_header());
@@ -88,7 +88,7 @@ public:
             "Content-Length: 5\r\n"
             "\r\n");
 
-        system::error_code ec;
+        std::error_code ec;
         pr.parse_header(ec);
         BOOST_TEST(!ec);
         BOOST_TEST(pr.got_header());

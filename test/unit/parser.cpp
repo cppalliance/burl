@@ -170,7 +170,7 @@ struct test_parser : parser
     {
         for(;;)
         {
-            system::error_code ec;
+            std::error_code ec;
             parse_header(ec);
             if(ec != http::error::need_data)
                 return ec;
@@ -187,7 +187,7 @@ struct test_parser : parser
 
         for(;;)
         {
-            system::error_code ec;
+            std::error_code ec;
             auto const sv = flatten_body(ec);
             if(ec != http::error::need_data)
                 return { ec, sv };
@@ -205,7 +205,7 @@ struct test_parser : parser
 
         for(;;)
         {
-            system::error_code ec;
+            std::error_code ec;
             auto const n = parser::read_some(buffers, ec);
             if(ec != http::error::need_data)
                 return { ec, n };
@@ -252,7 +252,7 @@ struct test_parser : parser
 
         for(;;)
         {
-            system::error_code ec;
+            std::error_code ec;
             auto const bufs = parser::pull(dest, ec);
             if(ec != http::error::need_data)
                 return { ec, bufs };
@@ -552,7 +552,7 @@ public:
         pr.start();
         for(int i = 0; i != 5; ++i)
         {
-            system::error_code ec;
+            std::error_code ec;
             pr.parse_header(ec);
             BOOST_TEST(ec == http::error::need_data);
             BOOST_TEST(!pr.got_header());
@@ -1217,7 +1217,7 @@ public:
         BOOST_TEST(pr.has_buffered_data());
 
         fields f;
-        system::error_code tec;
+        std::error_code tec;
         pr.parse_trailer(f, tec);
         BOOST_TEST(!tec);
         BOOST_TEST_EQ(f.size(), 3u);
@@ -1261,7 +1261,7 @@ public:
         BOOST_TEST(body == "hello world");
 
         fields f;
-        system::error_code tec;
+        std::error_code tec;
         pr.parse_trailer(f, tec);
         BOOST_TEST(!tec);
         BOOST_TEST_EQ(f.size(), 1u);
@@ -1305,7 +1305,7 @@ public:
             BOOST_TEST(!ec);
             BOOST_TEST(pr.got_body());
             fields f;
-            system::error_code tec;
+            std::error_code tec;
             pr.parse_trailer(f, tec);
             BOOST_TEST(tec == http::error::incomplete);
             BOOST_TEST_EQ(f.size(), 0u);
@@ -1329,7 +1329,7 @@ public:
         BOOST_TEST(got == "abc");
 
         fields f;
-        system::error_code tec;
+        std::error_code tec;
         pr.parse_trailer(f, tec);
         BOOST_TEST(!tec);
         BOOST_TEST_EQ(f.size(), 1u);
@@ -1355,7 +1355,7 @@ public:
             BOOST_TEST(!pr.has_buffered_data());
 
             fields f;
-            system::error_code tec;
+            std::error_code tec;
             pr.parse_trailer(f, tec);
             BOOST_TEST(!tec);
             BOOST_TEST(f.empty());
@@ -1375,7 +1375,7 @@ public:
             BOOST_TEST(body == "hello");
 
             fields f;
-            system::error_code tec;
+            std::error_code tec;
             pr.parse_trailer(f, tec);
             BOOST_TEST(!tec);
             BOOST_TEST(f.empty());
@@ -1401,7 +1401,7 @@ public:
         BOOST_TEST(!ec);
 
         fields f;
-        system::error_code tec;
+        std::error_code tec;
         pr.parse_trailer(f, tec);
         BOOST_TEST(!tec);
         BOOST_TEST_EQ(f.size(), 2u);
@@ -1438,7 +1438,7 @@ public:
         BOOST_TEST(body == "hello");
 
         fields f;
-        system::error_code tec;
+        std::error_code tec;
         pr.parse_trailer(f, tec);
         BOOST_TEST(!tec);
         BOOST_TEST_EQ(f.size(), 2u);
@@ -1472,7 +1472,7 @@ public:
             BOOST_TEST(!ec);
 
             fields f;
-            system::error_code tec;
+            std::error_code tec;
             pr.parse_trailer(f, tec);
             if(over)
             {
@@ -1512,7 +1512,7 @@ public:
             BOOST_TEST(pr.got_body());
 
             fields f;
-            system::error_code tec;
+            std::error_code tec;
             pr.parse_trailer(f, tec);
             BOOST_TEST(tec == http::error::bad_field_name);
             BOOST_TEST_EQ(f.size(), 1u);
@@ -1541,7 +1541,7 @@ public:
             BOOST_TEST(!ec);
 
             fields f;
-            system::error_code tec;
+            std::error_code tec;
             pr.parse_trailer(f, tec);
             BOOST_TEST(tec == http::error::bad_line_ending);
             BOOST_TEST(f.empty());
@@ -1568,7 +1568,7 @@ public:
         // the trailer remains available for a retry
         char small[8];
         static_fields sf(small, sizeof(small));
-        system::error_code tec;
+        std::error_code tec;
         BOOST_TEST_THROWS(
             pr.parse_trailer(sf, tec), std::length_error);
 
@@ -1650,7 +1650,7 @@ public:
             }
 
             fields f;
-            system::error_code tec;
+            std::error_code tec;
             pr.parse_trailer(f, tec);
             BOOST_TEST(!tec);
             BOOST_TEST_EQ(f.size(), 1u);
@@ -3377,7 +3377,7 @@ public:
         BOOST_TEST(pr.got_body());
 
         fields f;
-        system::error_code tec;
+        std::error_code tec;
         pr.parse_trailer(f, tec);
         BOOST_TEST(!tec);
         BOOST_TEST_EQ(f.size(), 1u);

@@ -1060,7 +1060,7 @@ public:
             [&](head_parser& pr)
             {
                 std::memcpy(buf, msg.data(), msg.size());
-                system::error_code ec;
+                std::error_code ec;
                 pr.parse(msg.size(), ec);
                 BOOST_TEST(!ec);
             };

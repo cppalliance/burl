@@ -577,7 +577,7 @@ flatten_chunks_()
 
 void
 parser::
-parse_header(system::error_code& ec)
+parse_header(std::error_code& ec)
 {
     BOOST_ASSERT(started_);
 
@@ -672,7 +672,7 @@ set_body_limit(std::uint64_t n) noexcept
 
 std::string_view
 parser::
-flatten_body(system::error_code& ec)
+flatten_body(std::error_code& ec)
 {
     parse_header(ec);
     if(ec)
@@ -765,7 +765,7 @@ std::size_t
 parser::
 decode_some_(
     capy::mutable_buffer dest,
-    system::error_code& ec)
+    std::error_code& ec)
 {
     if(dest.size() == 0)
         return 0;
@@ -861,7 +861,7 @@ std::size_t
 parser::
 read_some_(
     capy::mutable_buffer dest,
-    system::error_code& ec)
+    std::error_code& ec)
 {
     parse_header(ec);
     if(ec)
@@ -975,7 +975,7 @@ std::span<capy::const_buffer>
 parser::
 pull(
     std::span<capy::const_buffer> dest,
-    system::error_code& ec)
+    std::error_code& ec)
 {
     parse_header(ec);
     if(ec)
@@ -1109,7 +1109,7 @@ void
 parser::
 parse_trailer(
     fields_base& f,
-    system::error_code& ec)
+    std::error_code& ec)
 {
     ec = {};
 

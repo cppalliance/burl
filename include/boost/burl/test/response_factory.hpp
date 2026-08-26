@@ -276,7 +276,7 @@ public:
         {
             if(auto [ec] = co_await message_reader{
                 &conn, &parser }.read_header(); ec)
-                throw system::system_error(ec);
+                throw std::system_error(ec);
         }());
 
         return response{

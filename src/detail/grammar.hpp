@@ -13,7 +13,7 @@
 
 #include <boost/config.hpp>
 #include <boost/http/error.hpp>
-#include <boost/system/error_code.hpp>
+#include <system_error>
 
 #include <cstddef>
 #include <string_view>
@@ -123,7 +123,7 @@ parse_token_to_eol(
     char const* it,
     char const* end,
     char const*& token_end,
-    system::error_code& ec) noexcept
+    std::error_code& ec) noexcept
 {
     for(;; ++it)
     {
@@ -175,7 +175,7 @@ parse_field(
     char const* end,
     std::string_view& name,
     std::string_view& value,
-    system::error_code& ec)
+    std::error_code& ec)
 {
 /*  header-field    = field-name ":" OWS field-value OWS
 
@@ -253,7 +253,7 @@ parse_limited(
     char const* end,
     std::size_t limit,
     http::error limit_err,
-    system::error_code& ec) noexcept
+    std::error_code& ec) noexcept
 {
     bool const limited = [&]()
     {

@@ -474,7 +474,7 @@ public:
             [&](head_parser& pr)
             {
                 std::memcpy(buf, msg.data(), msg.size());
-                system::error_code ec;
+                std::error_code ec;
                 pr.parse(msg.size(), ec);
                 BOOST_TEST(!ec);
             };
@@ -523,7 +523,7 @@ public:
             "\r\n";
         head_parser pr(false, buf, sizeof(buf));
         std::memcpy(buf, msg.data(), msg.size());
-        system::error_code ec;
+        std::error_code ec;
         pr.parse(msg.size(), ec);
         BOOST_TEST(!ec);
         response_head_base const& base = pr.response_head();

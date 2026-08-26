@@ -261,7 +261,7 @@ drive_(
     std::size_t total = 0;
     for(;;)
     {
-        system::error_code ec;
+        std::error_code ec;
         auto const body = bp.data();
         auto const bufs = sr.frame(
             dest, body, more || bp.more(), ec);

@@ -17,7 +17,6 @@
 
 #include <boost/assert.hpp>
 #include <boost/capy/buffers.hpp>
-#include <boost/system/error_code.hpp>
 
 #include <cstddef>
 #include <cstdint>
@@ -467,7 +466,7 @@ public:
         std::span<capy::const_buffer> dest,
         CB const& buffers,
         bool more,
-        system::error_code& ec)
+        std::error_code& ec)
     {
         source_of<CB> src(buffers);
         return frame_(dest, src, more, ec);
@@ -496,7 +495,7 @@ public:
     frame(
         std::span<capy::const_buffer> dest,
         bool more,
-        system::error_code& ec)
+        std::error_code& ec)
     {
         source src;
         return frame_(dest, src, more, ec);
@@ -586,7 +585,7 @@ private:
         std::span<capy::const_buffer> dest,
         source& src,
         bool more,
-        system::error_code& ec);
+        std::error_code& ec);
 
     bool
     chunked_() const noexcept;
@@ -620,13 +619,13 @@ private:
     void
     encode_(
         source& src,
-        system::error_code& ec);
+        std::error_code& ec);
 
     bool
     ingest_(
         source& src,
         bool more,
-        system::error_code& ec);
+        std::error_code& ec);
 
     std::span<capy::const_buffer const>
     gather_(

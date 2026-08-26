@@ -255,7 +255,7 @@ decide_framing_(std::uint64_t total) noexcept
 
 void
 serializer::
-encode_(source& src, system::error_code& ec)
+encode_(source& src, std::error_code& ec)
 {
     auto feed = [&](
         capy::const_buffer in, bool more)
@@ -285,7 +285,7 @@ encode_(source& src, system::error_code& ec)
             return;
         auto const more = !sealed_ || src.remain != 0;
         stage_.consume(feed(stage_.data(), more));
-        if(ec.failed() || !enc_)
+        if(ec || !enc_)
             return;
     }
 
@@ -298,7 +298,7 @@ encode_(source& src, system::error_code& ec)
             cur, !sealed_ || src.remain != 0);
         cur += n;
         input_digested_ += n;
-        if(ec.failed() || !enc_)
+        if(ec || !enc_)
             return;
         if(cur.size() == 0)
             cur = src.next();
@@ -310,7 +310,7 @@ encode_(source& src, system::error_code& ec)
         if(enc_out_.capacity() == 0)
             return;
         feed({}, false);
-        if(ec.failed() || !enc_)
+        if(ec || !enc_)
             return;
     }
 }
@@ -320,7 +320,7 @@ serializer::
 ingest_(
     source& src,
     bool more,
-    system::error_code& ec)
+    std::error_code& ec)
 {
     auto const sealing = !more && !sealed_;
 
@@ -495,7 +495,7 @@ frame_(
     std::span<capy::const_buffer> dest,
     source& src,
     bool more,
-    system::error_code& ec)
+    std::error_code& ec)
 {
     BOOST_ASSERT(msg_ != nullptr);
 

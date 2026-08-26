@@ -59,7 +59,7 @@ parse_method(
     char const*& it,
     char const* end,
     std::string_view& result,
-    system::error_code& ec)
+    std::error_code& ec)
 {
     // parse token SP
     auto const first = it;
@@ -92,7 +92,7 @@ parse_target(
     char const*& it,
     char const* end,
     std::string_view& result,
-    system::error_code& ec)
+    std::error_code& ec)
 {
     // parse target SP
     auto const first = it;
@@ -125,7 +125,7 @@ parse_version(
     char const*& it,
     char const* end,
     version& result,
-    system::error_code& ec)
+    std::error_code& ec)
 {
     if(distance(it, end) < 8)
     {
@@ -152,7 +152,7 @@ parse_status(
     char const*& it,
     char const* end,
     std::uint16_t& result,
-    system::error_code& ec)
+    std::error_code& ec)
 {
     // parse 3(digit) SP
     if(distance(it, end) < 4)
@@ -193,7 +193,7 @@ parse_reason(
     char const*& it,
     char const* end,
     std::string_view& result,
-    system::error_code& ec)
+    std::error_code& ec)
 {
     auto const first = it;
     char const* token_end = nullptr;
@@ -309,7 +309,7 @@ void
 head_parser::
 parse(
     std::size_t n,
-    system::error_code& ec) noexcept
+    std::error_code& ec) noexcept
 {
     ec.clear();
     auto const& h  = h_();
@@ -369,7 +369,7 @@ head_parser::
 parse_start_line_(
     char const*& it,
     char const* end,
-    system::error_code& ec) noexcept
+    std::error_code& ec) noexcept
 {
     auto& h = h_();
     auto const first = it;
@@ -454,7 +454,7 @@ head_parser::
 parse_fields_(
     char const*& it,
     char const* end,
-    system::error_code& ec) noexcept
+    std::error_code& ec) noexcept
 {
     auto& h = h_();
     std::string_view name;

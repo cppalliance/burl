@@ -19,7 +19,6 @@
 
 #include <boost/capy/buffers.hpp>
 #include <boost/http/metadata.hpp>
-#include <boost/system/error_code.hpp>
 
 #include <array>
 #include <cstddef>
@@ -346,7 +345,7 @@ public:
     */
     BOOST_BURL_DECL
     void
-    parse_header(system::error_code& ec);
+    parse_header(std::error_code& ec);
 
     /** Flatten the body in place and return it.
 
@@ -373,7 +372,7 @@ public:
     */
     BOOST_BURL_DECL
     std::string_view
-    flatten_body(system::error_code& ec);
+    flatten_body(std::error_code& ec);
 
     /** Copy body octets into caller-supplied memory.
 
@@ -397,7 +396,7 @@ public:
     std::size_t
     read_some(
         MB const& buffers,
-        system::error_code& ec);
+        std::error_code& ec);
 
     /** Return available body octets in place.
 
@@ -424,7 +423,7 @@ public:
     std::span<capy::const_buffer>
     pull(
         std::span<capy::const_buffer> dest,
-        system::error_code& ec);
+        std::error_code& ec);
 
     /** Release body octets returned by @ref pull.
 
@@ -464,7 +463,7 @@ public:
     void
     parse_trailer(
         fields_base& f,
-        system::error_code& ec);
+        std::error_code& ec);
 
 protected:
     parser() = default;
@@ -522,12 +521,12 @@ private:
     std::size_t
     read_some_(
         capy::mutable_buffer dest,
-        system::error_code& ec);
+        std::error_code& ec);
 
     std::size_t
     decode_some_(
         capy::mutable_buffer dest,
-        system::error_code& ec);
+        std::error_code& ec);
 
     std::unique_ptr<char[]> buf_;
     head_parser hp_;
@@ -556,7 +555,7 @@ std::size_t
 parser::
 read_some(
     MB const& buffers,
-    system::error_code& ec)
+    std::error_code& ec)
 {
     std::size_t n = 0;
     auto const end = capy::end(buffers);

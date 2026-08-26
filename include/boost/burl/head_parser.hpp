@@ -15,7 +15,7 @@
 #include <boost/burl/response_head_base.hpp>
 
 #include <boost/http/error.hpp>
-#include <boost/system/error_code.hpp>
+#include <system_error>
 
 #include <cstdint>
 
@@ -259,7 +259,7 @@ public:
     void
     parse(
         std::size_t n,
-        system::error_code& ec) noexcept;
+        std::error_code& ec) noexcept;
 
     /** Return the limits enforced by the parser.
 
@@ -402,13 +402,13 @@ private:
     parse_start_line_(
         char const*& it,
         char const* end,
-        system::error_code& ec) noexcept;
+        std::error_code& ec) noexcept;
 
     void
     parse_fields_(
         char const*& it,
         char const* end,
-        system::error_code& ec) noexcept;
+        std::error_code& ec) noexcept;
 };
 
 } // namespace burl

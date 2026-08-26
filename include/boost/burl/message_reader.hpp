@@ -268,7 +268,7 @@ read_header_(S& stream, parser& pr)
 {
     for(;;)
     {
-        system::error_code ec;
+        std::error_code ec;
         pr.parse_header(ec);
         if(!ec)
             co_return {};
@@ -286,7 +286,7 @@ read_body_(S& stream, parser& pr)
 {
     for(;;)
     {
-        system::error_code ec;
+        std::error_code ec;
         auto const sv = pr.flatten_body(ec);
         if(ec != http::error::need_data)
             co_return { std::error_code(ec), sv };
@@ -306,7 +306,7 @@ read_some_(
 {
     for(;;)
     {
-        system::error_code ec;
+        std::error_code ec;
         auto const n = pr.read_some(buffers, ec);
         if(ec != http::error::need_data)
             co_return { std::error_code(ec), n };
@@ -365,7 +365,7 @@ pull_(
 {
     for(;;)
     {
-        system::error_code ec;
+        std::error_code ec;
         auto const bufs = pr.pull(dest, ec);
         if(ec != http::error::need_data)
             co_return { std::error_code(ec), bufs };

@@ -75,7 +75,7 @@ class head_parser_test
     // place s at the parse base past the `size`
     // bytes already there, then parse the new total
     static
-    system::error_code
+    std::error_code
     feed(
         head_parser& pr,
         std::size_t& size,
@@ -85,14 +85,14 @@ class head_parser_test
         BOOST_ASSERT(base + size + s.size() <= pr.ceiling());
         std::memcpy(base + size, s.data(), s.size());
         size += s.size();
-        system::error_code ec;
+        std::error_code ec;
         pr.parse(size, ec);
         return ec;
     }
 
     // one shot into a parser with nothing in it yet
     static
-    system::error_code
+    std::error_code
     feed(
         head_parser& pr,
         std::string_view s)
@@ -121,7 +121,7 @@ public:
         std::memcpy(buf_, msg.data(), msg.size());
         std::memcpy(buf_ + msg.size(), body.data(), body.size());
         auto const fed = msg.size() + body.size();
-        system::error_code ec;
+        std::error_code ec;
         pr.parse(fed, ec);
         BOOST_TEST(!ec);
 
@@ -186,7 +186,7 @@ public:
             "\r\n";
 
         head_parser pr(true, buf_, sizeof(buf_));
-        system::error_code ec;
+        std::error_code ec;
         std::size_t n = 0;
         for(char const c : msg)
         {
@@ -417,7 +417,7 @@ public:
                 "\r\n";
 
             head_parser pr(true, buf_, sizeof(buf_));
-            system::error_code ec;
+            std::error_code ec;
             // bytes are appended one at a time;
             // those already parsed are resolved in
             // place and never rewritten
@@ -593,7 +593,7 @@ public:
         {
             head_parser pr(is_request, buf_, sizeof(buf_), limits);
             std::size_t n = 0;
-            system::error_code ec = feed(pr, n, msg);
+            std::error_code ec = feed(pr, n, msg);
             BOOST_TEST(ec == e);
             // errors are sticky
             pr.parse(n, ec);
@@ -888,7 +888,7 @@ public:
             {
                 head_parser pr(
                     true, buf_, sizeof(buf_), limits);
-                system::error_code ec;
+                std::error_code ec;
                 for(std::size_t n = 0;; ++n)
                 {
                     pr.parse(n, ec);
@@ -982,7 +982,7 @@ public:
 
         head_parser pr(true, tiny, sizeof(tiny));
         BOOST_TEST(pr.ceiling() == tiny); // default max_fields = 100
-        system::error_code ec;
+        std::error_code ec;
         pr.parse(0, ec);
         BOOST_TEST(ec == http::error::in_place_overflow);
         // the error is derived again on request
@@ -1055,7 +1055,7 @@ public:
         // limits with it
         header_limits const lim{ .max_fields = 4 };
         head_parser pr(true, buf, sizeof(buf), lim);
-        system::error_code ec;
+        std::error_code ec;
         std::size_t n = 0;
         std::memcpy(buf, msg.data(), 21);
         n = 21;
@@ -1149,7 +1149,7 @@ public:
         std::memmove(buf, lo.data(), lo.size());
         pr.reset(buf);
         n = lo.size();
-        system::error_code ec;
+        std::error_code ec;
         pr.parse(n, ec);
         BOOST_TEST(! ec);
         BOOST_TEST_EQ(pr.request_head().target(), "/b");
@@ -1185,7 +1185,7 @@ public:
             {
                 head_parser pr(true, raw, n, lim);
                 BOOST_TEST(pr.ceiling() == raw);
-                system::error_code ec;
+                std::error_code ec;
                 pr.parse(0, ec);
                 BOOST_TEST(ec == http::error::in_place_overflow);
             }
@@ -1212,7 +1212,7 @@ public:
     // bytes or the caller has none left to give. Reports
     // how much was placed.
     static
-    system::error_code
+    std::error_code
     drive(
         head_parser& pr,
         std::string_view s,
@@ -1220,7 +1220,7 @@ public:
         std::size_t& fed)
     {
         auto* const base = base_of(pr);
-        system::error_code ec;
+        std::error_code ec;
         fed = 0;
         for(;;)
         {
@@ -1294,7 +1294,7 @@ public:
                 if(off + n > sizeof(raw))
                     continue;
 
-                system::error_code first;
+                std::error_code first;
                 for(std::size_t chunk : { 0u, 1u, 7u })
                 {
                     std::memset(raw, 0xCD, sizeof(raw));
@@ -1680,7 +1680,7 @@ public:
         int done = 0;
         for(int round = 0; round < 4; ++round)
         {
-            system::error_code ec;
+            std::error_code ec;
             for(;;)
             {
                 pr.parse(held, ec);
