@@ -227,24 +227,6 @@ skip_crlf(chained_sequence& cs) noexcept
     return {};
 }
 
-std::span<capy::const_buffer>
-collect(
-    std::span<capy::const_buffer> dest,
-    std::array<capy::const_buffer, 2> const& src,
-    std::size_t at_most = std::size_t(-1)) noexcept
-{
-    std::size_t n = 0;
-    for(auto b : src)
-    {
-        auto const take = clamp(b.size(), at_most);
-        if(take == 0 || n == dest.size())
-            break;
-        at_most -= take;
-        dest[n++] = { b.data(), take };
-    }
-    return dest.first(n);
-}
-
 auto
 prefix(auto buf, std::size_t n) noexcept
     -> decltype(buf)
@@ -264,19 +246,19 @@ struct parser::chunk_fn
     chunk_fn(F&& f) noexcept
         : obj_(std::addressof(f))
         , invoke_(
-            [](void* obj, capy::const_buffer b, bool last)
+            [](void* obj, capy::const_buffer b, bool more)
                 -> capy::io_result<std::size_t>
             {
                 return (*static_cast<
-                    std::remove_reference_t<F>*>(obj))(b, last);
+                    std::remove_reference_t<F>*>(obj))(b, more);
             })
     {
     }
 
     capy::io_result<std::size_t>
-    operator()(capy::const_buffer b, bool last) const
+    operator()(capy::const_buffer b, bool more) const
     {
-        return invoke_(obj_, b, last);
+        return invoke_(obj_, b, more);
     }
 };
 
@@ -468,7 +450,7 @@ walk_chunks_(chunk_fn f, bool dry)
     {
         // from flatten_chunks_
         auto const b = in_.first(clamp(rem_));
-        auto const [ec, n] = f(b, true);
+        auto const [ec, n] = f(b, false);
         if(!dry)
         {
             in_.consume(n);
@@ -498,7 +480,7 @@ loop:
             fin_chunk_ = true;
             in_.consume(in_.size() - t0);
         }
-        return std::get<0>(f({}, true));
+        return std::get<0>(f({}, false));
     }
 
 invoke:
@@ -506,7 +488,7 @@ invoke:
     {
         if(b.size() == 0)
             break;
-        auto const [ec, n] = f(b, false);
+        auto const [ec, n] = f(b, true);
         cs.advance(n);
         size -= n;
         if(!dry)
@@ -784,15 +766,15 @@ decode_some_(
         return 0;
 
     std::size_t prod = 0;
-    auto decode =
-    [&](capy::const_buffer in, bool last)
+    auto process =
+    [&](capy::const_buffer in, bool more)
         -> capy::io_result<std::size_t>
     {
         if(dec_err_)
         {
             if(dec_err_ == capy::cond::eof)
             {
-                if(!last || in.size() != 0)
+                if(more || in.size() != 0)
                     return { bad_payload, 0 };
             }
             return { dec_err_, 0 };
@@ -802,7 +784,7 @@ decode_some_(
         {
             auto const lim = clamp(limit_rem_);
             auto const r = dec_->process(
-                prefix(dest, lim), in, !last);
+                prefix(dest, lim), in, more);
             dest += r.produced;
             in += r.consumed;
             cons += r.consumed;
@@ -829,7 +811,7 @@ decode_some_(
     {
     case payload::chunked:
     {
-        auto const wec = walk_chunks_(decode);
+        auto const wec = walk_chunks_(process);
         if(prod != 0)
             return prod;
         if(wec != need_more_input)
@@ -849,8 +831,9 @@ decode_some_(
                 ec = need_more_();
                 return 0;
             }
-            auto [dec_ec, cons] = decode(
-                in, got_body_ && in.size() == clamp(rem_, in_.size()));
+            auto const more =
+                !got_body_ || in.size() < clamp(rem_, in_.size());
+            auto [dec_ec, cons] = process(in, more);
             in_.consume(cons);
             rem_ -= cons;
             if(prod != 0)
@@ -994,17 +977,33 @@ pull(
     if(ec)
         return {};
 
+    auto collect = [&](
+        std::array<capy::const_buffer, 2> const& src,
+        std::size_t at_most = std::size_t(-1))
+    {
+        std::size_t n = 0;
+        for(auto b : src)
+        {
+            auto const take = clamp(b.size(), at_most);
+            if(take == 0 || n == dest.size())
+                break;
+            at_most -= take;
+            dest[n++] = { b.data(), take };
+        }
+        return dest.first(n);
+    };
+
     if(dec_)
     {
         if(!out_.empty())
-            return collect(dest, out_.data());
+            return collect(out_.data());
         auto const n = decode_some_(
             out_.prepare_one(), ec);
         out_.commit(n);
         if(ec && n == 0)
             return {};
         ec = {};
-        return collect(dest, out_.data());
+        return collect(out_.data());
     }
 
     switch(payload_)
@@ -1054,7 +1053,7 @@ pull(
                 return {};
             }
             if(!in_.empty())
-                return collect(dest, in_.data(), clamp(rem_));
+                return collect(in_.data(), clamp(rem_));
         }
         if(got_body_)
         {
@@ -1073,7 +1072,8 @@ pull(
                 ec = body_too_large;
                 return {};
             }
-            return collect(dest, in_.data(), clamp(limit_rem_));
+            return collect(
+                in_.data(), clamp(limit_rem_));
         }
         if(got_body_)
         {

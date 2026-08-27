@@ -257,7 +257,7 @@ void
 serializer::
 encode_(source& src, std::error_code& ec)
 {
-    auto feed = [&](
+    auto process = [&](
         capy::const_buffer in, bool more)
     {
         auto const r = enc_->process(
@@ -284,7 +284,8 @@ encode_(source& src, std::error_code& ec)
         if(enc_out_.capacity() == 0)
             return;
         auto const more = !sealed_ || src.remain != 0;
-        stage_.consume(feed(stage_.data(), more));
+        auto const n = process(stage_.data(), more);
+        stage_.consume(n);
         if(ec || !enc_)
             return;
     }
@@ -294,8 +295,8 @@ encode_(source& src, std::error_code& ec)
     {
         if(enc_out_.capacity() == 0)
             return;
-        auto const n = feed(
-            cur, !sealed_ || src.remain != 0);
+        auto const more = !sealed_ || src.remain != 0;
+        auto const n = process(cur, more);
         cur += n;
         input_digested_ += n;
         if(ec || !enc_)
@@ -309,7 +310,7 @@ encode_(source& src, std::error_code& ec)
     {
         if(enc_out_.capacity() == 0)
             return;
-        feed({}, false);
+        process({}, false);
         if(ec || !enc_)
             return;
     }
