@@ -34,6 +34,7 @@
 #include <system_error>
 #include <utility>
 
+#include "src/detail/decoder.hpp"
 #include "test_suite.hpp"
 
 namespace boost

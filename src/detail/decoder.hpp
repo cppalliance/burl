@@ -7,14 +7,15 @@
 // Official repository: https://github.com/cppalliance/burl
 //
 
-#ifndef BOOST_BURL_SRC_DETAIL_DECODERS_HPP
-#define BOOST_BURL_SRC_DETAIL_DECODERS_HPP
+#ifndef BOOST_BURL_SRC_DETAIL_DECODER_HPP
+#define BOOST_BURL_SRC_DETAIL_DECODER_HPP
 
-#include <boost/burl/detail/decoder.hpp>
-
+#include <boost/capy/buffers.hpp>
 #include <boost/http/metadata.hpp>
 
+#include <cstddef>
 #include <memory>
+#include <system_error>
 
 namespace boost
 {
@@ -22,6 +23,24 @@ namespace burl
 {
 namespace detail
 {
+
+struct decoder
+{
+    struct result
+    {
+        std::size_t consumed;
+        std::size_t produced;
+        std::error_code ec;
+    };
+
+    virtual ~decoder() = default;
+
+    virtual result
+    process(
+        capy::mutable_buffer out,
+        capy::const_buffer in,
+        bool more) = 0;
+};
 
 std::unique_ptr<decoder>
 make_decoder(http::content_coding coding);

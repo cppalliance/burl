@@ -12,7 +12,7 @@
 #include <boost/burl/error.hpp>
 
 #include "detail/content_coding.hpp"
-#include "detail/decoders.hpp"
+#include "detail/decoder.hpp"
 #include "detail/grammar.hpp"
 #include "detail/util.hpp"
 
@@ -281,6 +281,9 @@ struct parser::chunk_fn
 };
 
 parser::
+parser() = default;
+
+parser::
 parser(
     config const& cfg,
     bool is_req)
@@ -296,6 +299,16 @@ parser(
         hp_.ceiling() - buf_.get()) };
     out_ = { buf_.get() + h_cap, cfg.dec_buffer };
 }
+
+parser::
+parser(parser&& other) noexcept = default;
+
+parser&
+parser::
+operator=(parser&& other) noexcept = default;
+
+parser::
+~parser() = default;
 
 bool
 parser::

@@ -8,7 +8,7 @@
 //
 
 // Test that header file is self-contained.
-#include "src/detail/decoders.hpp"
+#include "src/detail/decoder.hpp"
 
 #include <boost/burl/error.hpp>
 
@@ -33,7 +33,7 @@ namespace burl
 namespace detail
 {
 
-class decoders_test
+class decoder_test
 {
     struct decode_result
     {
@@ -714,7 +714,7 @@ public:
     }
 };
 
-TEST_SUITE(decoders_test, "boost.burl.detail.decoders");
+TEST_SUITE(decoder_test, "boost.burl.detail.decoder");
 
 } // namespace detail
 } // namespace burl

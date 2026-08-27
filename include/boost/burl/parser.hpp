@@ -12,7 +12,6 @@
 
 #include <boost/burl/detail/circular_buffer.hpp>
 #include <boost/burl/detail/config.hpp>
-#include <boost/burl/detail/decoder.hpp>
 #include <boost/burl/head_parser.hpp>
 #include <boost/burl/request_head_base.hpp>
 #include <boost/burl/response_head_base.hpp>
@@ -32,6 +31,11 @@ namespace boost
 {
 namespace burl
 {
+
+namespace detail
+{
+struct decoder;
+} // namespace detail
 
 /** A parser for HTTP/1 messages.
 
@@ -466,24 +470,28 @@ public:
         std::error_code& ec);
 
 protected:
-    parser() = default;
+    BOOST_BURL_DECL
+    parser();
 
     BOOST_BURL_DECL
     parser(
         config const& cfg,
         bool is_req);
 
-    parser(parser&& other) noexcept = default;
+    BOOST_BURL_DECL
+    parser(parser&& other) noexcept;
 
+    BOOST_BURL_DECL
     parser&
-    operator=(parser&& other) noexcept = default;
+    operator=(parser&& other) noexcept;
 
     parser(const parser&) = delete;
 
     parser&
     operator=(const parser&) = delete;
 
-    ~parser() = default;
+    BOOST_BURL_DECL
+    ~parser();
 
     BOOST_BURL_DECL
     void
