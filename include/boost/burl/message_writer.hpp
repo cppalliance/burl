@@ -13,7 +13,7 @@
 #include <boost/burl/serializer.hpp>
 
 #include <boost/assert.hpp>
-#include <boost/capy/buffers/buffer_param.hpp>
+#include <boost/capy/buffers/consuming_buffers.hpp>
 #include <boost/capy/concept/write_stream.hpp>
 #include <boost/capy/io_task.hpp>
 
@@ -256,24 +256,23 @@ drive_(
     CB buffers,
     bool more)
 {
-    capy::const_buffer_param<CB> bp(buffers);
+    capy::consuming_buffers cb(buffers);
     capy::const_buffer dest[16];
     std::size_t total = 0;
     for(;;)
     {
         std::error_code ec;
-        auto const body = bp.data();
         auto const bufs = sr.frame(
-            dest, body, more || bp.more(), ec);
+            dest, cb.data(), more, ec);
         auto [wec, n] = co_await stream.write_some(bufs);
         auto const k = sr.consume(n);
-        bp.consume(k);
+        cb.consume(k);
         total += k;
         if(ec)
             co_return { ec, total };
         if(wec)
             co_return { wec, total };
-        if(bufs.empty() && !bp.more())
+        if(bufs.empty())
             co_return { std::error_code(), total };
     }
 }
