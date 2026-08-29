@@ -10,6 +10,8 @@
 #include <boost/burl/error.hpp>
 #include <boost/burl/serializer.hpp>
 
+#include "detail/content_coding.hpp"
+#include "detail/encoder.hpp"
 #include "detail/util.hpp"
 
 #include <boost/assert.hpp>
@@ -32,7 +34,10 @@ static_assert(
         (std::numeric_limits<std::uint32_t>::max)());
 
 using http::payload;
+
 using detail::clamp;
+using detail::content_coding;
+using detail::make_encoder;
 
 namespace
 {
@@ -56,29 +61,40 @@ serializer(config const& cfg)
     , enc_threshold_(cfg.enc_threshold)
     , stage_{ buf_.get() + margin, cfg.stage_buffer }
     , enc_out_{ buf_.get() + margin, cfg.enc_buffer }
+    , enc_cfg_(cfg.encoder)
 {
 }
+
+serializer::
+serializer(serializer&& other) noexcept = default;
+
+serializer&
+serializer::
+operator=(serializer&& other) noexcept = default;
+
+serializer::
+~serializer() = default;
 
 void
 serializer::
 start(
     message_head_base* msg,
-    encoder* enc,
-    bool head) noexcept
+    bool head)
 {
     BOOST_ASSERT(msg != nullptr);
 
-    if(head)
-        enc = nullptr;
-
     msg_ = msg;
-    enc_ = enc;
     trailer_ = nullptr;
+    payload_ = head ? payload::none : msg->payload();
 
-    if((enc != nullptr) != (stage_.ptr != enc_out_.ptr))
+    enc_.reset();
+    if(enc_cfg_ && payload_ != payload::none)
+        enc_ = make_encoder(content_coding(*msg), *enc_cfg_);
+
+    if((enc_ != nullptr) != (stage_.ptr != enc_out_.ptr))
     {
         std::swap(stage_.cap, enc_out_.cap);
-        stage_.ptr = enc_out_.ptr + (enc ? enc_out_.cap : 0);
+        stage_.ptr = enc_out_.ptr + (enc_ ? enc_out_.cap : 0);
     }
 
     stage_.clear();
@@ -89,7 +105,6 @@ start(
     input_framed_ = 0;
     input_digested_ = 0;
     prefix_rem_ = 0;
-    payload_ = head ? payload::none : msg->payload();
     crlf_owed_ = false;
     enc_started_ = false;
     sealed_ = false;
@@ -107,6 +122,20 @@ start(
             return msg->content_length().value_or(0);
         }
     }();
+}
+
+void
+serializer::
+set_encoder(
+    std::unique_ptr<detail::encoder> enc) noexcept
+{
+    enc_ = std::move(enc);
+
+    if((enc_ != nullptr) != (stage_.ptr != enc_out_.ptr))
+    {
+        std::swap(stage_.cap, enc_out_.cap);
+        stage_.ptr = enc_out_.ptr + (enc_ ? enc_out_.cap : 0);
+    }
 }
 
 std::span<capy::mutable_buffer>

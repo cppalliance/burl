@@ -13,15 +13,20 @@
 #include <boost/burl/error.hpp>
 #include <boost/burl/fields.hpp>
 #include <boost/burl/request_head.hpp>
+#include <boost/burl/request_parser.hpp>
 #include <boost/burl/response_head.hpp>
 
 #include <boost/capy/buffers/buffer_copy.hpp>
 #include <boost/capy/buffers/make_buffer.hpp>
 #include <boost/capy/error.hpp>
+#include <boost/capy/ex/system_context.hpp>
+#include <boost/http/zlib.hpp>
 
 #include <cstring>
+#include <memory>
 #include <string>
 
+#include "src/detail/encoder.hpp"
 #include "test_suite.hpp"
 
 namespace boost
@@ -40,7 +45,7 @@ class serializer_test
     // flushes, encoder drop) are crossed with tiny bodies, and
     // so tests keep exercising the same paths if the default
     // config values change.
-    static constexpr serializer::config cfg{
+    static inline serializer::config const cfg{
         .stage_buffer  = 64,
         .min_prepare   = 32,
         .min_direct    = 16,
@@ -67,12 +72,47 @@ class serializer_test
         return req;
     }
 
+    struct test_serializer : serializer
+    {
+        using serializer::serializer;
+
+        // Install a test encoder, which the test
+        // keeps owning so that it can inspect it
+        // afterwards.
+        template<class E>
+        void
+        set_encoder(E& enc)
+        {
+            struct forwarder : detail::encoder
+            {
+                E& e;
+
+                explicit
+                forwarder(E& e_) noexcept
+                    : e(e_)
+                {
+                }
+
+                result
+                process(
+                    capy::mutable_buffer out,
+                    capy::const_buffer in,
+                    bool more) override
+                {
+                    return e.process(out, in, more);
+                }
+            };
+            serializer::set_encoder(
+                std::make_unique<forwarder>(enc));
+        }
+    };
+
     // An encoder that increments every body byte by one, so
     // encoded output is distinguishable from identity output,
     // and appends an optional footer once the input ends. It
     // consumes and produces as much as the given buffers allow,
     // or at most `out_limit` octets per call when set.
-    struct test_encoder : serializer::encoder
+    struct test_encoder : detail::encoder
     {
         std::string footer;
         std::error_code fail;
@@ -267,7 +307,7 @@ public:
     testContentLengthSmallBody()
     {
         auto req = make_request(5);
-        serializer sr(cfg);
+        test_serializer sr(cfg);
         sr.start(&req);
         BOOST_TEST(!sr.is_done());
 
@@ -289,7 +329,7 @@ public:
         // A body at the direct-write threshold bypasses staging.
         std::string const body(cfg.min_direct, 'x');
         auto req = make_request(body.size());
-        serializer sr(cfg);
+        test_serializer sr(cfg);
         sr.start(&req);
 
         std::string wire;
@@ -306,7 +346,7 @@ public:
         std::string const b1(4, 'a');
         std::string const b2(4, 'b');
         auto req = make_request(b1.size() + b2.size());
-        serializer sr(cfg);
+        test_serializer sr(cfg);
         sr.start(&req);
 
         capy::const_buffer const bufs[2] = {
@@ -340,7 +380,7 @@ public:
         // fewer bytes than Content-Length
         {
             auto req = make_request(5);
-            serializer sr(cfg);
+            test_serializer sr(cfg);
             sr.start(&req);
 
             std::string wire;
@@ -355,7 +395,7 @@ public:
         // supplying call, before any octet is handed out
         {
             auto req = make_request(5);
-            serializer sr(cfg);
+            test_serializer sr(cfg);
             sr.start(&req);
 
             std::string wire;
@@ -369,7 +409,7 @@ public:
         std::string const body(cfg.min_direct, 'x');
         {
             auto req = make_request(5);
-            serializer sr(cfg);
+            test_serializer sr(cfg);
             sr.start(&req);
 
             std::string wire;
@@ -383,7 +423,7 @@ public:
         // corrected input proceeds
         {
             auto req = make_request(5);
-            serializer sr(cfg);
+            test_serializer sr(cfg);
             sr.start(&req);
 
             std::string wire;
@@ -404,7 +444,7 @@ public:
     testChunkedSmallBodyConvertsToContentLength()
     {
         auto req = make_request();
-        serializer sr(cfg);
+        test_serializer sr(cfg);
         sr.start(&req);
 
         // The body stays below min_direct, so it is fully
@@ -429,7 +469,7 @@ public:
     testChunkedWriteEofWithBody()
     {
         auto req = make_request();
-        serializer sr(cfg);
+        test_serializer sr(cfg);
         sr.start(&req);
 
         std::string wire;
@@ -447,7 +487,7 @@ public:
     {
         std::string const body(cfg.min_direct, 'x');
         auto req = make_request();
-        serializer sr(cfg);
+        test_serializer sr(cfg);
         sr.start(&req);
 
         std::string wire;
@@ -478,7 +518,7 @@ public:
         // in the same vector.
         std::string const body(cfg.min_direct, 'x');
         auto req = make_request();
-        serializer sr(cfg);
+        test_serializer sr(cfg);
         sr.start(&req);
 
         std::string wire;
@@ -499,7 +539,7 @@ public:
     {
         std::string const body(cfg.min_direct, 'x');
         auto req = make_request();
-        serializer sr(cfg);
+        test_serializer sr(cfg);
         sr.start(&req);
 
         std::string wire;
@@ -537,7 +577,7 @@ public:
     testPrepareCommitContentLength()
     {
         auto req = make_request(5);
-        serializer sr(cfg);
+        test_serializer sr(cfg);
         sr.start(&req);
 
         capy::mutable_buffer tmp[2];
@@ -564,7 +604,7 @@ public:
         // body; one that does flushes the whole staged run as
         // one chunk.
         auto req = make_request();
-        serializer sr(cfg);
+        test_serializer sr(cfg);
         sr.start(&req);
 
         std::string const b1 = make_body(30);
@@ -605,7 +645,7 @@ public:
         // full capacity is stageable as one chunk; 64 == 0x40.
         std::string const body(cfg.stage_buffer, 'z');
         auto req = make_request();
-        serializer sr(cfg);
+        test_serializer sr(cfg);
         sr.start(&req);
 
         capy::mutable_buffer tmp[2];
@@ -640,7 +680,7 @@ public:
         // Nothing is drained before eof, so the staged body
         // converts to Content-Length.
         auto req = make_request();
-        serializer sr(cfg);
+        test_serializer sr(cfg);
         sr.start(&req);
 
         capy::mutable_buffer tmp[2];
@@ -663,7 +703,7 @@ public:
     testPrepareEmptyDest()
     {
         auto req = make_request();
-        serializer sr(cfg);
+        test_serializer sr(cfg);
         sr.start(&req);
 
         auto const dest = sr.prepare({});
@@ -677,7 +717,7 @@ public:
         // drain pass flushes it and restores the full window.
         std::string const body(cfg.stage_buffer, 'z');
         auto req = make_request();
-        serializer sr(cfg);
+        test_serializer sr(cfg);
         sr.start(&req);
 
         capy::mutable_buffer tmp[2];
@@ -711,7 +751,7 @@ public:
         std::string expected;
         {
             auto req = make_request();
-            serializer sr(cfg);
+            test_serializer sr(cfg);
             sr.start(&req);
             BOOST_TEST(!write(sr, expected, body));
             BOOST_TEST(!write(sr, expected, "abc"));
@@ -721,7 +761,7 @@ public:
         for(std::size_t step = 1; step != 24; ++step)
         {
             auto req = make_request();
-            serializer sr(cfg);
+            test_serializer sr(cfg);
             sr.start(&req);
 
             std::string wire;
@@ -744,7 +784,7 @@ public:
         // out as it stands.
         std::string const body(cfg.min_direct + 8, 'x');
         auto req = make_request(body.size());
-        serializer sr(cfg);
+        test_serializer sr(cfg);
         sr.start(&req);
 
         std::string_view rem(body);
@@ -788,7 +828,7 @@ public:
         // same octets, before and after a partial consume.
         std::string const body(cfg.min_direct, 'x');
         auto req = make_request();
-        serializer sr(cfg);
+        test_serializer sr(cfg);
         sr.start(&req);
 
         capy::const_buffer const b{
@@ -827,7 +867,7 @@ public:
         // and the serializer can even be moved mid-flight.
         std::string const body(cfg.min_direct, 'x');
         auto req = make_request();
-        serializer sr(cfg);
+        test_serializer sr(cfg);
         sr.start(&req);
 
         std::string_view rem(body);
@@ -877,7 +917,7 @@ public:
         // pays it.
         std::string const body(cfg.min_direct, 'x');
         auto req = make_request();
-        serializer sr(cfg);
+        test_serializer sr(cfg);
         sr.start(&req);
 
         std::string_view rem(body);
@@ -925,7 +965,7 @@ public:
         // wire is already committed to the chunk.
         std::string const body(cfg.min_direct, 'x');
         auto req = make_request();
-        serializer sr(cfg);
+        test_serializer sr(cfg);
         sr.start(&req);
 
         std::string wire;
@@ -985,7 +1025,7 @@ public:
         // reports are the caller's cursor.
         std::string const body(cfg.min_direct, 'x');
         auto req = make_request(body.size());
-        serializer sr(cfg);
+        test_serializer sr(cfg);
         sr.start(&req);
 
         std::string_view rem(body);
@@ -1029,7 +1069,7 @@ public:
             std::size(bufs) * piece.size(), 'x');
 
         auto req = make_request(body.size());
-        serializer sr(cfg);
+        test_serializer sr(cfg);
         sr.start(&req);
 
         std::string wire;
@@ -1060,7 +1100,7 @@ public:
         // remainder is re-materialized next call.
         std::string const body(cfg.min_direct, 'x');
         auto req = make_request();
-        serializer sr(cfg);
+        test_serializer sr(cfg);
         sr.start(&req);
 
         fields trailer;
@@ -1157,7 +1197,7 @@ public:
         std::string const b1(40, 'x');
         std::string const b2(10, 'y');
         auto req = make_request();
-        serializer sr(cfg);
+        test_serializer sr(cfg);
         sr.start(&req);
 
         capy::mutable_buffer tmp[2];
@@ -1216,7 +1256,7 @@ public:
         // 40 == 0x28.
         std::string const body = make_body(40);
         auto req = make_request();
-        serializer sr(cfg);
+        test_serializer sr(cfg);
         sr.start(&req);
 
         // the header first, so the framing stays chunked
@@ -1296,7 +1336,7 @@ public:
             std::size(bufs) / 2 * piece.size(), 'y');
 
         auto req = make_request(body.size());
-        serializer sr(cfg);
+        test_serializer sr(cfg);
         sr.start(&req);
 
         std::string wire;
@@ -1327,7 +1367,7 @@ public:
         // consumed when the wire takes them — but both are
         // reported by the consume answering that frame.
         auto req = make_request();
-        serializer sr(cfg);
+        test_serializer sr(cfg);
         sr.start(&req);
 
         // absorbed, no debt: nothing to write, and the input is
@@ -1381,7 +1421,7 @@ public:
         // The overload that supplies nothing flushes the header
         // on its own, and ends the body from the staged octets.
         auto req = make_request();
-        serializer sr(cfg);
+        test_serializer sr(cfg);
         sr.start(&req);
 
         capy::mutable_buffer tmp[2];
@@ -1433,7 +1473,7 @@ public:
         // frame octets with, and the last-chunk is already on
         // the wire: supplying more violates the call contract.
         auto req = make_request();
-        serializer sr(cfg);
+        test_serializer sr(cfg);
         sr.start(&req);
 
         std::string wire;
@@ -1468,7 +1508,7 @@ public:
         std::string const staged = make_body(16);
         std::string const body = make_body(16);
         auto req = make_request(staged.size() + body.size());
-        serializer sr(cfg);
+        test_serializer sr(cfg);
         sr.start(&req);
 
         capy::mutable_buffer tmp[2];
@@ -1524,7 +1564,7 @@ public:
         std::string const body(cfg.min_direct, 'x');
         {
             response_head res;
-            serializer sr(cfg);
+            test_serializer sr(cfg);
             sr.start(&res);
 
             std::string wire;
@@ -1542,7 +1582,7 @@ public:
         // converts to Content-Length, saving the connection
         {
             response_head res;
-            serializer sr(cfg);
+            test_serializer sr(cfg);
             sr.start(&res);
 
             std::string wire;
@@ -1558,7 +1598,7 @@ public:
         // completes the message all the same
         {
             response_head res;
-            serializer sr(cfg);
+            test_serializer sr(cfg);
             sr.start(&res);
 
             std::string wire;
@@ -1576,7 +1616,7 @@ public:
         // definition; body bytes are rejected when supplied
         {
             request_head req;
-            serializer sr(cfg);
+            test_serializer sr(cfg);
             sr.start(&req);
 
             std::string wire;
@@ -1597,7 +1637,7 @@ public:
         for(std::size_t step : { 1u, 3u, 7u })
         {
             response_head res;
-            serializer sr(cfg);
+            test_serializer sr(cfg);
             sr.start(&res);
 
             std::string wire;
@@ -1626,7 +1666,7 @@ public:
         // octets after the end: rejected, nothing framed
         {
             response_head res;
-            serializer sr(cfg);
+            test_serializer sr(cfg);
             sr.start(&res);
 
             std::string wire;
@@ -1650,7 +1690,7 @@ public:
         // corrected remainder still resumes
         {
             response_head res;
-            serializer sr(cfg);
+            test_serializer sr(cfg);
             sr.start(&res);
 
             std::string wire;
@@ -1696,7 +1736,7 @@ public:
         // would truncate a body whose framing gives the peer no
         // way to notice.
         response_head res;
-        serializer sr(cfg);
+        test_serializer sr(cfg);
         sr.start(&res);
 
         std::string wire;
@@ -1760,7 +1800,7 @@ public:
         // content-length, whole body declared at once
         {
             auto req = make_request(5);
-            serializer sr(cfg);
+            test_serializer sr(cfg);
             sr.start(&req);
 
             std::string_view body("hello");
@@ -1789,7 +1829,7 @@ public:
             auto req = make_request();
             fields trailer;
             trailer.set("x", "1");
-            serializer sr(cfg);
+            test_serializer sr(cfg);
             sr.start(&req);
             sr.set_trailer(&trailer);
 
@@ -1820,7 +1860,7 @@ public:
         // the bufferless overload, declaring an empty body
         {
             response_head res;
-            serializer sr(cfg);
+            test_serializer sr(cfg);
             sr.start(&res);
 
             {
@@ -1840,7 +1880,7 @@ public:
         // a genuinely short body is still diagnosed
         {
             auto req = make_request(5);
-            serializer sr(cfg);
+            test_serializer sr(cfg);
             sr.start(&req);
 
             std::string wire;
@@ -1861,7 +1901,7 @@ public:
         auto req = make_request();
         fields trailer;
         trailer.set("x", "1");
-        serializer sr(cfg);
+        test_serializer sr(cfg);
         sr.start(&req);
         sr.set_trailer(&trailer);
 
@@ -1924,7 +1964,7 @@ public:
         // after the last chunk
         {
             auto req = make_request();
-            serializer sr(cfg);
+            test_serializer sr(cfg);
             sr.start(&req);
 
             fields trailer;
@@ -1951,7 +1991,7 @@ public:
         // to Content-Length
         {
             auto req = make_request();
-            serializer sr(cfg);
+            test_serializer sr(cfg);
             sr.start(&req);
 
             fields trailer;
@@ -1995,7 +2035,7 @@ public:
         // set_trailer(nullptr) clears
         {
             auto req = make_request(5);
-            serializer sr(cfg);
+            test_serializer sr(cfg);
             sr.start(&req);
 
             fields trailer;
@@ -2018,7 +2058,7 @@ public:
         // silently discarded
         {
             auto req = make_request(5);
-            serializer sr(cfg);
+            test_serializer sr(cfg);
             sr.start(&req);
             sr.set_trailer(&trailer);
 
@@ -2033,7 +2073,7 @@ public:
         // trailers either
         {
             response_head res;
-            serializer sr(cfg);
+            test_serializer sr(cfg);
             sr.start(&res);
             sr.set_trailer(&trailer);
 
@@ -2047,8 +2087,8 @@ public:
         // head mode suppresses the body and its framing
         {
             auto req = make_request();
-            serializer sr(cfg);
-            sr.start(&req, nullptr, true);
+            test_serializer sr(cfg);
+            sr.start(&req, true);
             sr.set_trailer(&trailer);
 
             std::string wire;
@@ -2068,8 +2108,9 @@ public:
         auto req = make_request();
         req.set(http::field::content_encoding, "test");
         test_encoder enc("eof!");
-        serializer sr(cfg);
-        sr.start(&req, &enc);
+        test_serializer sr(cfg);
+        sr.start(&req);
+        sr.set_encoder(enc);
 
         fields trailer;
         trailer.set("x-digest", "42");
@@ -2100,8 +2141,9 @@ public:
         auto req = make_request();
         req.set(http::field::content_encoding, "test");
         test_encoder enc;
-        serializer sr(cfg);
-        sr.start(&req, &enc);
+        test_serializer sr(cfg);
+        sr.start(&req);
+        sr.set_encoder(enc);
 
         std::string wire;
         BOOST_TEST(!write(sr, wire, "hello"));
@@ -2130,8 +2172,9 @@ public:
         auto req = make_request();
         req.set(http::field::content_encoding, "test");
         test_encoder enc;
-        serializer sr(cfg);
-        sr.start(&req, &enc);
+        test_serializer sr(cfg);
+        sr.start(&req);
+        sr.set_encoder(enc);
 
         std::string wire;
         BOOST_TEST(!sr.is_header_done());
@@ -2154,8 +2197,9 @@ public:
         auto req = make_request();
         req.set(http::field::content_encoding, "test");
         test_encoder enc;
-        serializer sr(cfg);
-        sr.start(&req, &enc);
+        test_serializer sr(cfg);
+        sr.start(&req);
+        sr.set_encoder(enc);
 
         std::string wire;
         BOOST_TEST(!write_eof(sr, wire));
@@ -2185,8 +2229,9 @@ public:
         auto req = make_request();
         req.set(http::field::content_encoding, "test");
         test_encoder enc;
-        serializer sr(cfg);
-        sr.start(&req, &enc);
+        test_serializer sr(cfg);
+        sr.start(&req);
+        sr.set_encoder(enc);
 
         fields trailer;
         trailer.set("x-digest", "42");
@@ -2221,8 +2266,9 @@ public:
         auto req = make_request();
         req.set(http::field::content_encoding, "test");
         test_encoder enc;
-        serializer sr(cfg);
-        sr.start(&req, &enc);
+        test_serializer sr(cfg);
+        sr.start(&req);
+        sr.set_encoder(enc);
 
         capy::mutable_buffer tmp[2];
         auto const dest = sr.prepare(tmp);
@@ -2256,8 +2302,9 @@ public:
             auto req = make_request();
             req.set(http::field::content_encoding, "test");
             test_encoder enc;
-            serializer sr(cfg);
-            sr.start(&req, &enc);
+            test_serializer sr(cfg);
+            sr.start(&req);
+            sr.set_encoder(enc);
 
             std::string wire;
             BOOST_TEST(!write_eof(sr, wire, body));
@@ -2283,8 +2330,9 @@ public:
             auto req = make_request();
             req.set(http::field::content_encoding, "test");
             test_encoder enc;
-            serializer sr(cfg);
-            sr.start(&req, &enc);
+            test_serializer sr(cfg);
+            sr.start(&req);
+            sr.set_encoder(enc);
 
             std::string wire;
             BOOST_TEST(!write_eof(sr, wire, body));
@@ -2309,8 +2357,9 @@ public:
         auto req = make_request();
         req.set(http::field::content_encoding, "test");
         test_encoder enc;
-        serializer sr(cfg);
-        sr.start(&req, &enc);
+        test_serializer sr(cfg);
+        sr.start(&req);
+        sr.set_encoder(enc);
 
         std::string wire;
         BOOST_TEST(!write(sr, wire, "abc"));
@@ -2327,6 +2376,42 @@ public:
     }
 
     void
+    testEncoderStartedConvertsToContentLength()
+    {
+        // The encoder starts on a write() whose output stays
+        // within the output buffer, so the header is still in
+        // hand when the end is declared later. A started
+        // encoder is kept even when the final input alone is
+        // below the threshold, and chunked converts to the
+        // encoded Content-Length as for a body declared whole.
+        std::string const body = make_body(16);
+        auto req = make_request();
+        req.set(http::field::content_encoding, "test");
+        test_encoder enc;
+        test_serializer sr(cfg);
+        sr.start(&req);
+        sr.set_encoder(enc);
+
+        std::string wire;
+        BOOST_TEST(!write(sr, wire, body));
+        BOOST_TEST(enc.calls != 0);
+        BOOST_TEST(!enc.finished);
+        BOOST_TEST(wire.empty());
+
+        BOOST_TEST(!write_eof(sr, wire, "abc"));
+        BOOST_TEST(sr.is_done());
+        BOOST_TEST(enc.finished);
+        BOOST_TEST(!req.chunked());
+        BOOST_TEST_EQ(req.content_length().value(), 19u);
+        BOOST_TEST(
+            wire.find("Content-Encoding: test\r\n") !=
+            std::string::npos);
+        BOOST_TEST_EQ(
+            wire,
+            std::string(req.buffer()) + encoded(body + "abc"));
+    }
+
+    void
     testEncoderLargeBodyChunked()
     {
         // A body larger than the output buffer forces the
@@ -2338,8 +2423,9 @@ public:
         auto req = make_request();
         req.set(http::field::content_encoding, "test");
         test_encoder enc;
-        serializer sr(cfg);
-        sr.start(&req, &enc);
+        test_serializer sr(cfg);
+        sr.start(&req);
+        sr.set_encoder(enc);
 
         std::string wire;
         BOOST_TEST(!write(sr, wire, body));
@@ -2374,8 +2460,9 @@ public:
         auto req = make_request();
         req.set(http::field::content_encoding, "test");
         test_encoder enc;
-        serializer sr(cfg);
-        sr.start(&req, &enc);
+        test_serializer sr(cfg);
+        sr.start(&req);
+        sr.set_encoder(enc);
 
         std::string wire;
         BOOST_TEST(!write_eof(sr, wire, body));
@@ -2401,8 +2488,9 @@ public:
         auto req = make_request();
         req.set(http::field::content_encoding, "test");
         test_encoder enc;
-        serializer sr(cfg);
-        sr.start(&req, &enc);
+        test_serializer sr(cfg);
+        sr.start(&req);
+        sr.set_encoder(enc);
 
         std::string wire;
         capy::mutable_buffer tmp[2];
@@ -2445,8 +2533,9 @@ public:
         auto req = make_request();
         req.set(http::field::content_encoding, "test");
         test_encoder enc("0123456789");
-        serializer sr(cfg);
-        sr.start(&req, &enc);
+        test_serializer sr(cfg);
+        sr.start(&req);
+        sr.set_encoder(enc);
 
         std::string wire;
         BOOST_TEST(!write_eof(sr, wire, body));
@@ -2472,8 +2561,9 @@ public:
         auto req = make_request(12);
         req.set(http::field::content_encoding, "test");
         test_encoder enc("eof!");
-        serializer sr(cfg);
-        sr.start(&req, &enc);
+        test_serializer sr(cfg);
+        sr.start(&req);
+        sr.set_encoder(enc);
 
         std::string wire;
         BOOST_TEST(!write_eof(sr, wire, body));
@@ -2495,8 +2585,9 @@ public:
             auto req = make_request(5);
             req.set(http::field::content_encoding, "test");
             test_encoder enc("eof!");
-            serializer sr(cfg);
-            sr.start(&req, &enc);
+            test_serializer sr(cfg);
+            sr.start(&req);
+            sr.set_encoder(enc);
 
             std::string wire;
             BOOST_TEST_EQ(
@@ -2525,8 +2616,9 @@ public:
             auto req = make_request(100);
             req.set(http::field::content_encoding, "test");
             test_encoder enc("eof!");
-            serializer sr(cfg);
-            sr.start(&req, &enc);
+            test_serializer sr(cfg);
+            sr.start(&req);
+            sr.set_encoder(enc);
 
             std::string wire;
             BOOST_TEST_EQ(
@@ -2559,8 +2651,9 @@ public:
         auto req = make_request(5);
         req.set(http::field::content_encoding, "test");
         test_encoder enc("eof!");
-        serializer sr(cfg);
-        sr.start(&req, &enc);
+        test_serializer sr(cfg);
+        sr.start(&req);
+        sr.set_encoder(enc);
 
         std::error_code ec;
         capy::const_buffer dest[dest_n];
@@ -2591,8 +2684,9 @@ public:
         test_encoder enc;
         enc.fail = std::make_error_code(
             std::errc::invalid_argument);
-        serializer sr(cfg);
-        sr.start(&req, &enc);
+        test_serializer sr(cfg);
+        sr.start(&req);
+        sr.set_encoder(enc);
 
         std::string wire;
         BOOST_TEST_EQ(
@@ -2622,8 +2716,9 @@ public:
         test_encoder enc;
         enc.fail = std::make_error_code(
             std::errc::invalid_argument);
-        serializer sr(cfg);
-        sr.start(&req, &enc);
+        test_serializer sr(cfg);
+        sr.start(&req);
+        sr.set_encoder(enc);
 
         capy::mutable_buffer tmp[2];
         auto const dest = sr.prepare(tmp);
@@ -2650,8 +2745,9 @@ public:
         auto req = make_request();
         req.set(http::field::content_encoding, "test");
         test_encoder enc;
-        serializer sr(cfg);
-        sr.start(&req, &enc);
+        test_serializer sr(cfg);
+        sr.start(&req);
+        sr.set_encoder(enc);
 
         std::string wire;
         BOOST_TEST(!write(sr, wire, body));
@@ -2672,8 +2768,9 @@ public:
         response_head res;
         res.set(http::field::content_encoding, "test");
         test_encoder enc("eof!");
-        serializer sr(cfg);
-        sr.start(&res, &enc);
+        test_serializer sr(cfg);
+        sr.start(&res);
+        sr.set_encoder(enc);
 
         std::string wire;
         BOOST_TEST(!drain(sr, wire));
@@ -2699,8 +2796,9 @@ public:
         response_head res;
         res.set(http::field::content_encoding, "test");
         test_encoder enc("eof!");
-        serializer sr(cfg);
-        sr.start(&res, &enc);
+        test_serializer sr(cfg);
+        sr.start(&res);
+        sr.set_encoder(enc);
 
         std::string wire;
         BOOST_TEST(!drain(sr, wire));
@@ -2728,8 +2826,9 @@ public:
         response_head res;
         res.set(http::field::content_encoding, "test");
         test_encoder enc;
-        serializer sr(cfg);
-        sr.start(&res, &enc);
+        test_serializer sr(cfg);
+        sr.start(&res);
+        sr.set_encoder(enc);
 
         std::string wire;
         BOOST_TEST(!drain(sr, wire));
@@ -2750,8 +2849,9 @@ public:
         auto req = make_request(74);
         req.set(http::field::content_encoding, "test");
         test_encoder enc("eof!");
-        serializer sr(cfg);
-        sr.start(&req, &enc);
+        test_serializer sr(cfg);
+        sr.start(&req);
+        sr.set_encoder(enc);
 
         std::string wire;
         BOOST_TEST(!write_eof(sr, wire, body, 1));
@@ -2773,8 +2873,9 @@ public:
         auto req = make_request();
         req.set(http::field::content_encoding, "test");
         test_encoder enc;
-        serializer sr(cfg);
-        sr.start(&req, &enc);
+        test_serializer sr(cfg);
+        sr.start(&req);
+        sr.set_encoder(enc);
 
         std::string wire;
         BOOST_TEST(!drain(sr, wire));
@@ -2805,8 +2906,9 @@ public:
         req.set(http::field::content_encoding, "test");
         test_encoder enc("abcd");
         enc.out_limit = 1;
-        serializer sr(cfg);
-        sr.start(&req, &enc);
+        test_serializer sr(cfg);
+        sr.start(&req);
+        sr.set_encoder(enc);
 
         std::string wire;
         BOOST_TEST(!drain(sr, wire));
@@ -2829,8 +2931,9 @@ public:
         auto req = make_request();
         req.set(http::field::content_encoding, "test");
         test_encoder enc;
-        serializer sr(cfg);
-        sr.start(&req, &enc);
+        test_serializer sr(cfg);
+        sr.start(&req);
+        sr.set_encoder(enc);
 
         std::string const b1 = make_body(6);
         std::string const b2 = make_body(6);
@@ -2871,8 +2974,9 @@ public:
         auto req = make_request();
         req.set(http::field::content_encoding, "test");
         test_encoder enc;
-        serializer sr(cfg);
-        sr.start(&req, &enc);
+        test_serializer sr(cfg);
+        sr.start(&req);
+        sr.set_encoder(enc);
 
         capy::const_buffer const b{
             body.data(), body.size() };
@@ -2912,8 +3016,9 @@ public:
         auto req = make_request();
         req.set(http::field::content_encoding, "test");
         test_encoder enc;
-        serializer sr(cfg);
-        sr.start(&req, &enc);
+        test_serializer sr(cfg);
+        sr.start(&req);
+        sr.set_encoder(enc);
 
         // fill the encoder's output; 64 == 0x40
         capy::const_buffer const b{
@@ -2972,11 +3077,12 @@ public:
         test_encoder enc1;
         test_encoder enc2;
 
-        serializer sr(cfg);
+        test_serializer sr(cfg);
         // no message yet, so nothing of a header is out
         BOOST_TEST(!sr.is_header_done());
         BOOST_TEST(!sr.is_done());
-        sr.start(&req1, &enc1);
+        sr.start(&req1);
+        sr.set_encoder(enc1);
 
         // the small body drops the encoder
         std::string wire1;
@@ -2986,7 +3092,9 @@ public:
         BOOST_TEST_EQ(
             wire1, std::string(req1.buffer()) + "hello");
 
-        sr.start(&req2, &enc2);
+        sr.start(&req2);
+
+        sr.set_encoder(enc2);
         BOOST_TEST(!sr.is_done());
 
         std::string wire2;
@@ -3022,8 +3130,9 @@ public:
         test_encoder enc1;
         test_encoder enc3;
 
-        serializer sr(cfg);
-        sr.start(&req1, &enc1);
+        test_serializer sr(cfg);
+        sr.start(&req1);
+        sr.set_encoder(enc1);
 
         // the body crosses the threshold: the encoder is kept
         std::string wire1;
@@ -3041,7 +3150,9 @@ public:
         BOOST_TEST_EQ(
             wire2, std::string(req2.buffer()) + "hello");
 
-        sr.start(&req3, &enc3);
+        sr.start(&req3);
+
+        sr.set_encoder(enc3);
         std::string wire3;
         BOOST_TEST(!write(sr, wire3, body3));
         BOOST_TEST(!write_eof(sr, wire3));
@@ -3066,7 +3177,7 @@ public:
         std::string const body(cfg.min_direct, 'x');
         auto req1 = make_request();
         auto req2 = make_request(5);
-        serializer sr(cfg);
+        test_serializer sr(cfg);
         sr.start(&req1);
 
         capy::const_buffer const b{
@@ -3091,8 +3202,8 @@ public:
         // Content-Length describes the body a non-head message
         // would have carried, and stays untouched.
         auto req = make_request(5);
-        serializer sr(cfg);
-        sr.start(&req, nullptr, true);
+        test_serializer sr(cfg);
+        sr.start(&req, true);
         BOOST_TEST(!sr.is_done());
 
         std::string wire;
@@ -3119,8 +3230,8 @@ public:
         // header to describe the framing a non-head message
         // would have used; no framing bytes reach the wire.
         auto req = make_request();
-        serializer sr(cfg);
-        sr.start(&req, nullptr, true);
+        test_serializer sr(cfg);
+        sr.start(&req, true);
 
         std::string wire;
         BOOST_TEST(!write_eof(sr, wire));
@@ -3139,8 +3250,8 @@ public:
         // match the declared Content-Length
         {
             auto req = make_request(5);
-            serializer sr(cfg);
-            sr.start(&req, nullptr, true);
+            test_serializer sr(cfg);
+            sr.start(&req, true);
 
             std::string wire;
             BOOST_TEST_EQ(
@@ -3153,8 +3264,8 @@ public:
         {
             std::string const body(cfg.min_direct, 'x');
             auto req = make_request(body.size());
-            serializer sr(cfg);
-            sr.start(&req, nullptr, true);
+            test_serializer sr(cfg);
+            sr.start(&req, true);
 
             std::string wire;
             BOOST_TEST_EQ(
@@ -3167,12 +3278,13 @@ public:
     void
     testHeadEncoder()
     {
-        // an encoder passed alongside head is ignored entirely
+        // head mode selects no encoder, even with a
+        // Content-Encoding field present
         auto req = make_request(5);
         req.set(http::field::content_encoding, "test");
         test_encoder enc;
-        serializer sr(cfg);
-        sr.start(&req, &enc, true);
+        test_serializer sr(cfg);
+        sr.start(&req, true);
 
         std::string wire;
         BOOST_TEST(!write_eof(sr, wire));
@@ -3184,6 +3296,125 @@ public:
             std::string::npos);
         BOOST_TEST_EQ(wire, std::string(req.buffer()));
     }
+
+#ifdef BOOST_HTTP_HAS_ZLIB
+    void
+    testContentEncodingGzip()
+    {
+        // The serializer selects the encoder from the
+        // Content-Encoding field, using the encode
+        // service installed in the system context; the
+        // parser decodes the result back.
+        auto& ctx = capy::get_system_context();
+        if(!ctx.has_service<http::zlib::deflate_service>())
+            http::zlib::install_deflate_service(ctx);
+        if(!ctx.has_service<http::zlib::inflate_service>())
+            http::zlib::install_inflate_service(ctx);
+
+        std::string const body =
+            "the quick brown fox jumps over the lazy dog";
+
+        auto cfg2 = cfg;
+        cfg2.encoder = std::make_shared<encoder_config>();
+
+        auto req = make_request();
+        req.set(http::field::content_encoding, "gzip");
+
+        serializer sr(cfg2);
+        sr.start(&req);
+
+        std::string wire;
+        BOOST_TEST(!write_eof(sr, wire, body));
+        BOOST_TEST(sr.is_done());
+        BOOST_TEST(wire.find(body) == std::string::npos);
+
+        request_parser pr(request_parser::config{});
+        pr.start();
+        pr.commit(capy::buffer_copy(
+            pr.prepare(),
+            capy::const_buffer(wire.data(), wire.size())));
+        pr.commit_eof();
+
+        std::error_code ec;
+        auto const sv = pr.flatten_body(ec);
+        BOOST_TEST(!ec);
+        BOOST_TEST(sv == body);
+    }
+
+    void
+    testEncoderSettings()
+    {
+        // The encoder is constructed from the settings:
+        // zlib level 0 emits stored blocks, which leave
+        // the body visible in the wire.
+        auto& ctx = capy::get_system_context();
+        if(!ctx.has_service<http::zlib::deflate_service>())
+            http::zlib::install_deflate_service(ctx);
+        if(!ctx.has_service<http::zlib::inflate_service>())
+            http::zlib::install_inflate_service(ctx);
+
+        auto cfg2 = cfg;
+        cfg2.encoder = std::make_shared<encoder_config>(
+            encoder_config{ .zlib = { .level = 0 } });
+
+        std::string const body =
+            "the quick brown fox jumps over the lazy dog";
+
+        auto req = make_request();
+        req.set(http::field::content_encoding, "gzip");
+
+        serializer sr(cfg2);
+        sr.start(&req);
+
+        std::string wire;
+        BOOST_TEST(!write_eof(sr, wire, body));
+        BOOST_TEST(sr.is_done());
+        BOOST_TEST(
+            wire.find("Content-Encoding: gzip\r\n") !=
+            std::string::npos);
+        BOOST_TEST(wire.find(body) != std::string::npos);
+
+        request_parser pr(request_parser::config{});
+        pr.start();
+        pr.commit(capy::buffer_copy(
+            pr.prepare(),
+            capy::const_buffer(wire.data(), wire.size())));
+        pr.commit_eof();
+
+        std::error_code ec;
+        auto const sv = pr.flatten_body(ec);
+        BOOST_TEST(!ec);
+        BOOST_TEST(sv == body);
+    }
+
+    void
+    testEncodeDisabled()
+    {
+        // Without encoder settings the body is
+        // serialized as supplied, Content-Encoding
+        // included.
+        auto& ctx = capy::get_system_context();
+        if(!ctx.has_service<http::zlib::deflate_service>())
+            http::zlib::install_deflate_service(ctx);
+
+        std::string const body =
+            "the quick brown fox jumps over the lazy dog";
+
+        auto req = make_request();
+        req.set(http::field::content_encoding, "gzip");
+
+        serializer sr(cfg);
+        sr.start(&req);
+
+        std::string wire;
+        BOOST_TEST(!write_eof(sr, wire, body));
+        BOOST_TEST(sr.is_done());
+        BOOST_TEST(wire.find(body) != std::string::npos);
+        BOOST_TEST(
+            wire.find("Content-Encoding: gzip\r\n") !=
+            std::string::npos);
+    }
+#endif // BOOST_HTTP_HAS_ZLIB
 
     void
     run()
@@ -3236,6 +3467,7 @@ public:
         testEncoderPrepareCommitEof();
         testEncoderThreshold();
         testEncoderStagedAndTail();
+        testEncoderStartedConvertsToContentLength();
         testEncoderLargeBodyChunked();
         testEncoderLargeBodyChunkedEof();
         testEncoderCommit();
@@ -3262,6 +3494,11 @@ public:
         testHeadChunked();
         testHeadBodyMismatch();
         testHeadEncoder();
+#ifdef BOOST_HTTP_HAS_ZLIB
+        testContentEncodingGzip();
+        testEncoderSettings();
+        testEncodeDisabled();
+#endif
     }
 };
 

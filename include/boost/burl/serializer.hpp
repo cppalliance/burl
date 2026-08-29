@@ -12,6 +12,7 @@
 
 #include <boost/burl/detail/config.hpp>
 #include <boost/burl/detail/flat_buffer.hpp>
+#include <boost/burl/encoder_config.hpp>
 #include <boost/burl/fields_base.hpp>
 #include <boost/burl/message_head_base.hpp>
 
@@ -29,6 +30,11 @@ namespace boost
 {
 namespace burl
 {
+
+namespace detail
+{
+struct encoder;
+} // namespace detail
 
 /** A serializer for HTTP/1.1 messages.
 
@@ -74,15 +80,20 @@ namespace burl
     header has begun, the message is not modified.
 
     @par Encoding
-    An @ref encoder passed to @ref start applies a
-    content coding to the body; the encoder's output
-    is framed in its place. Setting the
-    Content-Encoding field is the caller's
-    responsibility, but when the complete body is
-    smaller than `config::enc_threshold` the
-    serializer may skip encoding, in which case it
-    removes the Content-Encoding field and the body
-    is serialized unencoded.
+    When @ref config::encoder is set, a body whose
+    message names a `Content-Encoding` of `gzip`,
+    `deflate`, `br`, or `zstd` is encoded as it is
+    serialized, using the encode service installed
+    for that coding in the system context and the
+    settings for that coding; the encoder's output
+    is framed in place of the body. A coding
+    without an installed service, or one the
+    serializer does not know, leaves the body as
+    supplied. When the complete body is smaller
+    than `config::enc_threshold` the serializer may
+    skip encoding, in which case it removes the
+    Content-Encoding field and the body is
+    serialized unencoded.
 
     @par Errors
     When a call to @ref frame reports an error, the
@@ -93,83 +104,6 @@ namespace burl
 class serializer
 {
 public:
-    /** An interface for encoding body content.
-    */
-    struct encoder
-    {
-        /// The result of a call to @ref process.
-        struct result
-        {
-            /// The number of input octets consumed
-            std::size_t consumed;
-
-            /// The number of output octets produced
-            std::size_t produced;
-
-            /** The status of the operation.
-
-                An empty value indicates success,
-                `capy::cond::eof` indicates the
-                encoded stream is complete, and any
-                other value is an error which fails
-                serialization.
-            */
-            std::error_code ec;
-        };
-
-        virtual ~encoder() = default;
-
-        /** Encode body octets.
-
-            This function is called repeatedly by
-            the serializer.
-
-            The value of `more` is `false` when
-            `in` contains the final input octets,
-            possibly none; once `false`, it is
-            `false` in every subsequent call. After
-            the final input is consumed the function
-            is called, with empty input, until it
-            reports completion by returning
-            `capy::cond::eof`.
-
-            Requirements on implementations:
-
-            @li `result::consumed` does not exceed
-                `in.size()`, and `result::produced`
-                does not exceed `out.size()`.
-            @li Every call with non-empty `out`
-                makes progress: it consumes input,
-                produces output, or returns
-                completion or an error.
-            @li `capy::cond::eof` is returned only
-                after all input has been consumed
-                and all remaining output has been
-                produced.
-
-            After this function returns
-            `capy::cond::eof` or an error, it is
-            never called again.
-
-            @param out The destination for encoded
-            octets.
-
-            @param in The input octets, which may
-            be empty.
-
-            @param more `false` if `in` completes
-            the input.
-
-            @return The amounts consumed and
-            produced, and the status.
-        */
-        virtual result
-        process(
-            capy::mutable_buffer out,
-            capy::const_buffer in,
-            bool more) = 0;
-    };
-
     /** Serializer configuration settings. */
     struct config
     {
@@ -227,6 +161,17 @@ public:
             serializer may skip encoding entirely.
         */
         std::size_t enc_threshold =  4 * 1024;
+
+        /** The content encoder settings.
+
+            When set, a body whose message names a
+            `Content-Encoding` with an encode
+            service installed in the system context
+            is encoded as it is serialized, using
+            these settings. When null, no body is
+            encoded.
+        */
+        std::shared_ptr<encoder_config const> encoder = nullptr;
     };
 
     /** Constructor.
@@ -234,7 +179,8 @@ public:
         The serializer allocates a single internal
         buffer whose size is derived from `cfg`; no
         further allocations are performed
-        afterwards.
+        afterwards, except for the content encoder
+        selected by @ref start.
 
         @param cfg The configuration settings to
         use.
@@ -256,7 +202,8 @@ public:
 
         @param other The serializer to move from.
     */
-    serializer(serializer&& other) noexcept = default;
+    BOOST_BURL_DECL
+    serializer(serializer&& other) noexcept;
 
     /** Assignment.
 
@@ -269,13 +216,19 @@ public:
 
         @param other The serializer to move from.
     */
+    BOOST_BURL_DECL
     serializer&
-    operator=(serializer&& other) noexcept = default;
+    operator=(serializer&& other) noexcept;
 
     serializer(serializer const&) = delete;
 
     serializer&
     operator=(serializer const&) = delete;
+
+    /** Destructor.
+    */
+    BOOST_BURL_DECL
+    ~serializer();
 
     /** Return `true` if the message is finished.
 
@@ -343,22 +296,17 @@ public:
         completes or is abandoned by another call
         to `start` or by destroying the serializer.
 
-        @param enc The encoder to apply to the
-        body, or `nullptr`. A fresh encoder object
-        is required for each message. Ownership is
-        not transferred; the object must remain
-        valid until the message completes or is
-        abandoned.
-
         @param head `true` to serialize the
         response to a HEAD request.
+
+        @throws std::bad_alloc Allocation of the
+        content encoder failed.
     */
     BOOST_BURL_DECL
     void
     start(
         message_head_base* msg,
-        encoder* enc = nullptr,
-        bool head = false) noexcept;
+        bool head = false);
 
     /** Set the trailer fields.
 
@@ -531,6 +479,12 @@ public:
     std::size_t
     consume(std::size_t n) noexcept;
 
+protected:
+    BOOST_BURL_DECL
+    void
+    set_encoder(
+        std::unique_ptr<detail::encoder> enc) noexcept;
+
 private:
     static constexpr std::size_t margin = 24;
 
@@ -643,7 +597,8 @@ private:
     detail::flat_buffer enc_out_;
 
     message_head_base* msg_ = nullptr;
-    encoder* enc_ = nullptr;
+    std::unique_ptr<detail::encoder> enc_;
+    std::shared_ptr<encoder_config const> enc_cfg_;
     fields_base const* trailer_ = nullptr;
 
     std::uint32_t header_offset_ = 0;

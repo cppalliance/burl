@@ -43,7 +43,7 @@ static_assert(
 
 class message_writer_test
 {
-    static constexpr serializer::config cfg{
+    static inline serializer::config const cfg{
         .stage_buffer  = 64,
         .min_prepare   = 32,
         .min_direct    = 16,
@@ -73,44 +73,6 @@ class message_writer_test
         for(std::size_t i = 0; i != n; ++i)
             s[i] = static_cast<char>('0' + i % 64);
         return s;
-    }
-
-    // The byte-incrementing mock encoder from the serializer
-    // suite, without the footer machinery.
-    struct test_encoder : serializer::encoder
-    {
-        bool finished = false;
-
-        result
-        process(
-            capy::mutable_buffer out,
-            capy::const_buffer in,
-            bool more) override
-        {
-            auto* dst = static_cast<unsigned char*>(out.data());
-            auto* src =
-                static_cast<unsigned char const*>(in.data());
-            auto const n = (std::min)(out.size(), in.size());
-            for(std::size_t i = 0; i != n; ++i)
-                dst[i] = static_cast<unsigned char>(src[i] + 1);
-
-            result r{ n, n, {} };
-            if(!more && n == in.size())
-            {
-                finished = true;
-                r.ec = capy::error::eof;
-            }
-            return r;
-        }
-    };
-
-    static std::string
-    encoded(std::string_view s)
-    {
-        std::string r(s);
-        for(auto& c : r)
-            c = static_cast<char>(c + 1);
-        return r;
     }
 
     // A stream that accepts at most `budget` octets and then
@@ -437,9 +399,9 @@ public:
     void
     testWriteEofManyBuffers()
     {
-        // More caller buffers than fit in one gather window:
-        // the drive supplies window by window, with the end
-        // flag deferred until the last window.
+        // More caller buffers than the descriptor storage of
+        // the drive holds: frame() takes what fits, and the
+        // remainder is supplied again until the body is done.
         std::string const body = make_body(24);
 
         // identity
@@ -467,19 +429,20 @@ public:
                 ws.data(), std::string(req.buffer()) + body);
         }
 
-        // encoder: fed window by window, with eof deferred
-        // until the last window
+        // the drive presents the whole remaining body on every
+        // call, so the end flag is never deferred: a chunked
+        // message supplied entirely at eof is rewritten to
+        // Content-Length although the body spans more
+        // descriptors than one frame() call can return
         {
             auto req = make_request();
-            req.set(http::field::content_encoding, "test");
-            test_encoder enc;
             capy::test::write_stream ws;
 
             capy::test::run_blocking()([&]() -> capy::task<>
             {
                 serializer sr(cfg);
                 message_writer writer(&ws, &sr);
-                sr.start(&req, &enc);
+                sr.start(&req);
 
                 std::array<capy::const_buffer, 24> bufs;
                 for(std::size_t i = 0; i != bufs.size(); ++i)
@@ -491,12 +454,11 @@ public:
                 BOOST_TEST(sr.is_done());
             }());
 
-            BOOST_TEST(enc.finished);
             BOOST_TEST(!req.chunked());
-            BOOST_TEST_EQ(req.content_length().value(), 24u);
             BOOST_TEST_EQ(
-                ws.data(),
-                std::string(req.buffer()) + encoded(body));
+                req.content_length().value_or(0), body.size());
+            BOOST_TEST_EQ(
+                ws.data(), std::string(req.buffer()) + body);
         }
     }
 
@@ -559,37 +521,6 @@ public:
             BOOST_TEST_EQ(
                 ws.data(), std::string(req.buffer()) +
                     "5\r\nhello\r\n0\r\n\r\n");
-        }
-
-        // an installed encoder survives a small body once the
-        // header advertised Content-Encoding
-        {
-            auto req = make_request();
-            req.set(http::field::content_encoding, "test");
-            test_encoder enc;
-            capy::test::write_stream ws;
-
-            capy::test::run_blocking()([&]() -> capy::task<>
-            {
-                serializer sr(cfg);
-                message_writer writer(&ws, &sr);
-                sr.start(&req, &enc);
-
-                auto [ec1] = co_await writer.write_header();
-                BOOST_TEST(!ec1);
-
-                auto [ec2, n] = co_await writer.write_eof(
-                    capy::const_buffer("hello", 5));
-                BOOST_TEST(!ec2);
-                BOOST_TEST_EQ(n, 5u);
-                BOOST_TEST(sr.is_done());
-            }());
-
-            BOOST_TEST(enc.finished);
-            BOOST_TEST(req.chunked());
-            BOOST_TEST_EQ(
-                ws.data(), std::string(req.buffer()) +
-                    "5\r\nifmmp\r\n0\r\n\r\n");
         }
     }
 

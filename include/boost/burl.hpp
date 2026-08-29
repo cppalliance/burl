@@ -15,6 +15,7 @@
 #include <boost/burl/conversion.hpp>
 #include <boost/burl/cookie.hpp>
 #include <boost/burl/cookie_jar.hpp>
+#include <boost/burl/encoder_config.hpp>
 #include <boost/burl/error.hpp>
 #include <boost/burl/fields.hpp>
 #include <boost/burl/fields_base.hpp>
