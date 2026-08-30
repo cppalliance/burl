@@ -131,7 +131,7 @@ public:
         @return An awaitable yielding
         `(error_code,std::string_view)`.
 
-        @see @ref parser::body.
+        @see @ref parser::flatten_body.
     */
     capy::io_task<std::string_view>
     read_body()
@@ -268,12 +268,11 @@ read_header_(S& stream, parser& pr)
 {
     for(;;)
     {
-        std::error_code ec;
-        pr.parse_header(ec);
-        if(!ec)
+        auto const rv = pr.parse_header();
+        if(rv.has_value())
             co_return {};
-        if(ec != http::error::need_data)
-            co_return { std::error_code(ec) };
+        if(rv.error() != http::error::need_data)
+            co_return { rv.error() };
         if(auto [rec] = co_await refill_(stream, pr); rec)
             co_return { rec };
     }
@@ -286,10 +285,11 @@ read_body_(S& stream, parser& pr)
 {
     for(;;)
     {
-        std::error_code ec;
-        auto const sv = pr.flatten_body(ec);
-        if(ec != http::error::need_data)
-            co_return { std::error_code(ec), sv };
+        auto const r = pr.flatten_body();
+        if(r.has_value())
+            co_return { std::error_code(), *r };
+        if(r.error() != http::error::need_data)
+            co_return { r.error(), {} };
         if(auto [rec] = co_await refill_(stream, pr); rec)
             co_return { rec, {} };
     }
@@ -306,10 +306,11 @@ read_some_(
 {
     for(;;)
     {
-        std::error_code ec;
-        auto const n = pr.read_some(buffers, ec);
-        if(ec != http::error::need_data)
-            co_return { std::error_code(ec), n };
+        auto const r = pr.read_some(buffers);
+        if(r.has_value())
+            co_return { std::error_code(), *r };
+        if(r.error() != http::error::need_data)
+            co_return { r.error(), 0 };
 
         if(auto const lim = pr.direct_capacity(); lim != 0)
         {
@@ -365,10 +366,11 @@ pull_(
 {
     for(;;)
     {
-        std::error_code ec;
-        auto const bufs = pr.pull(dest, ec);
-        if(ec != http::error::need_data)
-            co_return { std::error_code(ec), bufs };
+        auto const r = pr.pull(dest);
+        if(r.has_value())
+            co_return { std::error_code(), *r };
+        if(r.error() != http::error::need_data)
+            co_return { r.error(), {} };
         if(auto [rec] = co_await refill_(stream, pr); rec)
             co_return { rec, {} };
     }

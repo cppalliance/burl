@@ -15,6 +15,7 @@
 #include <boost/burl/response_head_base.hpp>
 
 #include <boost/http/error.hpp>
+#include <boost/system/result.hpp>
 #include <system_error>
 
 #include <cstdint>
@@ -246,20 +247,17 @@ public:
         @param n The total number of bytes received at
         the parse base.
 
-        @param ec Set to:
-        - Zero if the header completed and its
-        payload framing is valid.
+        @return Nothing if the header completed and
+        its payload framing is valid, otherwise:
         - @ref http::error::need_data if more input is
         required and room remains below @ref ceiling.
         - @ref http::error::in_place_overflow if more
         input is required but no room remains.
-        - A syntax, framing, or limit error otherwise.
+        - A syntax, framing, or limit error.
     */
     BOOST_BURL_DECL
-    void
-    parse(
-        std::size_t n,
-        std::error_code& ec) noexcept;
+    system::result<void, std::error_code>
+    parse(std::size_t n) noexcept;
 
     /** Return the limits enforced by the parser.
 

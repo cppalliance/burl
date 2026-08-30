@@ -18,6 +18,7 @@
 
 #include <boost/capy/buffers.hpp>
 #include <boost/http/metadata.hpp>
+#include <boost/system/result.hpp>
 
 #include <array>
 #include <cstddef>
@@ -87,8 +88,7 @@ struct decoder;
 
     @par Errors
 
-    Every parsing operation reports through an
-    `error_code` out parameter:
+    Errors which ask for more input are:
 
     @li @ref http::error::need_data — fill @ref
         prepare, call @ref commit, and try again.
@@ -100,9 +100,6 @@ struct decoder;
         required but @ref commit_eof was called.
     @li @ref http::error::end_of_stream — the stream
         closed cleanly before the message began.
-
-    An operation reports either transferred octets
-    or an error, never both.
 
     @see
         @ref message_reader,
@@ -345,11 +342,12 @@ public:
         @par Preconditions
         @ref start has been called.
 
-        @param ec Set to the error, if any occurred.
+        @return Nothing on success, otherwise the
+        error.
     */
     BOOST_BURL_DECL
-    void
-    parse_header(std::error_code& ec);
+    system::result<void, std::error_code>
+    parse_header();
 
     /** Flatten the body in place and return it.
 
@@ -363,20 +361,13 @@ public:
         @par Preconditions
         @ref start has been called.
 
-        @param ec Set to the error, if any occurred.
-        Set to @ref http::error::need_data until the
-        complete body is buffered, or to
-        @ref http::error::in_place_overflow if the
-        body does not fit in the buffer.
+        @return A view of the complete body,
+        otherwise the error.
 
-        @return A view of the body octets flattened
-        so far, valid until the parser is modified.
-        The body is complete when no error is
-        reported.
     */
     BOOST_BURL_DECL
-    std::string_view
-    flatten_body(std::error_code& ec);
+    system::result<std::string_view, std::error_code>
+    flatten_body();
 
     /** Copy body octets into caller-supplied memory.
 
@@ -390,17 +381,13 @@ public:
 
         @param buffers The destination.
 
-        @param ec Set to the error, if any occurred.
-        Set to `capy::error::eof` once the body is
-        complete.
-
-        @return The number of octets written.
+        @return The number of octets written,
+        otherwise the error. `capy::error::eof`
+        once the body is complete.
     */
     template<capy::MutableBufferSequence MB>
-    std::size_t
-    read_some(
-        MB const& buffers,
-        std::error_code& ec);
+    system::result<std::size_t, std::error_code>
+    read_some(MB const& buffers);
 
     /** Return available body octets in place.
 
@@ -414,20 +401,18 @@ public:
 
         @param dest The descriptors to fill.
 
-        @param ec Set to the error, if any occurred.
-        Set to `capy::error::eof` once the body is
-        complete.
-
         @return The filled prefix of `dest`, valid
-        until the parser is modified.
+        until the parser is modified, otherwise the
+        error. `capy::error::eof` once the body is
+        complete.
 
         @see @ref consume.
     */
     BOOST_BURL_DECL
-    std::span<capy::const_buffer>
-    pull(
-        std::span<capy::const_buffer> dest,
-        std::error_code& ec);
+    system::result<
+        std::span<capy::const_buffer>,
+        std::error_code>
+    pull(std::span<capy::const_buffer> dest);
 
     /** Release body octets returned by @ref pull.
 
@@ -460,14 +445,12 @@ public:
 
         @param f The container to append to.
 
-        @param ec Set to the error, if any
-        occurred.
+        @return Nothing on success, otherwise the
+        error.
     */
     BOOST_BURL_DECL
-    void
-    parse_trailer(
-        fields_base& f,
-        std::error_code& ec);
+    system::result<void, std::error_code>
+    parse_trailer(fields_base& f);
 
 protected:
     BOOST_BURL_DECL
@@ -526,15 +509,11 @@ private:
     flatten_chunks_();
 
     BOOST_BURL_DECL
-    std::size_t
-    read_some_(
-        capy::mutable_buffer dest,
-        std::error_code& ec);
+    system::result<std::size_t, std::error_code>
+    read_some_(capy::mutable_buffer dest);
 
-    std::size_t
-    decode_some_(
-        capy::mutable_buffer dest,
-        std::error_code& ec);
+    system::result<std::size_t, std::error_code>
+    decode_some_(capy::mutable_buffer dest);
 
     std::unique_ptr<char[]> buf_;
     head_parser hp_;
@@ -559,11 +538,9 @@ private:
 //------------------------------------------------
 
 template<capy::MutableBufferSequence MB>
-std::size_t
+system::result<std::size_t, std::error_code>
 parser::
-read_some(
-    MB const& buffers,
-    std::error_code& ec)
+read_some(MB const& buffers)
 {
     std::size_t n = 0;
     auto const end = capy::end(buffers);
@@ -572,16 +549,16 @@ read_some(
         capy::mutable_buffer const b(*it);
         if(b.size() == 0)
             continue;
-        auto const m = read_some_(b, ec);
-        if(ec)
+        auto const r = read_some_(b);
+        if(r.has_error())
         {
+            if(n == 0)
+                return r;
             // reported on the next call
-            if(n != 0)
-                ec = {};
             break;
         }
-        n += m;
-        if(m < b.size())
+        n += *r;
+        if(*r < b.size())
             break;
     }
     return n;

@@ -305,13 +305,11 @@ rebase(char* base) noexcept
     h.buf_ = base + h.prefix_;
 }
 
-void
+system::result<void, std::error_code>
 head_parser::
-parse(
-    std::size_t n,
-    std::error_code& ec) noexcept
+parse(std::size_t n) noexcept
 {
-    ec.clear();
+    std::error_code ec;
     auto const& h  = h_();
     char const* it = h.buf_ + h.size_;
     BOOST_ASSERT(n >= std::size_t(h.prefix_) + h.size_);
@@ -362,6 +360,10 @@ parse(
 
     if(ec == error::need_data && end >= ceiling())
         ec = error::in_place_overflow;
+
+    if(ec)
+        return ec;
+    return {};
 }
 
 void

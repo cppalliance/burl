@@ -345,23 +345,19 @@ encode_(source& src, std::error_code& ec)
     }
 }
 
-bool
+system::result<bool, std::error_code>
 serializer::
 ingest_(
     source& src,
-    bool more,
-    std::error_code& ec)
+    bool more)
 {
     auto const sealing = !more && !sealed_;
 
     if(chunked_())
     {
         if(sealed_ && !enc_ && src.remain != 0)
-        {
-            ec = make_error_code(
+            return make_error_code(
                 std::errc::invalid_argument);
-            return false;
-        }
     }
     else if(!enc_)
     {
@@ -371,11 +367,9 @@ ingest_(
             (!to_eof_() && sealing && have < owed_))
         {
             if(to_eof_())
-                ec = make_error_code(
+                return make_error_code(
                     std::errc::invalid_argument);
-            else
-                ec = error::body_size_mismatch;
-            return false;
+            return error::body_size_mismatch;
         }
     }
 
@@ -413,12 +407,13 @@ ingest_(
     }
     else if(enc_)
     {
+        std::error_code ec;
         encode_(src, ec);
         if(ec)
         {
             enc_  = nullptr;
             done_ = true;
-            return false;
+            return ec;
         }
 
         auto const finished = (enc_ == nullptr);
@@ -428,8 +423,7 @@ ingest_(
             if(encoded > owed_ || (finished && encoded != owed_))
             {
                 done_ = true;
-                ec = error::body_size_mismatch;
-                return false;
+                return error::body_size_mismatch;
             }
         }
         auto const flush = finished || enc_out_.capacity() == 0;
@@ -519,24 +513,20 @@ gather_(
     return { dest.data(), n };
 }
 
-std::span<capy::const_buffer const>
+system::result<
+    std::span<capy::const_buffer const>,
+    std::error_code>
 serializer::
 frame_(
     std::span<capy::const_buffer> dest,
     source& src,
-    bool more,
-    std::error_code& ec)
+    bool more)
 {
     BOOST_ASSERT(msg_ != nullptr);
 
-    ec = {};
-
     if(done_ && !settled_())
-    {
-        ec = make_error_code(
+        return make_error_code(
             std::errc::state_not_recoverable);
-        return {};
-    }
 
     BOOST_ASSERT(input_digested_ == 0);
 
@@ -545,9 +535,10 @@ frame_(
     bool flush_body = true;
     if(owed_ == 0 || !chunked_())
     {
-        flush_body = ingest_(src, more, ec);
-        if(ec)
-            return {};
+        auto const r = ingest_(src, more);
+        if(r.has_error())
+            return r.error();
+        flush_body = *r;
     }
 
     auto const out = gather_(
@@ -558,15 +549,12 @@ frame_(
         if(!more && owed_ != 0)
         {
             if(to_eof_() || chunked_())
-                ec = make_error_code(
+                return make_error_code(
                     std::errc::invalid_argument);
-            else
-                ec = error::body_size_mismatch;
+            return error::body_size_mismatch;
         }
-        else if(sealed_)
-        {
+        if(sealed_)
             done_ = settled_();
-        }
     }
 
     return out;

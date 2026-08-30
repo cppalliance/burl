@@ -85,9 +85,7 @@ class head_parser_test
         BOOST_ASSERT(base + size + s.size() <= pr.ceiling());
         std::memcpy(base + size, s.data(), s.size());
         size += s.size();
-        std::error_code ec;
-        pr.parse(size, ec);
-        return ec;
+        return pr.parse(size).error();
     }
 
     // one shot into a parser with nothing in it yet
@@ -121,9 +119,7 @@ public:
         std::memcpy(buf_, msg.data(), msg.size());
         std::memcpy(buf_ + msg.size(), body.data(), body.size());
         auto const fed = msg.size() + body.size();
-        std::error_code ec;
-        pr.parse(fed, ec);
-        BOOST_TEST(!ec);
+        BOOST_TEST(pr.parse(fed).has_value());
 
         auto const& h = pr.request_head();
         BOOST_TEST(h.method() == http::method::get);
@@ -172,8 +168,7 @@ public:
         BOOST_TEST(pr.ceiling() == buf_ + sizeof(buf_) - reserve);
 
         // parsing again is a no-op success
-        pr.parse(fed, ec);
-        BOOST_TEST(!ec);
+        BOOST_TEST(pr.parse(fed).has_value());
     }
 
     void
@@ -186,16 +181,13 @@ public:
             "\r\n";
 
         head_parser pr(true, buf_, sizeof(buf_));
-        std::error_code ec;
         std::size_t n = 0;
         for(char const c : msg)
         {
-            pr.parse(n, ec);
-            BOOST_TEST(ec == http::error::need_data);
+            BOOST_TEST(pr.parse(n).error() == http::error::need_data);
             buf_[n++] = c;
         }
-        pr.parse(n, ec);
-        BOOST_TEST(!ec);
+        BOOST_TEST(pr.parse(n).has_value());
 
         auto const& h = pr.request_head();
         BOOST_TEST(h.method() == http::method::post);
@@ -417,19 +409,16 @@ public:
                 "\r\n";
 
             head_parser pr(true, buf_, sizeof(buf_));
-            std::error_code ec;
             // bytes are appended one at a time;
             // those already parsed are resolved in
             // place and never rewritten
             std::size_t n = 0;
             for(char const c : msg)
             {
-                pr.parse(n, ec);
-                BOOST_TEST(ec == http::error::need_data);
+                BOOST_TEST(pr.parse(n).error() == http::error::need_data);
                 buf_[n++] = c;
             }
-            pr.parse(n, ec);
-            BOOST_TEST(!ec);
+            BOOST_TEST(pr.parse(n).has_value());
             BOOST_TEST_EQ(pr.request_head().at("X"), "1   continued");
         }
 
@@ -596,8 +585,7 @@ public:
             std::error_code ec = feed(pr, n, msg);
             BOOST_TEST(ec == e);
             // errors are sticky
-            pr.parse(n, ec);
-            BOOST_TEST(ec == e);
+            BOOST_TEST(pr.parse(n).error() == e);
         };
 
         // bare LF
@@ -891,7 +879,7 @@ public:
                 std::error_code ec;
                 for(std::size_t n = 0;; ++n)
                 {
-                    pr.parse(n, ec);
+                    ec = pr.parse(n).error();
                     if(ec != http::error::need_data ||
                         n == s.size())
                         break;
@@ -982,12 +970,9 @@ public:
 
         head_parser pr(true, tiny, sizeof(tiny));
         BOOST_TEST(pr.ceiling() == tiny); // default max_fields = 100
-        std::error_code ec;
-        pr.parse(0, ec);
-        BOOST_TEST(ec == http::error::in_place_overflow);
+        BOOST_TEST(pr.parse(0).error() == http::error::in_place_overflow);
         // the error is derived again on request
-        pr.parse(0, ec);
-        BOOST_TEST(ec == http::error::in_place_overflow);
+        BOOST_TEST(pr.parse(0).error() == http::error::in_place_overflow);
 
         // with fitting limits the same buffer works
         head_parser pr2(true, tiny, sizeof(tiny), { .max_fields = 3 });
@@ -1055,12 +1040,10 @@ public:
         // limits with it
         header_limits const lim{ .max_fields = 4 };
         head_parser pr(true, buf, sizeof(buf), lim);
-        std::error_code ec;
         std::size_t n = 0;
         std::memcpy(buf, msg.data(), 21);
         n = 21;
-        pr.parse(n, ec);
-        BOOST_TEST(ec == http::error::need_data);
+        BOOST_TEST(pr.parse(n).error() == http::error::need_data);
 
         // the new object continues over the same
         // bytes
@@ -1090,8 +1073,7 @@ public:
         // no room to receive anything
         head_parser pr3;
         BOOST_TEST(pr3.ceiling() == base_of(pr3));
-        pr3.parse(0, ec);
-        BOOST_TEST(ec == http::error::in_place_overflow);
+        BOOST_TEST(pr3.parse(0).error() == http::error::in_place_overflow);
     }
 
     void
@@ -1149,9 +1131,7 @@ public:
         std::memmove(buf, lo.data(), lo.size());
         pr.reset(buf);
         n = lo.size();
-        std::error_code ec;
-        pr.parse(n, ec);
-        BOOST_TEST(! ec);
+        BOOST_TEST(pr.parse(n).has_value());
         BOOST_TEST_EQ(pr.request_head().target(), "/b");
         BOOST_TEST_EQ(leftovers(pr, n).size(), 0u);
     }
@@ -1185,9 +1165,7 @@ public:
             {
                 head_parser pr(true, raw, n, lim);
                 BOOST_TEST(pr.ceiling() == raw);
-                std::error_code ec;
-                pr.parse(0, ec);
-                BOOST_TEST(ec == http::error::in_place_overflow);
+                BOOST_TEST(pr.parse(0).error() == http::error::in_place_overflow);
             }
         }
 
@@ -1201,8 +1179,7 @@ public:
             auto ec = feed(pr, n, msg.substr(0, 24));
             BOOST_TEST(ec == http::error::in_place_overflow);
             // and stays so
-            pr.parse(n, ec);
-            BOOST_TEST(ec == http::error::in_place_overflow);
+            BOOST_TEST(pr.parse(n).error() == http::error::in_place_overflow);
         }
     }
 
@@ -1224,7 +1201,7 @@ public:
         fed = 0;
         for(;;)
         {
-            pr.parse(fed, ec);
+            ec = pr.parse(fed).error();
             if(ec != http::error::need_data)
                 break;
             auto const room = static_cast<std::size_t>(
@@ -1683,7 +1660,7 @@ public:
             std::error_code ec;
             for(;;)
             {
-                pr.parse(held, ec);
+                ec = pr.parse(held).error();
                 if(ec != http::error::need_data)
                     break;
                 auto* const at = base_of(pr) + held;

@@ -18,6 +18,7 @@
 
 #include <boost/assert.hpp>
 #include <boost/capy/buffers.hpp>
+#include <boost/system/result.hpp>
 
 #include <cstddef>
 #include <cstdint>
@@ -403,21 +404,21 @@ public:
         @param more `true` if further body octets
         will be supplied.
 
-        @param ec Set to the error, if any.
-
         @return The prefix of `dest` containing
-       the descriptors, which may be empty.
+        the descriptors, which may be empty,
+        otherwise the error.
     */
     template<capy::ConstBufferSequence CB>
-    std::span<capy::const_buffer const>
+    system::result<
+        std::span<capy::const_buffer const>,
+        std::error_code>
     frame(
         std::span<capy::const_buffer> dest,
         CB const& buffers,
-        bool more,
-        std::error_code& ec)
+        bool more)
     {
         source_of<CB> src(buffers);
-        return frame_(dest, src, more, ec);
+        return frame_(dest, src, more);
     }
 
     /** Obtain buffers for the next serialized octets.
@@ -434,19 +435,19 @@ public:
         @param more `true` if body octets will be
         supplied later.
 
-        @param ec Set to the error, if any.
-
-        @return The prefix of `dest` containing the
-        descriptors, which may be empty.
+        @return The prefix of `dest` containing
+        the descriptors, which may be empty,
+        otherwise the error.
     */
-    std::span<capy::const_buffer const>
+    system::result<
+        std::span<capy::const_buffer const>,
+        std::error_code>
     frame(
         std::span<capy::const_buffer> dest,
-        bool more,
-        std::error_code& ec)
+        bool more)
     {
         source src;
-        return frame_(dest, src, more, ec);
+        return frame_(dest, src, more);
     }
 
     /** Release transferred octets.
@@ -534,12 +535,13 @@ private:
     };
 
     BOOST_BURL_DECL
-    std::span<capy::const_buffer const>
+    system::result<
+        std::span<capy::const_buffer const>,
+        std::error_code>
     frame_(
         std::span<capy::const_buffer> dest,
         source& src,
-        bool more,
-        std::error_code& ec);
+        bool more);
 
     bool
     chunked_() const noexcept;
@@ -575,11 +577,10 @@ private:
         source& src,
         std::error_code& ec);
 
-    bool
+    system::result<bool, std::error_code>
     ingest_(
         source& src,
-        bool more,
-        std::error_code& ec);
+        bool more);
 
     std::span<capy::const_buffer const>
     gather_(

@@ -52,9 +52,7 @@ public:
             "\r\n"
             "hello");
 
-        std::error_code ec;
-        pr.parse_header(ec);
-        BOOST_TEST(!ec);
+        BOOST_TEST(!pr.parse_header().has_error());
         BOOST_TEST(pr.got_header());
 
         BOOST_TEST(pr.get().method() == http::method::get);
@@ -62,14 +60,13 @@ public:
 
         char buf[8];
         capy::mutable_buffer mb(buf, sizeof(buf));
-        auto n = pr.read_some(mb, ec);
-        BOOST_TEST(!ec);
-        BOOST_TEST_EQ(n, 5);
-        BOOST_TEST(std::string_view(buf, n) == "hello");
+        auto r = pr.read_some(mb);
+        BOOST_TEST(r.has_value());
+        BOOST_TEST_EQ(*r, 5);
+        BOOST_TEST(std::string_view(buf, *r) == "hello");
 
-        n = pr.read_some(mb, ec);
-        BOOST_TEST(ec == capy::cond::eof);
-        BOOST_TEST_EQ(n, 0);
+        r = pr.read_some(mb);
+        BOOST_TEST(r.error() == capy::cond::eof);
     }
 
     void

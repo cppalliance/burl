@@ -261,19 +261,15 @@ drive_(
     std::size_t total = 0;
     for(;;)
     {
-        std::error_code ec;
-        auto const bufs = sr.frame(
-            dest, cb.data(), more, ec);
-        auto [wec, n] = co_await stream.write_some(bufs);
+        auto const fr = sr.frame(dest, cb.data(), more);
+        if(fr.has_error())
+            co_return { fr.error(), total };
+        auto [ec, n] = co_await stream.write_some(*fr);
         auto const k = sr.consume(n);
         cb.consume(k);
         total += k;
-        if(ec)
+        if(ec || n == 0)
             co_return { ec, total };
-        if(wec)
-            co_return { wec, total };
-        if(bufs.empty())
-            co_return { std::error_code(), total };
     }
 }
 

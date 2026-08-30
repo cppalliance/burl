@@ -171,8 +171,7 @@ struct test_parser : parser
     {
         for(;;)
         {
-            std::error_code ec;
-            parse_header(ec);
+            auto const ec = parse_header().error();
             if(ec != http::error::need_data)
                 return ec;
             refill();
@@ -188,10 +187,11 @@ struct test_parser : parser
 
         for(;;)
         {
-            std::error_code ec;
-            auto const sv = flatten_body(ec);
-            if(ec != http::error::need_data)
-                return { ec, sv };
+            auto const r = flatten_body();
+            if(r.has_value())
+                return { std::error_code(), *r };
+            if(r.error() != http::error::need_data)
+                return { r.error(), {} };
             refill();
         }
     }
@@ -206,10 +206,11 @@ struct test_parser : parser
 
         for(;;)
         {
-            std::error_code ec;
-            auto const n = parser::read_some(buffers, ec);
-            if(ec != http::error::need_data)
-                return { ec, n };
+            auto const r = parser::read_some(buffers);
+            if(r.has_value())
+                return { std::error_code(), *r };
+            if(r.error() != http::error::need_data)
+                return { r.error(), 0 };
 
             if(auto const lim = direct_capacity(); lim != 0)
             {
@@ -253,10 +254,11 @@ struct test_parser : parser
 
         for(;;)
         {
-            std::error_code ec;
-            auto const bufs = parser::pull(dest, ec);
-            if(ec != http::error::need_data)
-                return { ec, bufs };
+            auto const r = parser::pull(dest);
+            if(r.has_value())
+                return { std::error_code(), *r };
+            if(r.error() != http::error::need_data)
+                return { r.error(), {} };
             refill();
         }
     }
@@ -553,9 +555,7 @@ public:
         pr.start();
         for(int i = 0; i != 5; ++i)
         {
-            std::error_code ec;
-            pr.parse_header(ec);
-            BOOST_TEST(ec == http::error::need_data);
+            BOOST_TEST(pr.parse_header().error() == http::error::need_data);
             BOOST_TEST(!pr.got_header());
             pr.refill();
         }
@@ -818,15 +818,15 @@ public:
             "hel");
 
         pr.start();
-        // the octets which did arrive are still flattened and
-        // viewable; the error says the body is not all there
+        // the whole body can never arrive: the error is
+        // reported and no view is delivered
         auto [ec, body] = pr.read_body();
         BOOST_TEST(ec == http::error::incomplete);
-        BOOST_TEST(body == "hel");
+        BOOST_TEST(body.empty());
 
         auto [ec2, body2] = pr.read_body();
         BOOST_TEST(ec2 == http::error::incomplete);
-        BOOST_TEST(body2 == "hel");
+        BOOST_TEST(body2.empty());
     }
 
     void
@@ -940,11 +940,11 @@ public:
 
         pr.start();
         {
-            // the buffer cannot hold the whole body; what fits is
-            // still flattened and viewable
+            // the buffer cannot hold the whole body, so
+            // nothing is delivered
             auto [ec, part] = pr.read_body();
             BOOST_TEST(ec == http::error::in_place_overflow);
-            BOOST_TEST(part == std::string_view(body).substr(0, 25));
+            BOOST_TEST(part.empty());
         }
         // delivery-side overflow is transient: streaming reads
         // drain the whole message (read_body did not consume)
@@ -1218,9 +1218,7 @@ public:
         BOOST_TEST(pr.has_buffered_data());
 
         fields f;
-        std::error_code tec;
-        pr.parse_trailer(f, tec);
-        BOOST_TEST(!tec);
+        BOOST_TEST(pr.parse_trailer(f).has_value());
         BOOST_TEST_EQ(f.size(), 3u);
 
         // insertion order, known-field resolution, and
@@ -1233,8 +1231,7 @@ public:
         BOOST_TEST(*++it == "2");
 
         // each call appends again
-        pr.parse_trailer(f, tec);
-        BOOST_TEST(!tec);
+        BOOST_TEST(pr.parse_trailer(f).has_value());
         BOOST_TEST_EQ(f.size(), 6u);
     }
 
@@ -1262,9 +1259,7 @@ public:
         BOOST_TEST(body == "hello world");
 
         fields f;
-        std::error_code tec;
-        pr.parse_trailer(f, tec);
-        BOOST_TEST(!tec);
+        BOOST_TEST(pr.parse_trailer(f).has_value());
         BOOST_TEST_EQ(f.size(), 1u);
         BOOST_TEST(f.at("X-Trailer") == "v");
 
@@ -1306,9 +1301,7 @@ public:
             BOOST_TEST(!ec);
             BOOST_TEST(pr.got_body());
             fields f;
-            std::error_code tec;
-            pr.parse_trailer(f, tec);
-            BOOST_TEST(tec == http::error::incomplete);
+            BOOST_TEST(pr.parse_trailer(f).error() == http::error::incomplete);
             BOOST_TEST_EQ(f.size(), 0u);
         }
 
@@ -1330,9 +1323,7 @@ public:
         BOOST_TEST(got == "abc");
 
         fields f;
-        std::error_code tec;
-        pr.parse_trailer(f, tec);
-        BOOST_TEST(!tec);
+        BOOST_TEST(pr.parse_trailer(f).has_value());
         BOOST_TEST_EQ(f.size(), 1u);
         BOOST_TEST(f.at("X-T") == "v");
     }
@@ -1356,9 +1347,7 @@ public:
             BOOST_TEST(!pr.has_buffered_data());
 
             fields f;
-            std::error_code tec;
-            pr.parse_trailer(f, tec);
-            BOOST_TEST(!tec);
+            BOOST_TEST(pr.parse_trailer(f).has_value());
             BOOST_TEST(f.empty());
         }
         {
@@ -1376,9 +1365,7 @@ public:
             BOOST_TEST(body == "hello");
 
             fields f;
-            std::error_code tec;
-            pr.parse_trailer(f, tec);
-            BOOST_TEST(!tec);
+            BOOST_TEST(pr.parse_trailer(f).has_value());
             BOOST_TEST(f.empty());
         }
     }
@@ -1402,16 +1389,13 @@ public:
         BOOST_TEST(!ec);
 
         fields f;
-        std::error_code tec;
-        pr.parse_trailer(f, tec);
-        BOOST_TEST(!tec);
+        BOOST_TEST(pr.parse_trailer(f).has_value());
         BOOST_TEST_EQ(f.size(), 2u);
         BOOST_TEST(f.at("X-A") == "1   fold");
         BOOST_TEST(f.at("X-B") == "2");
 
         // the in-place unfolding is stable under re-parsing
-        pr.parse_trailer(f, tec);
-        BOOST_TEST(!tec);
+        BOOST_TEST(pr.parse_trailer(f).has_value());
         BOOST_TEST_EQ(f.size(), 4u);
         BOOST_TEST(f.at("X-A") == "1   fold");
     }
@@ -1439,9 +1423,7 @@ public:
         BOOST_TEST(body == "hello");
 
         fields f;
-        std::error_code tec;
-        pr.parse_trailer(f, tec);
-        BOOST_TEST(!tec);
+        BOOST_TEST(pr.parse_trailer(f).has_value());
         BOOST_TEST_EQ(f.size(), 2u);
         BOOST_TEST(f.at("X-A") == "1");
         BOOST_TEST(f.at("X-B") == "2");
@@ -1473,8 +1455,7 @@ public:
             BOOST_TEST(!ec);
 
             fields f;
-            std::error_code tec;
-            pr.parse_trailer(f, tec);
+            auto const tec = pr.parse_trailer(f).error();
             if(over)
             {
                 BOOST_TEST(tec == http::error::field_size_limit);
@@ -1513,9 +1494,7 @@ public:
             BOOST_TEST(pr.got_body());
 
             fields f;
-            std::error_code tec;
-            pr.parse_trailer(f, tec);
-            BOOST_TEST(tec == http::error::bad_field_name);
+            BOOST_TEST(pr.parse_trailer(f).error() == http::error::bad_field_name);
             BOOST_TEST_EQ(f.size(), 1u);
             BOOST_TEST(f.at("X-A") == "v");
 
@@ -1542,9 +1521,7 @@ public:
             BOOST_TEST(!ec);
 
             fields f;
-            std::error_code tec;
-            pr.parse_trailer(f, tec);
-            BOOST_TEST(tec == http::error::bad_line_ending);
+            BOOST_TEST(pr.parse_trailer(f).error() == http::error::bad_line_ending);
             BOOST_TEST(f.empty());
         }
     }
@@ -1569,13 +1546,11 @@ public:
         // the trailer remains available for a retry
         char small[8];
         static_fields sf(small, sizeof(small));
-        std::error_code tec;
         BOOST_TEST_THROWS(
-            pr.parse_trailer(sf, tec), std::length_error);
+            pr.parse_trailer(sf), std::length_error);
 
         fields f;
-        pr.parse_trailer(f, tec);
-        BOOST_TEST(!tec);
+        BOOST_TEST(pr.parse_trailer(f).has_value());
         BOOST_TEST_EQ(f.size(), 1u);
         BOOST_TEST(f.at("X-Trailer") == "value");
     }
@@ -1651,15 +1626,12 @@ public:
             }
 
             fields f;
-            std::error_code tec;
-            pr.parse_trailer(f, tec);
-            BOOST_TEST(!tec);
+            BOOST_TEST(pr.parse_trailer(f).has_value());
             BOOST_TEST_EQ(f.size(), 1u);
             BOOST_TEST(f.at("X-T") == value);
 
             // the rearrangement preserves the section
-            pr.parse_trailer(f, tec);
-            BOOST_TEST(!tec);
+            BOOST_TEST(pr.parse_trailer(f).has_value());
             BOOST_TEST_EQ(f.size(), 2u);
 
             BOOST_TEST(pr.has_buffered_data() ==
@@ -2247,16 +2219,15 @@ public:
         pr.start();
         std::string got;
         {
-            // the chunks flattened before the overflow are
-            // viewable; the rest of the body is not
+            // the whole body cannot be flattened, so nothing
+            // is delivered
             auto [ec, part] = pr.read_body();
             BOOST_TEST(ec == http::error::in_place_overflow);
-            BOOST_TEST(part == "hello");
+            BOOST_TEST(part.empty());
         }
         // the switch to streaming first drains the bytes parked
-        // in the decode buffer (the same bytes the partial view
-        // exposed — read_body does not consume), then continues
-        // with the wire
+        // in the decode buffer by the failed flatten (read_body
+        // does not consume), then continues with the wire
         for(;;)
         {
             char buf[4];
@@ -3258,11 +3229,11 @@ public:
         BOOST_TEST(!hec);
         pr.set_decoder(dec);
 
-        // the in-place body cannot be completed; the output
-        // produced before the failure is still viewable
+        // the in-place body cannot be completed: the failure
+        // is reported and no view is delivered
         auto [ec, body] = pr.read_body();
         BOOST_TEST(ec == capy::error::test_failure);
-        BOOST_TEST(body == decoded("hel"));
+        BOOST_TEST(body.empty());
     }
 
     void
@@ -3378,9 +3349,7 @@ public:
         BOOST_TEST(pr.got_body());
 
         fields f;
-        std::error_code tec;
-        pr.parse_trailer(f, tec);
-        BOOST_TEST(!tec);
+        BOOST_TEST(pr.parse_trailer(f).has_value());
         BOOST_TEST_EQ(f.size(), 1u);
         BOOST_TEST(f.at("X-T") == "v");
     }
@@ -3662,11 +3631,11 @@ public:
 
         std::string got;
         {
-            // what the decode buffer holds is viewable; the rest
-            // of the output has nowhere to go
+            // the rest of the output has nowhere to go, so
+            // nothing is delivered
             auto [ec, part] = pr.read_body();
             BOOST_TEST(ec == http::error::in_place_overflow);
-            BOOST_TEST(part == decoded("hell"));
+            BOOST_TEST(part.empty());
         }
         for(;;)
         {

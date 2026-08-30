@@ -203,16 +203,15 @@ class serializer_test
         {
             capy::const_buffer const b{
                 body.data(), body.size() };
-            std::error_code ec;
             capy::const_buffer dest[dest_n];
-            auto const bufs = sr.frame(dest, b, more, ec);
-            if(bufs.empty())
+            auto const r = sr.frame(dest, b, more);
+            if(r.has_error() || r->empty())
             {
                 body.remove_prefix(sr.consume(0));
-                return ec;
+                return r.error();
             }
             std::size_t n = 0;
-            for(auto cb : bufs)
+            for(auto cb : *r)
             {
                 auto const k = (std::min)(step - n, cb.size());
                 wire.append(
@@ -282,16 +281,15 @@ class serializer_test
     {
         for(;;)
         {
-            std::error_code ec;
             capy::const_buffer dest[dest_n];
-            auto const bufs = sr.frame(dest, more, ec);
-            if(bufs.empty())
+            auto const r = sr.frame(dest, more);
+            if(r.has_error() || r->empty())
             {
                 BOOST_TEST_EQ(sr.consume(0), 0u);
-                return ec;
+                return r.error();
             }
             std::size_t n = 0;
-            for(auto cb : bufs)
+            for(auto cb : *r)
             {
                 wire.append(
                     static_cast<char const*>(cb.data()),
@@ -354,10 +352,8 @@ public:
             capy::make_buffer(b2) };
 
         std::string wire;
-        std::error_code ec;
         capy::const_buffer dest[dest_n];
-        auto const out = sr.frame(dest, bufs, false, ec);
-        BOOST_TEST(!ec);
+        auto const out = sr.frame(dest, bufs, false).value();
         BOOST_TEST(!out.empty());
 
         std::size_t n = 0;
@@ -790,11 +786,9 @@ public:
         std::string_view rem(body);
         capy::const_buffer const b{
             rem.data(), rem.size() };
-        std::error_code ec;
         capy::const_buffer dest[dest_n];
 
-        auto out = sr.frame(dest, b, true, ec);
-        BOOST_TEST(!ec);
+        auto out = sr.frame(dest, b, true).value();
         BOOST_TEST_EQ(out.size(), 2u); // header + body, no copy
 
         // the wire takes the header and all but 4 octets
@@ -810,8 +804,7 @@ public:
         // the 4-octet remainder is absorbed, not re-framed
         capy::const_buffer const b2{
             rem.data(), rem.size() };
-        out = sr.frame(dest, b2, true, ec);
-        BOOST_TEST(!ec);
+        out = sr.frame(dest, b2, true).value();
         BOOST_TEST(out.empty());
         BOOST_TEST_EQ(sr.consume(0), rem.size());
 
@@ -835,10 +828,8 @@ public:
             body.data(), body.size() };
         auto const flatten = [&]
         {
-            std::error_code ec;
             capy::const_buffer dest[dest_n];
-            auto const bufs = sr.frame(dest, b, true, ec);
-            BOOST_TEST(!ec);
+            auto const bufs = sr.frame(dest, b, true).value();
             std::string s;
             for(auto cb : bufs)
                 s.append(
@@ -875,10 +866,8 @@ public:
         {
             capy::const_buffer const b{
                 rem.data(), rem.size() };
-            std::error_code ec;
             capy::const_buffer dest[dest_n];
-            auto const bufs = sr.frame(dest, b, true, ec);
-            BOOST_TEST(!ec);
+            auto const bufs = sr.frame(dest, b, true).value();
             BOOST_TEST(!bufs.empty());
 
             // take the header and half the chunk, then stop, as
@@ -925,10 +914,8 @@ public:
         {
             capy::const_buffer const b{
                 rem.data(), rem.size() };
-            std::error_code ec;
             capy::const_buffer dest[dest_n];
-            auto const bufs = sr.frame(dest, b, true, ec);
-            BOOST_TEST(!ec);
+            auto const bufs = sr.frame(dest, b, true).value();
 
             auto const k =
                 req.buffer().size() + 4 + body.size() / 2;
@@ -972,10 +959,8 @@ public:
         {
             capy::const_buffer const b{
                 body.data(), body.size() };
-            std::error_code ec;
             capy::const_buffer dest[dest_n];
-            auto const bufs = sr.frame(dest, b, true, ec);
-            BOOST_TEST(!ec);
+            auto const bufs = sr.frame(dest, b, true).value();
 
             // the header and the chunk prefix, no body octet
             auto const k = req.buffer().size() + 4;
@@ -1033,10 +1018,8 @@ public:
         {
             capy::const_buffer const b{
                 rem.data(), rem.size() };
-            std::error_code ec;
             capy::const_buffer dest[dest_n];
-            auto const bufs = sr.frame(dest, b, true, ec);
-            BOOST_TEST(!ec);
+            auto const bufs = sr.frame(dest, b, true).value();
 
             // header plus one body octet
             auto const k = req.buffer().size() + 1;
@@ -1073,10 +1056,8 @@ public:
         sr.start(&req);
 
         std::string wire;
-        std::error_code ec;
         capy::const_buffer dest[32];
-        auto const out = sr.frame(dest, bufs, false, ec);
-        BOOST_TEST(!ec);
+        auto const out = sr.frame(dest, bufs, false).value();
         BOOST_TEST_EQ(
             out.size(), std::size(bufs) + 1); // + header
 
@@ -1114,11 +1095,9 @@ public:
         {
             capy::const_buffer const b{
                 rem.data(), rem.size() };
-            std::error_code ec;
             capy::const_buffer dest[1];
-            auto const bufs = sr.frame(dest, b, more, ec);
+            auto const bufs = sr.frame(dest, b, more).value();
             more = false;
-            BOOST_TEST(!ec);
             if(bufs.empty())
             {
                 rem.remove_prefix(sr.consume(0));
@@ -1158,10 +1137,8 @@ public:
             {
                 capy::const_buffer const b{
                     rem2.data(), rem2.size() };
-                std::error_code ec;
                 capy::const_buffer dest[1];
-                auto const bufs = sr2.frame(dest, b, false, ec);
-                BOOST_TEST(!ec);
+                auto const bufs = sr2.frame(dest, b, false).value();
                 if(bufs.empty())
                 {
                     rem2.remove_prefix(sr2.consume(0));
@@ -1209,10 +1186,8 @@ public:
         // the wire takes the header, the prefix, and ten octets
         std::string wire;
         {
-            std::error_code ec;
             capy::const_buffer dest[dest_n];
-            auto const out = sr.frame(dest, true, ec);
-            BOOST_TEST(!ec);
+            auto const out = sr.frame(dest, true).value();
             BOOST_TEST_EQ(out.size(), 2u);
 
             std::size_t const n = req.buffer().size() + 4 + 10;
@@ -1270,12 +1245,10 @@ public:
         // for all forty octets; the wire takes the prefix and
         // ten of them
         {
-            std::error_code ec;
             capy::const_buffer dest[dest_n];
             capy::const_buffer const b{
                 rem.data(), rem.size() };
-            auto const out = sr.frame(dest, b, false, ec);
-            BOOST_TEST(!ec);
+            auto const out = sr.frame(dest, b, false).value();
             // prefix + body + last-chunk
             BOOST_TEST_EQ(out.size(), 3u);
 
@@ -1298,12 +1271,10 @@ public:
         // fewer than the chunk still owes
         while(!sr.is_done())
         {
-            std::error_code ec;
             capy::const_buffer dest[dest_n];
             capy::const_buffer const b{ rem.data(),
                 (std::min)(std::size_t(10), rem.size()) };
-            auto const out = sr.frame(dest, b, false, ec);
-            BOOST_TEST(!ec);
+            auto const out = sr.frame(dest, b, false).value();
             std::size_t n = 0;
             for(auto cb : out)
             {
@@ -1340,10 +1311,8 @@ public:
         sr.start(&req);
 
         std::string wire;
-        std::error_code ec;
         capy::const_buffer dest[32];
-        auto const out = sr.frame(dest, bufs, false, ec);
-        BOOST_TEST(!ec);
+        auto const out = sr.frame(dest, bufs, false).value();
 
         std::size_t n = 0;
         for(auto cb : out)
@@ -1388,10 +1357,8 @@ public:
         BOOST_TEST(sr.should_drain());
 
         capy::const_buffer const b{ "def", 3 };
-        std::error_code ec;
         capy::const_buffer dest[dest_n];
-        auto const bufs = sr.frame(dest, b, true, ec);
-        BOOST_TEST(!ec);
+        auto const bufs = sr.frame(dest, b, true).value();
         BOOST_TEST(!bufs.empty());
 
         std::size_t n = 0;
@@ -1520,12 +1487,10 @@ public:
         std::string wire;
         std::string_view rem(body);
         {
-            std::error_code ec;
             capy::const_buffer dest[dest_n];
             capy::const_buffer const b{
                 rem.data(), rem.size() };
-            auto const out = sr.frame(dest, b, true, ec);
-            BOOST_TEST(!ec);
+            auto const out = sr.frame(dest, b, true).value();
             // header + staged run + caller's octets
             BOOST_TEST_EQ(out.size(), 3u);
 
@@ -1699,13 +1664,11 @@ public:
             std::string const b = make_body(10);
             {
                 // declare eof; the wire takes nothing
-                std::error_code ec;
                 capy::const_buffer dest[dest_n];
                 capy::const_buffer const cb{
                     b.data(), b.size() };
                 BOOST_TEST(
-                    !sr.frame(dest, cb, false, ec).empty());
-                BOOST_TEST(!ec);
+                    !sr.frame(dest, cb, false).value().empty());
                 BOOST_TEST_EQ(sr.consume(0), 0u);
             }
 
@@ -1740,13 +1703,11 @@ public:
         sr.start(&res);
 
         std::string wire;
-        std::error_code ec;
 
         // the wire takes half the header
         {
             capy::const_buffer dest[dest_n];
-            auto const out = sr.frame(dest, true, ec);
-            BOOST_TEST(!ec);
+            auto const out = sr.frame(dest, true).value();
             auto const half = res.buffer().size() / 2;
             std::size_t n = 0;
             for(auto cb : out)
@@ -1767,8 +1728,7 @@ public:
             capy::const_buffer one[1];
             capy::const_buffer const cb{
                 body.data(), body.size() };
-            auto const out = sr.frame({ one, 1 }, cb, false, ec);
-            BOOST_TEST(!ec);
+            auto const out = sr.frame({ one, 1 }, cb, false).value();
             BOOST_TEST_EQ(out.size(), 1u);
             std::string flat;
             for(auto b : out)
@@ -1805,12 +1765,10 @@ public:
 
             std::string_view body("hello");
             {
-                std::error_code ec;
                 capy::const_buffer const cb{
                     body.data(), body.size() };
                 BOOST_TEST(
-                    sr.frame({}, cb, false, ec).empty());
-                BOOST_TEST(!ec);
+                    sr.frame({}, cb, false).value().empty());
                 // nothing was placed, so nothing is released
                 body.remove_prefix(sr.consume(0));
             }
@@ -1840,12 +1798,10 @@ public:
             // the empty-dest call opens the chunk covering the
             // staged and the supplied octets
             {
-                std::error_code ec;
                 capy::const_buffer const cb{
                     body.data() + 2, 3 };
                 BOOST_TEST(
-                    sr.frame({}, cb, false, ec).empty());
-                BOOST_TEST(!ec);
+                    sr.frame({}, cb, false).value().empty());
                 BOOST_TEST_EQ(sr.consume(0), 0u);
             }
             BOOST_TEST(!sr.is_done());
@@ -1864,9 +1820,7 @@ public:
             sr.start(&res);
 
             {
-                std::error_code ec;
-                BOOST_TEST(sr.frame({}, false, ec).empty());
-                BOOST_TEST(!ec);
+                BOOST_TEST(sr.frame({}, false).value().empty());
                 BOOST_TEST_EQ(sr.consume(0), 0u);
             }
             BOOST_TEST(!sr.is_done());
@@ -1910,25 +1864,21 @@ public:
         // chunk stands as debt
         std::string_view body("hello");
         {
-            std::error_code ec;
             capy::const_buffer dest[dest_n];
             capy::const_buffer const cb{
                 body.data(), body.size() };
-            BOOST_TEST(!sr.frame(dest, cb, false, ec).empty());
-            BOOST_TEST(!ec);
+            BOOST_TEST(!sr.frame(dest, cb, false).value().empty());
             BOOST_TEST_EQ(sr.consume(0), 0u);
         }
         // a longer re-supply while the debt stands: the owed
         // prefix is accepted, the surplus is not — and no error
         // yet
         {
-            std::error_code ec;
             capy::const_buffer dest[dest_n];
             std::string_view rem("helloworld");
             capy::const_buffer const cb{
                 rem.data(), rem.size() };
-            auto const out = sr.frame(dest, cb, false, ec);
-            BOOST_TEST(!ec);
+            auto const out = sr.frame(dest, cb, false).value();
             std::string flat;
             for(auto b : out)
                 flat.append(
@@ -2655,20 +2605,17 @@ public:
         sr.start(&req);
         sr.set_encoder(enc);
 
-        std::error_code ec;
         capy::const_buffer dest[dest_n];
         capy::const_buffer const b{
             body.data(), body.size() };
-        auto out = sr.frame(dest, b, false, ec);
-        BOOST_TEST_EQ(ec, error::body_size_mismatch);
-        BOOST_TEST(out.empty());
-
-        out = sr.frame(dest, b, false, ec);
         BOOST_TEST_EQ(
-            ec,
+            sr.frame(dest, b, false).error(),
+            error::body_size_mismatch);
+
+        BOOST_TEST_EQ(
+            sr.frame(dest, b, false).error(),
             std::make_error_code(
                 std::errc::state_not_recoverable));
-        BOOST_TEST(out.empty());
 
         BOOST_TEST_EQ(sr.consume(0), body.size());
     }
@@ -2942,10 +2889,8 @@ public:
             capy::make_buffer(b2) };
 
         std::string wire;
-        std::error_code ec;
         capy::const_buffer dest[dest_n];
-        auto const out = sr.frame(dest, bufs, false, ec);
-        BOOST_TEST(!ec);
+        auto const out = sr.frame(dest, bufs, false).value();
 
         std::size_t n = 0;
         for(auto cb : out)
@@ -2981,10 +2926,8 @@ public:
         capy::const_buffer const b{
             body.data(), body.size() };
         std::string wire;
-        std::error_code ec;
         capy::const_buffer dest[dest_n];
-        auto const out = sr.frame(dest, b, true, ec);
-        BOOST_TEST(!ec);
+        auto const out = sr.frame(dest, b, true).value();
         BOOST_TEST(!out.empty());
 
         std::size_t n = 0;
@@ -3023,10 +2966,8 @@ public:
         // fill the encoder's output; 64 == 0x40
         capy::const_buffer const b{
             body1.data(), body1.size() };
-        std::error_code ec;
         capy::const_buffer dest[dest_n];
-        auto const out = sr.frame(dest, b, true, ec);
-        BOOST_TEST(!ec);
+        auto const out = sr.frame(dest, b, true).value();
         BOOST_TEST(!out.empty());
 
         // take the header and part of the chunk, keeping the
@@ -3182,10 +3123,8 @@ public:
 
         capy::const_buffer const b{
             body.data(), body.size() };
-        std::error_code ec;
         capy::const_buffer dest[dest_n];
-        auto const out = sr.frame(dest, b, true, ec);
-        BOOST_TEST(!out.empty());
+        BOOST_TEST(!sr.frame(dest, b, true).value().empty());
         sr.consume(3); // part of the header, then abandon
 
         sr.start(&req2);
@@ -3335,10 +3274,9 @@ public:
             capy::const_buffer(wire.data(), wire.size())));
         pr.commit_eof();
 
-        std::error_code ec;
-        auto const sv = pr.flatten_body(ec);
-        BOOST_TEST(!ec);
-        BOOST_TEST(sv == body);
+        auto const r = pr.flatten_body();
+        BOOST_TEST(r.has_value());
+        BOOST_TEST(*r == body);
     }
 
     void
@@ -3381,10 +3319,9 @@ public:
             capy::const_buffer(wire.data(), wire.size())));
         pr.commit_eof();
 
-        std::error_code ec;
-        auto const sv = pr.flatten_body(ec);
-        BOOST_TEST(!ec);
-        BOOST_TEST(sv == body);
+        auto const r = pr.flatten_body();
+        BOOST_TEST(r.has_value());
+        BOOST_TEST(*r == body);
     }
 
     void

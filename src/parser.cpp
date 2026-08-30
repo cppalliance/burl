@@ -570,20 +570,19 @@ flatten_chunks_()
     }
 }
 
-void
+system::result<void, std::error_code>
 parser::
-parse_header(std::error_code& ec)
+parse_header()
 {
     BOOST_ASSERT(started_);
 
-    ec = {};
-
     if(got_header_)
-        return;
+        return {};
 
+    std::error_code ec;
     for(;;)
     {
-        hp_.parse(in_.size(), ec);
+        ec = hp_.parse(in_.size()).error();
         if(ec == in_place_overflow && in_.ptr != buf_.get())
         {
             in_.slide(buf_.get());
@@ -595,17 +594,14 @@ parse_header(std::error_code& ec)
     if(ec)
     {
         if(ec != need_more_input)
-            return;
+            return ec;
         if(eof_)
         {
             if(in_.empty())
-                ec = end_of_stream;
-            else
-                ec = incomplete;
-            return;
+                return end_of_stream;
+            return incomplete;
         }
-        ec = need_data;
-        return;
+        return need_data;
     }
 
     auto const& h = hp_.message_head();
@@ -617,8 +613,7 @@ parse_header(std::error_code& ec)
     switch(payload_)
     {
     case payload::error:
-        ec = bad_payload;
-        return;
+        return bad_payload;
     case payload::none:
         got_body_ = true;
         break;
@@ -646,6 +641,8 @@ parse_header(std::error_code& ec)
     }
 
     in_.shed(head_size);
+
+    return {};
 }
 
 void
@@ -665,35 +662,31 @@ set_body_limit(std::uint64_t n) noexcept
     body_limit_ = n;
 }
 
-std::string_view
+system::result<std::string_view, std::error_code>
 parser::
-flatten_body(std::error_code& ec)
+flatten_body()
 {
-    parse_header(ec);
-    if(ec)
-        return {};
+    if(auto rv = parse_header(); rv.has_error())
+        return rv.error();
 
     if(dec_)
     {
         for(;;)
         {
             if(out_.full())
+                return in_place_overflow;
+            auto const r = decode_some_(
+                out_.prepare_one());
+            if(r.has_error())
             {
-                ec = in_place_overflow;
+                if(r.error() != capy::cond::eof)
+                    return r.error();
                 break;
             }
-            auto const n = decode_some_(
-                out_.prepare_one(), ec);
-            out_.commit(n);
-            if(ec == capy::cond::eof)
-            {
-                ec = {};
-                break;
-            }
-            if(ec)
-                break;
+            out_.commit(*r);
         }
-        return { out_.linearize(out_.ptr), out_.len };
+        return std::string_view(
+            out_.linearize(out_.ptr), out_.len);
     }
 
     switch(payload_)
@@ -701,44 +694,42 @@ flatten_body(std::error_code& ec)
     case payload::chunked:
     {
         in_.linearize(in_.ptr);
-        for(;;)
+        while(!fin_chunk_)
         {
             if(rem_ > limit_rem_)
-            {
-                ec = body_too_large;
-                break;
-            }
-            if(fin_chunk_)
-                break;
+                return body_too_large;
             if(auto fec = flatten_chunks_(); fec)
             {
                 if(fec != need_more_input)
-                    ec = fec;
-                else
-                    ec = need_more_();
-                break;
+                    return fec;
+                return need_more_();
             }
         }
-        return { in_.ptr, clamp(rem_, in_.len) };
+        if(rem_ > limit_rem_)
+            return body_too_large;
+        return std::string_view(
+            in_.ptr, clamp(rem_, in_.len));
     }
     case payload::size:
     {
         if(rem_ > limit_rem_)
-            ec = body_too_large;
-        else if(!got_body_)
-            ec = need_more_();
-        return { in_.linearize(in_.ptr), clamp(rem_, in_.len) };
+            return body_too_large;
+        if(!got_body_)
+            return need_more_();
+        return std::string_view(
+            in_.linearize(in_.ptr), clamp(rem_, in_.len));
     }
     case payload::to_eof:
     {
         if(in_.size() > limit_rem_)
-            ec = body_too_large;
-        else if(!got_body_)
-            ec = need_more_();
-        return { in_.linearize(in_.ptr), in_.len };
+            return body_too_large;
+        if(!got_body_)
+            return need_more_();
+        return std::string_view(
+            in_.linearize(in_.ptr), in_.len);
     }
     default:
-        return {};
+        return std::string_view();
     }
 }
 
@@ -756,14 +747,12 @@ get_request() const
     return hp_.request_head();
 }
 
-std::size_t
+system::result<std::size_t, std::error_code>
 parser::
-decode_some_(
-    capy::mutable_buffer dest,
-    std::error_code& ec)
+decode_some_(capy::mutable_buffer dest)
 {
     if(dest.size() == 0)
-        return 0;
+        return std::size_t(0);
 
     std::size_t prod = 0;
     auto process =
@@ -814,11 +803,11 @@ decode_some_(
         auto const wec = walk_chunks_(process);
         if(prod != 0)
             return prod;
-        if(wec != need_more_input)
-            ec = wec;
-        else
-            ec = need_more_();
-        return 0;
+        if(wec == need_more_input)
+            return need_more_();
+        if(wec)
+            return wec;
+        return std::size_t(0);
     }
     case payload::size:
     case payload::to_eof:
@@ -827,10 +816,7 @@ decode_some_(
         {
             auto const in = in_.first(clamp(rem_));
             if(in.size() == 0 && !got_body_)
-            {
-                ec = need_more_();
-                return 0;
-            }
+                return need_more_();
             auto const more =
                 !got_body_ || in.size() < clamp(rem_, in_.size());
             auto [dec_ec, cons] = process(in, more);
@@ -839,29 +825,20 @@ decode_some_(
             if(prod != 0)
                 return prod;
             if(dec_ec)
-            {
-                ec = dec_ec;
-                return 0;
-            }
+                return dec_ec;
         }
     }
     default:
-    {
-        ec = capy::error::eof;
-        return 0;
-    }
+        return capy::error::eof;
     }
 }
 
-std::size_t
+system::result<std::size_t, std::error_code>
 parser::
-read_some_(
-    capy::mutable_buffer dest,
-    std::error_code& ec)
+read_some_(capy::mutable_buffer dest)
 {
-    parse_header(ec);
-    if(ec)
-        return 0;
+    if(auto rv = parse_header(); rv.has_error())
+        return rv.error();
 
     if(dec_)
     {
@@ -872,7 +849,7 @@ read_some_(
             out_.consume(n);
             return n;
         }
-        return decode_some_(dest, ec);
+        return decode_some_(dest);
     }
 
     auto copy = [&](std::size_t at_most)
@@ -907,75 +884,50 @@ read_some_(
         if(read != 0)
             return read;
         if(wec == need_more_input)
-        {
-            ec = need_more_();
-            return 0;
-        }
+            return need_more_();
         if(wec)
-        {
-            ec = wec;
-            return 0;
-        }
+            return wec;
         BOOST_ASSERT(got_body_);
-        ec = capy::error::eof;
-        return 0;
+        return capy::error::eof;
     }
     case payload::size:
     {
         if(rem_ != 0)
         {
             if(rem_ > limit_rem_)
-            {
-                ec = body_too_large;
-                return 0;
-            }
+                return body_too_large;
             if(!in_.empty())
                 return copy(clamp(rem_));
         }
         if(got_body_)
-        {
-            ec = capy::error::eof;
-            return 0;
-        }
-        ec = need_more_();
-        return 0;
+            return capy::error::eof;
+        return need_more_();
     }
     case payload::to_eof:
     {
         if(!in_.empty())
         {
             if(limit_rem_ == 0)
-            {
-                ec = body_too_large;
-                return 0;
-            }
+                return body_too_large;
             return copy(clamp(limit_rem_));
         }
         if(got_body_)
-        {
-            ec = capy::error::eof;
-            return 0;
-        }
-        ec = need_more_();
-        return 0;
+            return capy::error::eof;
+        return need_more_();
     }
     default:
-    {
-        ec = capy::error::eof;
-        return 0;
-    }
+        return capy::error::eof;
     }
 }
 
-std::span<capy::const_buffer>
+system::result<
+    std::span<capy::const_buffer>,
+    std::error_code>
 parser::
-pull(
-    std::span<capy::const_buffer> dest,
-    std::error_code& ec)
+pull(std::span<capy::const_buffer> dest)
 {
-    parse_header(ec);
-    if(ec)
-        return {};
+    if(auto rv = parse_header(); rv.has_error())
+        return rv.error();
 
     auto collect = [&](
         std::array<capy::const_buffer, 2> const& src,
@@ -997,12 +949,11 @@ pull(
     {
         if(!out_.empty())
             return collect(out_.data());
-        auto const n = decode_some_(
-            out_.prepare_one(), ec);
-        out_.commit(n);
-        if(ec && n == 0)
-            return {};
-        ec = {};
+        auto const r = decode_some_(
+            out_.prepare_one());
+        if(r.has_error())
+            return r.error();
+        out_.commit(*r);
         return collect(out_.data());
     }
 
@@ -1037,57 +988,40 @@ pull(
                 // finish the framing, retain the trailer
                 consume(0);
             }
-            ec = wec;
-            return {};
+            if(wec)
+                return wec;
+            return dest.first(0);
         }
-        ec = need_more_();
-        return {};
+        return need_more_();
     }
     case payload::size:
     {
         if(rem_ != 0)
         {
             if(rem_ > limit_rem_)
-            {
-                ec = body_too_large;
-                return {};
-            }
+                return body_too_large;
             if(!in_.empty())
                 return collect(in_.data(), clamp(rem_));
         }
         if(got_body_)
-        {
-            ec = capy::error::eof;
-            return {};
-        }
-        ec = need_more_();
-        return {};
+            return capy::error::eof;
+        return need_more_();
     }
     case payload::to_eof:
     {
         if(!in_.empty())
         {
             if(limit_rem_ == 0)
-            {
-                ec = body_too_large;
-                return {};
-            }
+                return body_too_large;
             return collect(
                 in_.data(), clamp(limit_rem_));
         }
         if(got_body_)
-        {
-            ec = capy::error::eof;
-            return {};
-        }
-        ec = need_more_();
-        return {};
+            return capy::error::eof;
+        return need_more_();
     }
     default:
-    {
-        ec = capy::error::eof;
-        return {};
-    }
+        return capy::error::eof;
     }
 }
 
@@ -1118,22 +1052,15 @@ consume(std::size_t n) noexcept
     }
 }
 
-void
+system::result<void, std::error_code>
 parser::
-parse_trailer(
-    fields_base& f,
-    std::error_code& ec)
+parse_trailer(fields_base& f)
 {
-    ec = {};
-
     if(payload_ != payload::chunked)
-        return;
+        return {};
 
     if(!fin_chunk_)
-    {
-        ec = incomplete;
-        return;
-    }
+        return incomplete;
 
     char const* it  = in_.ptr + in_.pos + clamp(rem_);
     char const* end = in_.ptr + clamp(in_.pos + in_.len, in_.cap);
@@ -1142,6 +1069,7 @@ parse_trailer(
     {
         auto const it0 = it;
         std::string_view name, value;
+        std::error_code ec;
         parse_limited(
             [&name, &value](auto& it, auto end, auto& ec)
             {
@@ -1154,20 +1082,19 @@ parse_trailer(
             ec);
         if(ec)
         {
-            if(ec == need_data)
-            {
-                BOOST_ASSERT(in_.wrapped());
-                auto const off = distance(it0, in_.ptr + in_.pos);
-                in_.linearize(in_.ptr);
-                it  = in_.ptr + off;
-                end = in_.ptr + in_.len;
-                ec  = {};
-                continue;
-            }
-            return;
+            if(ec != need_data)
+                return ec;
+            BOOST_ASSERT(in_.wrapped());
+            auto const off = distance(it0, in_.ptr + in_.pos);
+            in_.linearize(in_.ptr);
+            it  = in_.ptr + off;
+            end = in_.ptr + in_.len;
+            continue;
         }
         f.append(name, value);
     }
+
+    return {};
 }
 
 } // namespace burl

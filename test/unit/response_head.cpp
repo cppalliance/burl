@@ -474,9 +474,7 @@ public:
             [&](head_parser& pr)
             {
                 std::memcpy(buf, msg.data(), msg.size());
-                std::error_code ec;
-                pr.parse(msg.size(), ec);
-                BOOST_TEST(!ec);
+                BOOST_TEST(pr.parse(msg.size()).has_value());
             };
 
         head_parser pr(false, buf, sizeof(buf));
@@ -523,9 +521,7 @@ public:
             "\r\n";
         head_parser pr(false, buf, sizeof(buf));
         std::memcpy(buf, msg.data(), msg.size());
-        std::error_code ec;
-        pr.parse(msg.size(), ec);
-        BOOST_TEST(!ec);
+        BOOST_TEST(pr.parse(msg.size()).has_value());
         response_head_base const& base = pr.response_head();
 
         // small target: the assignment reallocates
