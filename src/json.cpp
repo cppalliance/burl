@@ -46,8 +46,6 @@ public:
     std::optional<std::uint64_t>
     content_length() const noexcept
     {
-        // TODO: determine the length for small JSON values that fit in place.
-        // The serialized size is not known without serializing.
         return std::nullopt;
     }
 

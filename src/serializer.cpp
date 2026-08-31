@@ -83,32 +83,39 @@ start(
 {
     BOOST_ASSERT(msg != nullptr);
 
-    msg_ = msg;
-    trailer_ = nullptr;
-    payload_ = head ? payload::none : msg->payload();
-
-    enc_.reset();
-    if(enc_cfg_ && payload_ != payload::none)
-        enc_ = make_encoder(content_coding(*msg), *enc_cfg_);
-
-    if((enc_ != nullptr) != (stage_.ptr != enc_out_.ptr))
-    {
-        std::swap(stage_.cap, enc_out_.cap);
-        stage_.ptr = enc_out_.ptr + (enc_ ? enc_out_.cap : 0);
-    }
-
     stage_.clear();
     enc_out_.clear();
 
+    msg_ = msg;
+    enc_ = nullptr;
+    trailer_ = nullptr;
+
     header_offset_ = 0;
     tail_offset_ = 0;
+    owed_ = 0;
     input_framed_ = 0;
     input_digested_ = 0;
     prefix_rem_ = 0;
+    payload_ = payload::none;
+    state_ = state::started;
+    head_ = head;
     crlf_owed_ = false;
     enc_started_ = false;
-    sealed_ = false;
-    done_ = false;
+}
+
+void
+serializer::
+select_framing_()
+{
+    BOOST_ASSERT(state_ == state::started);
+
+    payload_ = head_ ? payload::none : msg_->payload();
+
+    if(enc_cfg_ && payload_ != payload::none)
+        enc_ = make_encoder(content_coding(*msg_), *enc_cfg_);
+
+    split_();
+
     owed_ = [&]() -> std::uint64_t
     {
         switch(payload_)
@@ -119,18 +126,36 @@ start(
         case payload::to_eof:
             return std::uint64_t(-1);
         default:
-            return msg->content_length().value_or(0);
+            return msg_->content_length().value_or(0);
         }
     }();
+
+    state_ = state::streaming;
 }
 
 void
 serializer::
-set_encoder(
-    std::unique_ptr<detail::encoder> enc) noexcept
+revise_framing_(std::uint64_t remaining) noexcept
 {
-    enc_ = std::move(enc);
+    if(!chunked_() && !to_eof_())
+        return;
 
+    if(header_offset_ == 0 && !trailer_)
+    {
+        msg_->set_content_length(remaining);
+        payload_ = payload::size;
+        owed_ = remaining;
+    }
+    else if(to_eof_())
+    {
+        owed_ = remaining;
+    }
+}
+
+void
+serializer::
+split_() noexcept
+{
     if((enc_ != nullptr) != (stage_.ptr != enc_out_.ptr))
     {
         std::swap(stage_.cap, enc_out_.cap);
@@ -138,16 +163,44 @@ set_encoder(
     }
 }
 
+bool
+serializer::
+sealed_() const noexcept
+{
+    return state_ == state::sealed;
+}
+
+void
+serializer::
+set_encoder(
+    std::unique_ptr<detail::encoder> enc)
+{
+    if(state_ == state::started)
+        select_framing_();
+
+    enc_ = std::move(enc);
+    split_();
+}
+
 std::span<capy::mutable_buffer>
 serializer::
 prepare(std::span<capy::mutable_buffer> dest)
 {
-    BOOST_ASSERT(msg_ != nullptr);
-    BOOST_ASSERT(!sealed_);
-    if(dest.empty() || stage_.capacity() == 0)
-        return dest.first(0);
-    dest[0] = stage_.prepare();
-    return dest.first(1);
+    switch(state_)
+    {
+    case state::started:
+        select_framing_();
+        BOOST_FALLTHROUGH;
+    case state::streaming:
+        if(!dest.empty() && !stage_.full())
+        {
+            dest[0] = stage_.prepare();
+            return dest.first(1);
+        }
+        BOOST_FALLTHROUGH;
+    default:
+        return {};
+    };
 }
 
 void
@@ -155,7 +208,7 @@ serializer::
 commit(std::size_t n) noexcept
 {
     BOOST_ASSERT(msg_ != nullptr);
-    BOOST_ASSERT(!sealed_);
+    BOOST_ASSERT(!sealed_());
     stage_.commit(n);
 }
 
@@ -270,20 +323,6 @@ open_chunk_(std::uint64_t s) noexcept
 
 void
 serializer::
-decide_framing_(std::uint64_t total) noexcept
-{
-    if(header_offset_ != 0 || trailer_)
-        return;
-    if(payload_ == payload::chunked || payload_ == payload::to_eof)
-    {
-        msg_->set_content_length(total);
-        payload_ = payload::size;
-        owed_ = total;
-    }
-}
-
-void
-serializer::
 encode_(source& src, std::error_code& ec)
 {
     auto process = [&](
@@ -295,9 +334,7 @@ encode_(source& src, std::error_code& ec)
         enc_out_.commit(r.produced);
         if(r.ec == capy::cond::eof)
         {
-            decide_framing_(enc_out_.size());
-            if(to_eof_())
-                owed_ = enc_out_.size();
+            revise_framing_(enc_out_.size());
             enc_ = nullptr;
         }
         else if(r.ec)
@@ -312,7 +349,7 @@ encode_(source& src, std::error_code& ec)
     {
         if(enc_out_.capacity() == 0)
             return;
-        auto const more = !sealed_ || src.remain != 0;
+        auto const more = !sealed_() || src.remain != 0;
         auto const n = process(stage_.data(), more);
         stage_.consume(n);
         if(ec || !enc_)
@@ -324,7 +361,7 @@ encode_(source& src, std::error_code& ec)
     {
         if(enc_out_.capacity() == 0)
             return;
-        auto const more = !sealed_ || src.remain != 0;
+        auto const more = !sealed_() || src.remain != 0;
         auto const n = process(cur, more);
         cur += n;
         input_digested_ += n;
@@ -335,7 +372,7 @@ encode_(source& src, std::error_code& ec)
     }
 
     // finish the stream
-    while(sealed_)
+    while(sealed_())
     {
         if(enc_out_.capacity() == 0)
             return;
@@ -351,18 +388,18 @@ ingest_(
     source& src,
     bool more)
 {
-    auto const sealing = !more && !sealed_;
+    auto const sealing = !more && !sealed_();
+    auto const have = std::uint64_t(src.remain) +
+        stage_.size() + enc_out_.size();
 
     if(chunked_())
     {
-        if(sealed_ && !enc_ && src.remain != 0)
+        if(sealed_() && !enc_ && src.remain != 0)
             return make_error_code(
                 std::errc::invalid_argument);
     }
     else if(!enc_)
     {
-        auto const have = std::uint64_t(src.remain) +
-            stage_.size() + enc_out_.size();
         if( have > owed_ ||
             (!to_eof_() && sealing && have < owed_))
         {
@@ -374,27 +411,22 @@ ingest_(
     }
 
     if(sealing)
-        sealed_ = true;
+        state_ = state::sealed;
 
-    if(sealed_)
+    if(sealed_())
     {
-        auto const total = stage_.size() + src.remain;
         if( enc_ && !enc_started_ && header_offset_ == 0 &&
-            total < enc_threshold_)
+            have < enc_threshold_)
         {
             msg_->erase(http::field::content_encoding);
             enc_ = nullptr;
         }
-        if(!enc_)
-        {
-            decide_framing_(total);
-            if(to_eof_() && sealing)
-                owed_ = total;
-        }
+        if(!enc_ && sealing)
+            revise_framing_(have);
     }
 
     // small inputs are coalesced into the stage
-    if( !sealed_ && src.remain != 0 &&
+    if( !sealed_() && src.remain != 0 &&
         should_coalesce_(src.remain))
     {
         input_digested_ = src.remain;
@@ -411,8 +443,8 @@ ingest_(
         encode_(src, ec);
         if(ec)
         {
-            enc_  = nullptr;
-            done_ = true;
+            enc_ = nullptr;
+            state_ = state::failed;
             return ec;
         }
 
@@ -422,7 +454,7 @@ ingest_(
         {
             if(encoded > owed_ || (finished && encoded != owed_))
             {
-                done_ = true;
+                state_ = state::failed;
                 return error::body_size_mismatch;
             }
         }
@@ -432,7 +464,7 @@ ingest_(
         return flush;
     }
 
-    auto const flush = src.remain != 0 || sealed_ ||
+    auto const flush = src.remain != 0 || sealed_() ||
         should_drain() || stage_.pos != 0;
     if(flush && chunked_())
     {
@@ -469,7 +501,7 @@ gather_(
         push(suffix(capy::make_buffer(
             msg_->buffer()), header_offset_));
 
-    // [CRLF + prefix][buffered]
+    // [CRLF + chunk_header][buffered]
     auto const& buffered = buffered_();
     auto buffered_take = std::uint64_t(buffered.size());
     if(chunked_())
@@ -499,7 +531,7 @@ gather_(
     input_framed_ = placed;
 
     // [epilogue][trailer]
-    if( sealed_ && !enc_ && chunked_() &&
+    if( sealed_() && !enc_ && chunked_() &&
         buffered.size() + supplied == owed_ &&
         placed == supplied)
     {
@@ -522,42 +554,54 @@ frame_(
     source& src,
     bool more)
 {
-    BOOST_ASSERT(msg_ != nullptr);
+    switch(state_)
+    {
+    case state::started:
+        select_framing_();
+        BOOST_FALLTHROUGH;
+    case state::streaming:
+    case state::sealed:
+    {
+        BOOST_ASSERT(input_digested_ == 0);
 
-    if(done_ && !settled_())
+        auto const drain_call = (src.remain == 0);
+
+        bool flush_body = true;
+        if(owed_ == 0 || !chunked_())
+        {
+            auto const r = ingest_(src, more);
+            if(r.has_error())
+                return r.error();
+            flush_body = *r;
+        }
+
+        auto const out = gather_(
+            dest, src, flush_body, flush_body || drain_call);
+
+        if(out.empty() && !dest.empty())
+        {
+            if(!more && owed_ != 0)
+            {
+                if(to_eof_() || chunked_())
+                    return make_error_code(
+                        std::errc::invalid_argument);
+                return error::body_size_mismatch;
+            }
+            if(sealed_() && settled_())
+                state_ = state::done;
+        }
+
+        return out;
+    }
+    case state::done:
+        if(src.remain != 0 || !stage_.empty())
+            return make_error_code(
+                std::errc::invalid_argument);
+        return {};
+    default:
         return make_error_code(
             std::errc::state_not_recoverable);
-
-    BOOST_ASSERT(input_digested_ == 0);
-
-    auto const drain_call = (src.remain == 0);
-
-    bool flush_body = true;
-    if(owed_ == 0 || !chunked_())
-    {
-        auto const r = ingest_(src, more);
-        if(r.has_error())
-            return r.error();
-        flush_body = *r;
-    }
-
-    auto const out = gather_(
-        dest, src, flush_body, flush_body || drain_call);
-
-    if(out.empty() && !dest.empty() && !done_)
-    {
-        if(!more && owed_ != 0)
-        {
-            if(to_eof_() || chunked_())
-                return make_error_code(
-                    std::errc::invalid_argument);
-            return error::body_size_mismatch;
-        }
-        if(sealed_)
-            done_ = settled_();
-    }
-
-    return out;
+    };
 }
 
 std::size_t
@@ -572,7 +616,7 @@ consume(std::size_t n) noexcept
         n -= k;
     }
 
-    // [CRLF + prefix]
+    // [CRLF + chunk_header]
     {
         auto const k = clamp(n, prefix_rem_);
         prefix_rem_ -= static_cast<std::uint8_t>(k);
@@ -599,24 +643,28 @@ consume(std::size_t n) noexcept
         n -= k;
     }
 
-    // [epilogue][trailer]
-    if(sealed_ && chunked_())
+    if(sealed_())
     {
-        auto const total = epilogue_buf_().size() +
-            trailer_buf_().size();
-        auto const k = clamp(n, total - tail_offset_);
-        tail_offset_ += static_cast<std::uint32_t>(k);
-        n -= k;
+        // [epilogue][trailer]
+        if(chunked_())
+        {
+            auto const total = epilogue_buf_().size() +
+                trailer_buf_().size();
+            auto const k = clamp(n, total - tail_offset_);
+            tail_offset_ += static_cast<std::uint32_t>(k);
+            n -= k;
+        }
+
+        if(settled_())
+            state_ = state::done;
     }
 
     BOOST_ASSERT(n == 0);
 
-    if(sealed_ && !done_)
-        done_ = settled_();
+    if(input_digested_ != 0)
+        return std::exchange(input_digested_, 0);
 
-    auto const r = input_taken + input_digested_;
-    input_digested_ = 0;
-    return r;
+    return input_taken;
 }
 
 } // namespace burl

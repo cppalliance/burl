@@ -1523,13 +1523,15 @@ public:
     void
     testToEof()
     {
-        // close-delimited response: no prefix, no epilogue, no
-        // size check; the final input completes the message and
-        // closing the connection is the caller's act
+        // close-delimited response (HTTP/1.0): no prefix, no
+        // epilogue, no size check; the final input completes
+        // the message and closing the connection is the
+        // caller's act
         std::string const body(cfg.min_direct, 'x');
         {
             response_head res;
-            test_serializer sr(cfg);
+            res.set_version(http::version::http_1_0);
+                        test_serializer sr(cfg);
             sr.start(&res);
 
             std::string wire;
@@ -1563,7 +1565,8 @@ public:
         // completes the message all the same
         {
             response_head res;
-            test_serializer sr(cfg);
+            res.set_version(http::version::http_1_0);
+                        test_serializer sr(cfg);
             sr.start(&res);
 
             std::string wire;
@@ -1602,7 +1605,8 @@ public:
         for(std::size_t step : { 1u, 3u, 7u })
         {
             response_head res;
-            test_serializer sr(cfg);
+            res.set_version(http::version::http_1_0);
+                        test_serializer sr(cfg);
             sr.start(&res);
 
             std::string wire;
@@ -1631,7 +1635,8 @@ public:
         // octets after the end: rejected, nothing framed
         {
             response_head res;
-            test_serializer sr(cfg);
+            res.set_version(http::version::http_1_0);
+                        test_serializer sr(cfg);
             sr.start(&res);
 
             std::string wire;
@@ -1655,7 +1660,8 @@ public:
         // corrected remainder still resumes
         {
             response_head res;
-            test_serializer sr(cfg);
+            res.set_version(http::version::http_1_0);
+                        test_serializer sr(cfg);
             sr.start(&res);
 
             std::string wire;
@@ -1699,6 +1705,7 @@ public:
         // would truncate a body whose framing gives the peer no
         // way to notice.
         response_head res;
+        res.set_version(http::version::http_1_0);
         test_serializer sr(cfg);
         sr.start(&res);
 
@@ -2019,11 +2026,12 @@ public:
                 wire, std::string(req.buffer()) + "hello");
         }
 
-        // close-delimited framing cannot carry
-        // trailers either
+        // close-delimited framing (HTTP/1.0) cannot
+        // carry trailers either
         {
             response_head res;
-            test_serializer sr(cfg);
+            res.set_version(http::version::http_1_0);
+                        test_serializer sr(cfg);
             sr.start(&res);
             sr.set_trailer(&trailer);
 
@@ -2713,6 +2721,7 @@ public:
         // declared size at all
         std::string const body = make_body(20);
         response_head res;
+        res.set_version(http::version::http_1_0);
         res.set(http::field::content_encoding, "test");
         test_encoder enc("eof!");
         test_serializer sr(cfg);
@@ -2741,6 +2750,7 @@ public:
         // output stays exactly the encoded stream
         std::string const body = make_body(20);
         response_head res;
+        res.set_version(http::version::http_1_0);
         res.set(http::field::content_encoding, "test");
         test_encoder enc("eof!");
         test_serializer sr(cfg);
@@ -2771,6 +2781,7 @@ public:
         // no input at all still completes; the empty case must
         // not read as leftover debt
         response_head res;
+        res.set_version(http::version::http_1_0);
         res.set(http::field::content_encoding, "test");
         test_encoder enc;
         test_serializer sr(cfg);
@@ -3236,6 +3247,101 @@ public:
         BOOST_TEST_EQ(wire, std::string(req.buffer()));
     }
 
+    void
+    testDeferredFraming()
+    {
+        // start() does not read the head: framing set after
+        // start() and before the first frame() is honored
+        std::string const body(cfg.min_direct, 'x');
+        {
+            request_head req;
+            test_serializer sr(cfg);
+            sr.start(&req);
+
+            // the head is still the caller's
+            req.set_content_length(body.size());
+
+            std::string wire;
+            BOOST_TEST(!write(sr, wire, body));
+            BOOST_TEST(!write_eof(sr, wire));
+            BOOST_TEST(sr.is_done());
+
+            BOOST_TEST_EQ(
+                req.content_length().value(), body.size());
+            BOOST_TEST_EQ(
+                wire, std::string(req.buffer()) + body);
+        }
+
+        // a late declared size is enforced, not bypassed: too
+        // few octets at eof is the size mismatch
+        {
+            request_head req;
+            test_serializer sr(cfg);
+            sr.start(&req);
+
+            req.set_content_length(10);
+
+            std::string wire;
+            BOOST_TEST(!write(sr, wire, "hello"));
+            BOOST_TEST_EQ(
+                write_eof(sr, wire),
+                error::body_size_mismatch);
+            BOOST_TEST(!sr.is_done());
+        }
+    }
+
+    void
+    testDeferredChunked()
+    {
+        // chunked selected after start(): the body is framed in
+        // chunks, matching the header the peer sees
+        std::string const body(cfg.min_direct, 'x');
+        request_head req;
+        test_serializer sr(cfg);
+        sr.start(&req);
+
+        req.set_chunked(true);
+
+        std::string wire;
+        BOOST_TEST(!write(sr, wire, body));
+        BOOST_TEST(!write_eof(sr, wire, "hello"));
+        BOOST_TEST(sr.is_done());
+
+        std::string expected(req.buffer());
+        expected += "10\r\n" + body + "\r\n";
+        expected += "5\r\nhello\r\n";
+        expected += "0\r\n\r\n";
+        BOOST_TEST(req.chunked());
+        BOOST_TEST_EQ(wire, expected);
+    }
+
+    void
+    testDeferredPrepareCommit()
+    {
+        // prepare() is the other pin point: memory handed out
+        // belongs to the split, so framing set between start()
+        // and prepare() is honored too
+        request_head req;
+        test_serializer sr(cfg);
+        sr.start(&req);
+
+        req.set_content_length(5);
+
+        capy::mutable_buffer tmp[2];
+        auto const n = capy::buffer_copy(
+            sr.prepare(tmp), capy::const_buffer("hello", 5));
+        BOOST_TEST_EQ(n, 5u);
+        sr.commit(n);
+
+        std::string wire;
+        BOOST_TEST(!write_eof(sr, wire));
+        BOOST_TEST(sr.is_done());
+
+        BOOST_TEST_EQ(req.content_length().value(), 5u);
+        BOOST_TEST_EQ(
+            wire, std::string(req.buffer()) + "hello");
+    }
+
 #ifdef BOOST_HTTP_HAS_ZLIB
     void
     testContentEncodingGzip()
@@ -3261,6 +3367,47 @@ public:
 
         serializer sr(cfg2);
         sr.start(&req);
+
+        std::string wire;
+        BOOST_TEST(!write_eof(sr, wire, body));
+        BOOST_TEST(sr.is_done());
+        BOOST_TEST(wire.find(body) == std::string::npos);
+
+        request_parser pr(request_parser::config{});
+        pr.start();
+        pr.commit(capy::buffer_copy(
+            pr.prepare(),
+            capy::const_buffer(wire.data(), wire.size())));
+        pr.commit_eof();
+
+        auto const r = pr.flatten_body();
+        BOOST_TEST(r.has_value());
+        BOOST_TEST(*r == body);
+    }
+
+    void
+    testDeferredContentEncodingGzip()
+    {
+        // Content-Encoding set after start(): the encoder is
+        // selected at the first frame(), so the body goes out
+        // encoded as the header promises.
+        auto& ctx = capy::get_system_context();
+        if(!ctx.has_service<http::zlib::deflate_service>())
+            http::zlib::install_deflate_service(ctx);
+        if(!ctx.has_service<http::zlib::inflate_service>())
+            http::zlib::install_inflate_service(ctx);
+
+        std::string const body =
+            "the quick brown fox jumps over the lazy dog";
+
+        auto cfg2 = cfg;
+        cfg2.encoder = std::make_shared<encoder_config>();
+
+        auto req = make_request();
+        serializer sr(cfg2);
+        sr.start(&req);
+
+        req.set(http::field::content_encoding, "gzip");
 
         std::string wire;
         BOOST_TEST(!write_eof(sr, wire, body));
@@ -3431,8 +3578,12 @@ public:
         testHeadChunked();
         testHeadBodyMismatch();
         testHeadEncoder();
+        testDeferredFraming();
+        testDeferredChunked();
+        testDeferredPrepareCommit();
 #ifdef BOOST_HTTP_HAS_ZLIB
         testContentEncodingGzip();
+        testDeferredContentEncodingGzip();
         testEncoderSettings();
         testEncodeDisabled();
 #endif

@@ -65,20 +65,23 @@ struct encoder;
     valid and unchanged until consumed.
 
     @par Framing
-    The framing of the body is selected from the
-    payload of the message passed to @ref start: no
-    body, a body of exactly Content-Length octets,
-    the chunked transfer coding, or a body delimited
-    by the end of the stream.
+    The framing headers of the message are
+    selected from the payload. This selection
+    occurs on the first call to @ref prepare or
+    @ref frame, so the caller may continue
+    adjusting the start line and header fields
+    until then.
 
-    Until the first octet of the header is consumed,
-    the serializer may alter the framing-related
-    fields of the message; for example, when the
-    total size of the body becomes known before the
-    header is transferred, chunked or
-    stream-delimited framing may be replaced by an
-    explicit Content-Length. Once transfer of the
-    header has begun, the message is not modified.
+    Until the first octet of the header has been
+    flushed, the serializer may modify
+    framing-related fields of the message. For
+    example, if the total size of the body becomes
+    known before the header is transferred, chunked
+    or stream-delimited framing may be replaced
+    with an explicit Content-Length.
+
+    Once transfer of the header has begun, the
+    message is no longer modified.
 
     @par Encoding
     When @ref config::encoder is set, a body whose
@@ -180,8 +183,7 @@ public:
         The serializer allocates a single internal
         buffer whose size is derived from `cfg`; no
         further allocations are performed
-        afterwards, except for the content encoder
-        selected by @ref start.
+        afterwards, except for the content encoder.
 
         @param cfg The configuration settings to
         use.
@@ -244,7 +246,7 @@ public:
     bool
     is_done() const noexcept
     {
-        return done_;
+        return state_ >= state::done;
     }
 
     /** Return `true` if the header was transferred.
@@ -255,7 +257,7 @@ public:
     bool
     is_header_done() const noexcept
     {
-        return msg_ != nullptr &&
+        return state_ >= state::streaming &&
             msg_->buffer().size() == header_offset_;
     }
 
@@ -274,13 +276,16 @@ public:
     /** Start serializing a message.
 
         Any message currently being serialized is
-        abandoned and the serializer is reset. The
-        framing of the body is selected from
-        `msg->payload()`. Until the first octet of
-        the header is consumed, the serializer may
-        modify the framing-related fields of `msg`.
-        The caller must not modify `msg` while the
-        message is being serialized.
+        abandoned and the serializer is reset.
+        `msg` is attached but the framing
+        of the body is selected from
+        `msg->payload()` by the first call to
+        @ref prepare or @ref frame. Until then the
+        caller may modify `msg` freely, the start
+        line and the framing-related fields
+        included. From that first call until the
+        message completes the caller must not
+        modify `msg`.
 
         When `head` is `true`, the message is
         serialized as the response to a HEAD
@@ -299,9 +304,6 @@ public:
 
         @param head `true` to serialize the
         response to a HEAD request.
-
-        @throws std::bad_alloc Allocation of the
-        content encoder failed.
     */
     BOOST_BURL_DECL
     void
@@ -330,7 +332,7 @@ public:
     void
     set_trailer(fields_base const* t) noexcept
     {
-        BOOST_ASSERT(!sealed_);
+        BOOST_ASSERT(!sealed_());
         trailer_ = t;
     }
 
@@ -342,6 +344,10 @@ public:
         @ref should_drain indicates when draining
         is advisable.
 
+        The first call to `prepare` or @ref frame
+        selects the framing and the content encoder
+        from the message; see @ref start.
+
         @par Preconditions
         A message is being serialized. The end of
         the body has not been declared.
@@ -351,6 +357,9 @@ public:
 
         @return The prefix of `dest` which was
         filled.
+
+        @throws std::bad_alloc Allocation of the
+        content encoder failed.
     */
     BOOST_BURL_DECL
     std::span<capy::mutable_buffer>
@@ -392,6 +401,10 @@ public:
         still be called before the next call to query
         octets of `buffers` that were absorbed.
 
+        The first call to @ref prepare or `frame`
+        selects the framing and the content encoder
+        from the message; see @ref start.
+
         @par Preconditions
         A message is being serialized.
 
@@ -407,6 +420,9 @@ public:
         @return The prefix of `dest` containing
         the descriptors, which may be empty,
         otherwise the error.
+
+        @throws std::bad_alloc Allocation of the
+        content encoder failed.
     */
     template<capy::ConstBufferSequence CB>
     system::result<
@@ -484,10 +500,20 @@ protected:
     BOOST_BURL_DECL
     void
     set_encoder(
-        std::unique_ptr<detail::encoder> enc) noexcept;
+        std::unique_ptr<detail::encoder> enc);
 
 private:
     static constexpr std::size_t margin = 24;
+
+    enum class state : unsigned char
+    {
+        idle,
+        started,
+        streaming,
+        sealed,
+        done,
+        failed
+    };
 
     struct source
     {
@@ -543,6 +569,19 @@ private:
         source& src,
         bool more);
 
+    void
+    select_framing_();
+
+    void
+    revise_framing_(
+        std::uint64_t remaining) noexcept;
+
+    void
+    split_() noexcept;
+
+    bool
+    sealed_() const noexcept;
+
     bool
     chunked_() const noexcept;
 
@@ -567,10 +606,6 @@ private:
 
     void
     open_chunk_(std::uint64_t s) noexcept;
-
-    void
-    decide_framing_(
-        std::uint64_t total) noexcept;
 
     void
     encode_(
@@ -609,10 +644,10 @@ private:
     std::size_t input_digested_ = 0;
     std::uint8_t prefix_rem_ = 0;
     http::payload payload_ = http::payload::none;
+    state state_ = state::idle;
+    bool head_ = false;
     bool crlf_owed_ = false;
     bool enc_started_ = false;
-    bool sealed_ = false;
-    bool done_ = false;
 };
 
 } // namespace burl

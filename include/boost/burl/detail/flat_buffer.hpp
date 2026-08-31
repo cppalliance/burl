@@ -31,6 +31,9 @@ struct flat_buffer
     bool
     empty() const noexcept;
 
+    bool
+    full() const noexcept;
+
     std::size_t
     size() const noexcept;
 

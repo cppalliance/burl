@@ -25,6 +25,13 @@ empty() const noexcept
     return len == 0;
 }
 
+bool
+flat_buffer::
+full() const noexcept
+{
+    return len == cap;
+}
+
 std::size_t
 flat_buffer::
 size() const noexcept
