@@ -1757,6 +1757,190 @@ public:
     }
 
     void
+    testChunkedUpgrade()
+    {
+        // an HTTP/1.1 message with no framing fields would be
+        // close-delimited, which costs the connection; the
+        // chunked transfer coding is added instead, before the
+        // header is transferred
+        std::string const body = make_body(cfg.min_direct);
+
+        // streaming: the first write rewrites the head
+        {
+            response_head res;
+            test_serializer sr(cfg);
+            sr.start(&res);
+
+            std::string wire;
+            BOOST_TEST(!write(sr, wire, body));
+            BOOST_TEST(res.chunked());
+            BOOST_TEST(!res.content_length().has_value());
+            BOOST_TEST(res.keep_alive());
+
+            BOOST_TEST(!write_eof(sr, wire, "hello"));
+            BOOST_TEST(sr.is_done());
+            // 16 == 0x10
+            std::string expected(res.buffer());
+            expected += "10\r\n" + body + "\r\n";
+            expected += "5\r\nhello\r\n";
+            expected += "0\r\n\r\n";
+            BOOST_TEST_EQ(wire, expected);
+        }
+
+        // an early drain sends the header chunked; ending
+        // the body with nothing written emits the bare
+        // last-chunk
+        {
+            response_head res;
+            test_serializer sr(cfg);
+            sr.start(&res);
+
+            std::string wire;
+            BOOST_TEST(!drain(sr, wire));
+            BOOST_TEST(sr.is_header_done());
+            BOOST_TEST(res.chunked());
+            BOOST_TEST_EQ(wire, std::string(res.buffer()));
+
+            BOOST_TEST(!write_eof(sr, wire));
+            BOOST_TEST(sr.is_done());
+            BOOST_TEST(!res.content_length().has_value());
+            BOOST_TEST_EQ(
+                wire, std::string(res.buffer()) + "0\r\n\r\n");
+        }
+
+        // the upgrade does not preempt the Content-Length
+        // rewrite: a body which ends before the header is
+        // transferred still takes an explicit size
+        {
+            response_head res;
+            test_serializer sr(cfg);
+            sr.start(&res);
+
+            std::string wire;
+            BOOST_TEST(!write_eof(sr, wire, "hello"));
+            BOOST_TEST(sr.is_done());
+            BOOST_TEST(!res.chunked());
+            BOOST_TEST_EQ(res.content_length().value_or(0), 5u);
+            BOOST_TEST_EQ(
+                wire, std::string(res.buffer()) + "hello");
+        }
+
+        // a set trailer keeps the upgraded chunked framing
+        // instead of the Content-Length rewrite
+        {
+            fields trailer;
+            trailer.set("x-a", "1");
+
+            response_head res;
+            test_serializer sr(cfg);
+            sr.start(&res);
+            sr.set_trailer(&trailer);
+
+            std::string wire;
+            BOOST_TEST(!write_eof(sr, wire, "hello"));
+            BOOST_TEST(sr.is_done());
+
+            BOOST_TEST(res.chunked());
+            BOOST_TEST(!res.content_length().has_value());
+            std::string expected(res.buffer());
+            expected += "5\r\nhello\r\n";
+            expected += "0\r\n";
+            expected += std::string(trailer.buffer());
+            BOOST_TEST_EQ(wire, expected);
+        }
+
+        // HTTP/1.0 has no chunked coding to upgrade to
+        {
+            response_head res;
+            res.set_version(http::version::http_1_0);
+            test_serializer sr(cfg);
+            sr.start(&res);
+
+            std::string wire;
+            BOOST_TEST(!write(sr, wire, body));
+            BOOST_TEST(!res.chunked());
+            BOOST_TEST(!write_eof(sr, wire, "hello"));
+            BOOST_TEST(sr.is_done());
+            BOOST_TEST_EQ(
+                wire,
+                std::string(res.buffer()) + body + "hello");
+        }
+
+        // a message which names a transfer coding of its own
+        // keeps the framing it asked for
+        {
+            response_head res;
+            res.set(http::field::transfer_encoding, "gzip");
+            test_serializer sr(cfg);
+            sr.start(&res);
+
+            std::string wire;
+            BOOST_TEST(!write(sr, wire, body));
+            BOOST_TEST_EQ(
+                res.count(http::field::transfer_encoding), 1u);
+            BOOST_TEST(!write_eof(sr, wire, "hello"));
+            BOOST_TEST(sr.is_done());
+            BOOST_TEST_EQ(
+                wire,
+                std::string(res.buffer()) + body + "hello");
+        }
+
+        // a response without a body is not given framing it
+        // does not need
+        {
+            response_head res;
+            res.set_start_line(http::status::not_modified);
+            test_serializer sr(cfg);
+            sr.start(&res);
+
+            std::string wire;
+            BOOST_TEST(!write_eof(sr, wire));
+            BOOST_TEST(sr.is_done());
+            BOOST_TEST(!res.chunked());
+            BOOST_TEST(!res.content_length().has_value());
+            BOOST_TEST_EQ(wire, std::string(res.buffer()));
+        }
+
+        // a HEAD response carries no body, so the framing
+        // fields the caller wrote are left untouched
+        {
+            response_head res;
+            test_serializer sr(cfg);
+            sr.start(&res, true);
+
+            std::string wire;
+            BOOST_TEST(!write_eof(sr, wire));
+            BOOST_TEST(sr.is_done());
+            BOOST_TEST(!res.chunked());
+            BOOST_TEST_EQ(wire, std::string(res.buffer()));
+        }
+
+        // encoded output rides the upgraded framing
+        {
+            std::string const b = make_body(20);
+            response_head res;
+            res.set(http::field::content_encoding, "test");
+            test_encoder enc("eof!");
+            test_serializer sr(cfg);
+            sr.start(&res);
+            sr.set_encoder(enc);
+
+            std::string wire;
+            BOOST_TEST(!drain(sr, wire));
+            BOOST_TEST(res.chunked());
+            BOOST_TEST_EQ(wire, std::string(res.buffer()));
+
+            BOOST_TEST(!write_eof(sr, wire, b));
+            BOOST_TEST(sr.is_done());
+            BOOST_TEST(enc.finished);
+            std::string expected(res.buffer());
+            expected += "18\r\n" + encoded(b) + "eof!\r\n";
+            expected += "0\r\n\r\n";
+            BOOST_TEST_EQ(wire, expected);
+        }
+    }
+
+    void
     testEmptyDest()
     {
         // A zero-slot dest places nothing, which is not a
@@ -3539,6 +3723,7 @@ public:
         testToEofPartialWrites();
         testToEofBodyContract();
         testToEofDestExhaustion();
+        testChunkedUpgrade();
         testEmptyDest();
         testChunkedOctetsAfterEofDeferred();
         testTrailer();

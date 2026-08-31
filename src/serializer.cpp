@@ -111,6 +111,14 @@ select_framing_()
 
     payload_ = head_ ? payload::none : msg_->payload();
 
+    if( payload_ == payload::to_eof &&
+        msg_->version() == http::version::http_1_1 &&
+        !msg_->contains(http::field::transfer_encoding))
+    {
+        msg_->set_chunked(true);
+        payload_ = payload::chunked;
+    }
+
     if(enc_cfg_ && payload_ != payload::none)
         enc_ = make_encoder(content_coding(*msg_), *enc_cfg_);
 

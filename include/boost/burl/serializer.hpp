@@ -80,6 +80,13 @@ struct encoder;
     or stream-delimited framing may be replaced
     with an explicit Content-Length.
 
+    A stream-delimited body in an HTTP/1.1 message
+    that does not specify a transfer coding is
+    replaced with chunked transfer coding, keeping
+    the connection reusable. HTTP/1.0 messages, and
+    messages that specify their own transfer
+    coding, retain stream-delimited framing.
+
     Once transfer of the header has begun, the
     message is no longer modified.
 
