@@ -116,7 +116,7 @@ tag_invoke(body_to_tag<std::string>, response& resp)
         ret.resize(n);
         if(ec == capy::cond::eof)
             ec.clear();
-        co_return { ec, ret };
+        co_return { ec, std::move(ret) };
     }
 
     std::size_t chunk = 4096;
@@ -132,7 +132,7 @@ tag_invoke(body_to_tag<std::string>, response& resp)
             ret.resize(total);
             if(ec == capy::cond::eof)
                 ec.clear();
-            co_return { ec, ret };
+            co_return { ec, std::move(ret) };
         }
         if(total == ret.size())
         {
