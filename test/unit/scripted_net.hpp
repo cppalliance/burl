@@ -13,7 +13,8 @@
 #include <boost/burl/client.hpp>
 
 #include <boost/capy/io/any_stream.hpp>
-#include <boost/capy/io_task.hpp>
+#include <boost/capy/results.hpp>
+#include <boost/capy/task.hpp>
 #include <boost/capy/test/fuse.hpp>
 #include <boost/capy/test/stream.hpp>
 #include <boost/corosio/io_context.hpp>
@@ -55,7 +56,8 @@ struct scripted_net
         cfg.gzip    = false;
         cfg.zstd    = false;
         cfg.connect_handler =
-            [this](urls::url_view url) -> capy::io_task<capy::any_stream>
+            [this](urls::url_view url)
+                -> capy::task<capy::results<capy::any_stream>>
         {
             origins.emplace_back(url.encoded_origin());
             auto [cli, srv] = capy::test::make_stream_pair(fuse);

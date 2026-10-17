@@ -10,7 +10,8 @@
 #ifndef BOOST_BURL_SRC_DETAIL_SEND_FILE_HPP
 #define BOOST_BURL_SRC_DETAIL_SEND_FILE_HPP
 
-#include <boost/capy/io_task.hpp>
+#include <boost/capy/results.hpp>
+#include <boost/capy/task.hpp>
 #include <boost/http/io/any_buffer_sink.hpp>
 
 #include <cstdint>
@@ -30,7 +31,7 @@ namespace detail
 
 // Read exactly `size` bytes of `path` and write them into `sink`. Fails
 // with error::file_changed if the file no longer holds `size` bytes.
-capy::io_task<>
+capy::task<capy::results<>>
 send_file(
     http::any_buffer_sink& sink,
     std::filesystem::path const& path,

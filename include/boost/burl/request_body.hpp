@@ -12,7 +12,8 @@
 
 #include <boost/burl/detail/config.hpp>
 
-#include <boost/capy/io_task.hpp>
+#include <boost/capy/results.hpp>
+#include <boost/capy/task.hpp>
 #include <boost/http/io/any_buffer_sink.hpp>
 
 #include <concepts>
@@ -47,7 +48,7 @@ template<typename T>
 concept RequestBody = requires(T const& t, http::any_buffer_sink& sink) {
     { t.content_type() } -> std::same_as<std::optional<std::string>>;
     { t.content_length() } -> std::same_as<std::optional<std::uint64_t>>;
-    { t.write(sink) } -> std::same_as<capy::io_task<>>;
+    { t.write(sink) } -> std::same_as<capy::task<capy::results<>>>;
 };
 
 } // namespace burl

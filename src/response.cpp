@@ -63,7 +63,7 @@ response::~response()
         conn_.return_to_pool();
 }
 
-capy::io_task<std::string_view>
+capy::task<capy::results<std::string_view>>
 response::try_as_view() &
 {
     if(deadline_)

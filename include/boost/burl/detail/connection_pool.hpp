@@ -14,7 +14,8 @@
 #include <boost/burl/test/fwd.hpp>
 #include <boost/capy/buffers.hpp>
 #include <boost/capy/detail/buffer_array.hpp>
-#include <boost/capy/io_task.hpp>
+#include <boost/capy/results.hpp>
+#include <boost/capy/task.hpp>
 
 #include <chrono>
 #include <cstddef>
@@ -40,14 +41,14 @@ class connection
 
 public:
     template<capy::MutableBufferSequence MB>
-    capy::io_task<std::size_t>
+    capy::task<capy::results<std::size_t>>
     read_some(MB buffers)
     {
         return read_some_impl(buffers);
     }
 
     template<capy::ConstBufferSequence CB>
-    capy::io_task<std::size_t>
+    capy::task<capy::results<std::size_t>>
     write_some(CB buffers)
     {
         return write_some_impl(buffers);
@@ -62,22 +63,22 @@ public:
     virtual bool
     is_open() const noexcept = 0;
 
-    // virtual capy::io_task<>
+    // virtual capy::task<capy::results<>>
     // shutdown() = 0;
 
     virtual ~connection() = default;
 
 private:
-    capy::io_task<std::size_t>
+    capy::task<capy::results<std::size_t>>
     read_some_impl(capy::detail::mutable_buffer_array<8>);
 
-    capy::io_task<std::size_t>
+    capy::task<capy::results<std::size_t>>
     write_some_impl(capy::detail::const_buffer_array<8>);
 
-    virtual capy::io_task<std::size_t>
+    virtual capy::task<capy::results<std::size_t>>
     do_read_some(std::span<capy::mutable_buffer const> buffers) = 0;
 
-    virtual capy::io_task<std::size_t>
+    virtual capy::task<capy::results<std::size_t>>
     do_write_some(std::span<capy::const_buffer const> buffers) = 0;
 };
 
@@ -94,14 +95,14 @@ public:
     pooled_connection() = default;
 
     template<capy::MutableBufferSequence MB>
-    capy::io_task<std::size_t>
+    capy::task<capy::results<std::size_t>>
     read_some(MB buffers)
     {
         return conn_->read_some(std::move(buffers));
     }
 
     template<capy::ConstBufferSequence CB>
-    capy::io_task<std::size_t>
+    capy::task<capy::results<std::size_t>>
     write_some(CB buffers)
     {
         return conn_->write_some(std::move(buffers));

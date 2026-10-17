@@ -77,7 +77,7 @@ public:
         return body_.size();
     }
 
-    capy::io_task<>
+    capy::task<capy::results<>>
     write(http::any_buffer_sink& sink) const
     {
         auto [ec, n] = co_await sink.write_eof(

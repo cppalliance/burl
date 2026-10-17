@@ -15,7 +15,8 @@
 #include <boost/assert.hpp>
 #include <boost/capy/buffers/consuming_buffers.hpp>
 #include <boost/capy/concept/write_stream.hpp>
-#include <boost/capy/io_task.hpp>
+#include <boost/capy/results.hpp>
+#include <boost/capy/task.hpp>
 
 #include <cstddef>
 #include <span>
@@ -111,7 +112,7 @@ public:
 
         @return An awaitable yielding `(error_code)`.
     */
-    capy::io_task<>
+    capy::task<capy::results<>>
     commit(std::size_t n)
     {
         return commit_(*s_, *sr_, n);
@@ -123,7 +124,7 @@ public:
 
         @return An awaitable yielding `(error_code)`.
     */
-    capy::io_task<>
+    capy::task<capy::results<>>
     commit_eof(std::size_t n)
     {
         return commit_eof_(*s_, *sr_, n);
@@ -133,7 +134,7 @@ public:
 
         @return An awaitable yielding `(error_code)`.
     */
-    capy::io_task<>
+    capy::task<capy::results<>>
     write_eof()
     {
         return commit_eof_(*s_, *sr_, 0);
@@ -157,7 +158,7 @@ public:
         @return An awaitable yielding
        `(error_code)`.
     */
-    capy::io_task<>
+    capy::task<capy::results<>>
     write_header()
     {
         return drain_(*s_, *sr_);
@@ -176,7 +177,7 @@ public:
         `(error_code,std::size_t)`.
     */
     template<capy::ConstBufferSequence CB>
-    capy::io_task<std::size_t>
+    capy::task<capy::results<std::size_t>>
     write_some(CB buffers)
     {
         return drive_(*s_, *sr_, std::move(buffers), true);
@@ -193,7 +194,7 @@ public:
         `(error_code,std::size_t)`.
     */
     template<capy::ConstBufferSequence CB>
-    capy::io_task<std::size_t>
+    capy::task<capy::results<std::size_t>>
     write(CB buffers)
     {
         return drive_(*s_, *sr_, std::move(buffers), true);
@@ -213,7 +214,7 @@ public:
         `(error_code,std::size_t)`.
     */
     template<capy::ConstBufferSequence CB>
-    capy::io_task<std::size_t>
+    capy::task<capy::results<std::size_t>>
     write_eof(CB buffers)
     {
         return drive_(*s_, *sr_, std::move(buffers), false);
@@ -221,23 +222,23 @@ public:
 
 private:
     template<capy::ConstBufferSequence CB>
-    static capy::io_task<std::size_t>
+    static capy::task<capy::results<std::size_t>>
     drive_(
         S& stream,
         serializer& sr,
         CB buffers,
         bool more);
 
-    static capy::io_task<>
+    static capy::task<capy::results<>>
     drain_(S& stream, serializer& sr);
 
-    static capy::io_task<>
+    static capy::task<capy::results<>>
     commit_(
         S& stream,
         serializer& sr,
         std::size_t n);
 
-    static capy::io_task<>
+    static capy::task<capy::results<>>
     commit_eof_(
         S& stream,
         serializer& sr,
@@ -248,7 +249,7 @@ private:
 
 template<capy::WriteStream S>
 template<capy::ConstBufferSequence CB>
-capy::io_task<std::size_t>
+capy::task<capy::results<std::size_t>>
 message_writer<S>::
 drive_(
     S& stream,
@@ -274,7 +275,7 @@ drive_(
 }
 
 template<capy::WriteStream S>
-capy::io_task<>
+capy::task<capy::results<>>
 message_writer<S>::
 drain_(S& stream, serializer& sr)
 {
@@ -285,7 +286,7 @@ drain_(S& stream, serializer& sr)
 }
 
 template<capy::WriteStream S>
-capy::io_task<>
+capy::task<capy::results<>>
 message_writer<S>::
 commit_(
     S& stream,
@@ -299,7 +300,7 @@ commit_(
 }
 
 template<capy::WriteStream S>
-capy::io_task<>
+capy::task<capy::results<>>
 message_writer<S>::
 commit_eof_(
     S& stream,

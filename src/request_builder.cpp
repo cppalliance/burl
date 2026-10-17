@@ -64,7 +64,7 @@ request_builder::bearer_auth(std::string_view token) &&
     return std::move(*this);
 }
 
-capy::io_task<response>
+capy::task<capy::results<response>>
 request_builder::send() &&
 {
     return client_.execute(std::move(request_));

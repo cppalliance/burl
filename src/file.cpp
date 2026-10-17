@@ -60,7 +60,7 @@ public:
         return size_;
     }
 
-    capy::io_task<>
+    capy::task<capy::results<>>
     write(http::any_buffer_sink& sink) const
     {
         return detail::send_file(sink, path_, size_, true);
@@ -75,7 +75,7 @@ tag_invoke(body_from_tag<std::filesystem::path>, std::filesystem::path path)
     return file_body{ std::move(path) };
 }
 
-capy::io_task<std::filesystem::path>
+capy::task<capy::results<std::filesystem::path>>
 tag_invoke(
     body_to_tag<std::filesystem::path>,
     response& resp,

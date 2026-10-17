@@ -18,7 +18,8 @@
 #include <boost/capy/concept/read_stream.hpp>
 #include <boost/capy/cond.hpp>
 #include <boost/capy/error.hpp>
-#include <boost/capy/io_task.hpp>
+#include <boost/capy/results.hpp>
+#include <boost/capy/task.hpp>
 #include <boost/http/error.hpp>
 
 #include <cstddef>
@@ -114,7 +115,7 @@ public:
 
         @return An awaitable yielding `(error_code)`.
     */
-    capy::io_task<>
+    capy::task<capy::results<>>
     read_header()
     {
         return read_header_(*s_, *p_);
@@ -133,7 +134,7 @@ public:
 
         @see @ref parser::flatten_body.
     */
-    capy::io_task<std::string_view>
+    capy::task<capy::results<std::string_view>>
     read_body()
     {
         return read_body_(*s_, *p_);
@@ -154,7 +155,7 @@ public:
         @see @ref parser::read_some.
     */
     template<capy::MutableBufferSequence MB>
-    capy::io_task<std::size_t>
+    capy::task<capy::results<std::size_t>>
     read_some(MB buffers)
     {
         return read_some_(*s_, *p_, std::move(buffers));
@@ -173,7 +174,7 @@ public:
         `(error_code,std::size_t)`.
     */
     template<capy::MutableBufferSequence MB>
-    capy::io_task<std::size_t>
+    capy::task<capy::results<std::size_t>>
     read(MB buffers)
     {
         return read_(*s_, *p_, std::move(buffers));
@@ -193,7 +194,7 @@ public:
 
         @see @ref consume, @ref parser::pull.
     */
-    capy::io_task<std::span<capy::const_buffer>>
+    capy::task<capy::results<std::span<capy::const_buffer>>>
     pull(std::span<capy::const_buffer> dest)
     {
         return pull_(*s_, *p_, dest);
@@ -212,30 +213,30 @@ public:
     }
 
 private:
-    static capy::io_task<>
+    static capy::task<capy::results<>>
     refill_(S& stream, parser& pr);
 
-    static capy::io_task<>
+    static capy::task<capy::results<>>
     read_header_(S& stream, parser& pr);
 
-    static capy::io_task<std::string_view>
+    static capy::task<capy::results<std::string_view>>
     read_body_(S& stream, parser& pr);
 
-    static capy::io_task<std::span<capy::const_buffer>>
+    static capy::task<capy::results<std::span<capy::const_buffer>>>
     pull_(
         S& stream,
         parser& pr,
         std::span<capy::const_buffer> dest);
 
     template<capy::MutableBufferSequence MB>
-    static capy::io_task<std::size_t>
+    static capy::task<capy::results<std::size_t>>
     read_some_(
         S& stream,
         parser& pr,
         MB buffers);
 
     template<capy::MutableBufferSequence MB>
-    static capy::io_task<std::size_t>
+    static capy::task<capy::results<std::size_t>>
     read_(
         S& stream,
         parser& pr,
@@ -245,7 +246,7 @@ private:
 //------------------------------------------------
 
 template<capy::ReadStream S>
-capy::io_task<>
+capy::task<capy::results<>>
 message_reader<S>::
 refill_(S& stream, parser& pr)
 {
@@ -262,7 +263,7 @@ refill_(S& stream, parser& pr)
 }
 
 template<capy::ReadStream S>
-capy::io_task<>
+capy::task<capy::results<>>
 message_reader<S>::
 read_header_(S& stream, parser& pr)
 {
@@ -279,7 +280,7 @@ read_header_(S& stream, parser& pr)
 }
 
 template<capy::ReadStream S>
-capy::io_task<std::string_view>
+capy::task<capy::results<std::string_view>>
 message_reader<S>::
 read_body_(S& stream, parser& pr)
 {
@@ -297,7 +298,7 @@ read_body_(S& stream, parser& pr)
 
 template<capy::ReadStream S>
 template<capy::MutableBufferSequence MB>
-capy::io_task<std::size_t>
+capy::task<capy::results<std::size_t>>
 message_reader<S>::
 read_some_(
     S& stream,
@@ -333,7 +334,7 @@ read_some_(
 
 template<capy::ReadStream S>
 template<capy::MutableBufferSequence MB>
-capy::io_task<std::size_t>
+capy::task<capy::results<std::size_t>>
 message_reader<S>::
 read_(
     S& stream,
@@ -357,7 +358,7 @@ read_(
 }
 
 template<capy::ReadStream S>
-capy::io_task<std::span<capy::const_buffer>>
+capy::task<capy::results<std::span<capy::const_buffer>>>
 message_reader<S>::
 pull_(
     S& stream,

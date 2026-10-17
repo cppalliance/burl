@@ -15,7 +15,8 @@
 #include <boost/burl/detail/config.hpp>
 #include <boost/burl/response.hpp>
 
-#include <boost/capy/io_task.hpp>
+#include <boost/capy/results.hpp>
+#include <boost/capy/task.hpp>
 
 #include <cstddef>
 #include <string>
@@ -111,7 +112,7 @@ tag_invoke(body_from_tag<char[N]>, const char (&body)[N])
     `(error_code,std::string)`.
 */
 BOOST_BURL_DECL
-capy::io_task<std::string>
+capy::task<capy::results<std::string>>
 tag_invoke(body_to_tag<std::string>, response& resp);
 
 } // namespace burl

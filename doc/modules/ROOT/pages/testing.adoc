@@ -79,7 +79,7 @@ for the client to speak HTTP over:
 ----
 burl::client::config cfg;
 cfg.connect_handler =
-    [](urls::url_view) -> capy::io_task<capy::any_stream>
+    [](urls::url_view) -> capy::task<capy::results<capy::any_stream>>
     {
         auto [a, b] = capy::test::make_stream_pair();
         // drive b from the test as the "server"; hand a to the client

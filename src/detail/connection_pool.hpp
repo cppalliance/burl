@@ -14,7 +14,8 @@
 #include <boost/burl/detail/connection_pool.hpp>
 
 #include <boost/capy/ex/executor_ref.hpp>
-#include <boost/capy/io_task.hpp>
+#include <boost/capy/results.hpp>
+#include <boost/capy/task.hpp>
 #include <boost/corosio/tls_context.hpp>
 #include <boost/url/url_view.hpp>
 
@@ -51,14 +52,14 @@ public:
         corosio::tls_context tls_ctx,
         config cfg);
 
-    capy::io_task<pooled_connection>
+    capy::task<capy::results<pooled_connection>>
     acquire(urls::url_view url);
 
     void
     release(pooled_connection pc);
 
 private:
-    capy::io_task<std::unique_ptr<connection>>
+    capy::task<capy::results<std::unique_ptr<connection>>>
     connect(urls::url_view url) const;
 };
 

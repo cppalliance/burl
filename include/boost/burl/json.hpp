@@ -15,7 +15,8 @@
 #include <boost/burl/detail/config.hpp>
 #include <boost/burl/response.hpp>
 
-#include <boost/capy/io_task.hpp>
+#include <boost/capy/results.hpp>
+#include <boost/capy/task.hpp>
 #include <boost/json/value.hpp>
 
 namespace boost
@@ -64,7 +65,7 @@ tag_invoke(body_from_tag<json::value>, json::value value);
     `(error_code,json::value)`.
 */
 BOOST_BURL_DECL
-capy::io_task<json::value>
+capy::task<capy::results<json::value>>
 tag_invoke(body_to_tag<json::value>, response& resp);
 
 /** Create a request body from a JSON object.
@@ -110,7 +111,7 @@ tag_invoke(body_from_tag<json::object>, json::object value);
     `(error_code,json::object)`.
 */
 BOOST_BURL_DECL
-capy::io_task<json::object>
+capy::task<capy::results<json::object>>
 tag_invoke(body_to_tag<json::object>, response& resp);
 
 /** Create a request body from a JSON array.
@@ -156,7 +157,7 @@ tag_invoke(body_from_tag<json::array>, json::array value);
     `(error_code,json::array)`.
 */
 BOOST_BURL_DECL
-capy::io_task<json::array>
+capy::task<capy::results<json::array>>
 tag_invoke(body_to_tag<json::array>, response& resp);
 
 /** Create a request body from a JSON string.
@@ -202,7 +203,7 @@ tag_invoke(body_from_tag<json::string>, json::string value);
     `(error_code,json::string)`.
 */
 BOOST_BURL_DECL
-capy::io_task<json::string>
+capy::task<capy::results<json::string>>
 tag_invoke(body_to_tag<json::string>, response& resp);
 
 } // namespace burl

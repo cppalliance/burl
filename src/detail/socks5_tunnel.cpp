@@ -30,7 +30,7 @@ namespace burl
 namespace detail
 {
 
-capy::io_task<>
+capy::task<capy::results<>>
 open_socks5_tunnel(
     capy::any_stream stream,
     urls::url_view target,

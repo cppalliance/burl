@@ -49,7 +49,7 @@ public:
         return std::nullopt;
     }
 
-    capy::io_task<>
+    capy::task<capy::results<>>
     write(http::any_buffer_sink& sink) const
     {
         json::serializer sr;
@@ -88,7 +88,7 @@ tag_invoke(body_from_tag<json::value>, json::value value)
     return json_body{ std::move(value) };
 }
 
-capy::io_task<json::value>
+capy::task<capy::results<json::value>>
 tag_invoke(body_to_tag<json::value>, response& resp)
 {
     auto source = resp.as_buffer_source();
@@ -127,7 +127,7 @@ tag_invoke(body_from_tag<json::object>, json::object value)
     return json_body{ std::move(value) };
 }
 
-capy::io_task<json::object>
+capy::task<capy::results<json::object>>
 tag_invoke(body_to_tag<json::object>, response& resp)
 {
     auto [ec, jv] = co_await tag_invoke(body_to_tag<json::value>{}, resp);
@@ -145,7 +145,7 @@ tag_invoke(body_from_tag<json::array>, json::array value)
     return json_body{ std::move(value) };
 }
 
-capy::io_task<json::array>
+capy::task<capy::results<json::array>>
 tag_invoke(body_to_tag<json::array>, response& resp)
 {
     auto [ec, jv] = co_await tag_invoke(body_to_tag<json::value>{}, resp);
@@ -163,7 +163,7 @@ tag_invoke(body_from_tag<json::string>, json::string value)
     return json_body{ std::move(value) };
 }
 
-capy::io_task<json::string>
+capy::task<capy::results<json::string>>
 tag_invoke(body_to_tag<json::string>, response& resp)
 {
     auto [ec, jv] = co_await tag_invoke(body_to_tag<json::value>{}, resp);

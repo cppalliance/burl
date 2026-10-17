@@ -20,7 +20,7 @@
 #include <boost/capy/buffers/buffer_copy.hpp>
 #include <boost/capy/cond.hpp>
 #include <boost/capy/error.hpp>
-#include <boost/capy/io_result.hpp>
+#include <boost/capy/results.hpp>
 #include <boost/url/grammar/error.hpp>
 #include <boost/url/grammar/hexdig_chars.hpp>
 
@@ -239,7 +239,7 @@ prefix(auto buf, std::size_t n) noexcept
 struct parser::chunk_fn
 {
     void* obj_;
-    capy::io_result<std::size_t> (*invoke_)(
+    capy::results<std::size_t> (*invoke_)(
         void*, capy::const_buffer, bool);
 
     template<class F>
@@ -247,7 +247,7 @@ struct parser::chunk_fn
         : obj_(std::addressof(f))
         , invoke_(
             [](void* obj, capy::const_buffer b, bool more)
-                -> capy::io_result<std::size_t>
+                -> capy::results<std::size_t>
             {
                 return (*static_cast<
                     std::remove_reference_t<F>*>(obj))(b, more);
@@ -255,7 +255,7 @@ struct parser::chunk_fn
     {
     }
 
-    capy::io_result<std::size_t>
+    capy::results<std::size_t>
     operator()(capy::const_buffer b, bool more) const
     {
         return invoke_(obj_, b, more);
@@ -757,7 +757,7 @@ decode_some_(capy::mutable_buffer dest)
     std::size_t prod = 0;
     auto process =
     [&](capy::const_buffer in, bool more)
-        -> capy::io_result<std::size_t>
+        -> capy::results<std::size_t>
     {
         if(dec_err_)
         {
@@ -870,7 +870,7 @@ read_some_(capy::mutable_buffer dest)
         std::size_t lim = clamp(limit_rem_);
         auto const wec = walk_chunks_(
         [&](capy::const_buffer b, bool)
-            -> capy::io_result<std::size_t>
+            -> capy::results<std::size_t>
         {
             auto const take = clamp(b.size(), lim);
             lim -= take;
@@ -965,7 +965,7 @@ pull(std::span<capy::const_buffer> dest)
         std::size_t lim = clamp(limit_rem_);
         auto const wec = walk_chunks_(
         [&](capy::const_buffer b, bool)
-            -> capy::io_result<std::size_t>
+            -> capy::results<std::size_t>
         {
             if(b.size() == 0)
                 return { capy::error::eof, 0 };
@@ -1037,7 +1037,7 @@ consume(std::size_t n) noexcept
     case payload::chunked:
         walk_chunks_(
         [&](capy::const_buffer b, bool)
-            -> capy::io_result<std::size_t>
+            -> capy::results<std::size_t>
         {
             auto const take = clamp(b.size(), n);
             n -= take;

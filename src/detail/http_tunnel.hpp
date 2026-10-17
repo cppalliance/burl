@@ -11,7 +11,8 @@
 #define BOOST_BURL_SRC_DETAIL_HTTP_TUNNEL_HPP
 
 #include <boost/capy/io/any_stream.hpp>
-#include <boost/capy/io_task.hpp>
+#include <boost/capy/results.hpp>
+#include <boost/capy/task.hpp>
 #include <boost/url/url_view.hpp>
 
 namespace boost
@@ -21,7 +22,7 @@ namespace burl
 namespace detail
 {
 
-capy::io_task<>
+capy::task<capy::results<>>
 open_http_tunnel(
     capy::any_stream stream,
     urls::url_view target,

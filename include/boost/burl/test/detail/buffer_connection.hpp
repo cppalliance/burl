@@ -15,7 +15,8 @@
 #include <boost/capy/buffers/buffer_copy.hpp>
 #include <boost/capy/buffers/make_buffer.hpp>
 #include <boost/capy/error.hpp>
-#include <boost/capy/io_task.hpp>
+#include <boost/capy/results.hpp>
+#include <boost/capy/task.hpp>
 #include <boost/capy/test/fuse.hpp>
 #include <boost/capy/buffers/buffer_slice.hpp>
 
@@ -58,14 +59,14 @@ public:
         return true;
     }
 
-    // capy::io_task<>
+    // capy::task<capy::results<>>
     // shutdown() override
     // {
     //     co_return {};
     // }
 
 private:
-    capy::io_task<std::size_t>
+    capy::task<capy::results<std::size_t>>
     do_read_some(std::span<capy::mutable_buffer const> bufs) override
     {
         if(head_pos_ < head_.size())
@@ -95,7 +96,7 @@ private:
         co_return { std::error_code(), n };
     }
 
-    capy::io_task<std::size_t>
+    capy::task<capy::results<std::size_t>>
     do_write_some(std::span<capy::const_buffer const>) override
     {
         co_return { capy::error::eof, 0 };
