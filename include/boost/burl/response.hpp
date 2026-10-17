@@ -17,7 +17,8 @@
 #include <boost/burl/error.hpp>
 #include <boost/burl/message_reader.hpp>
 #include <boost/burl/test/fwd.hpp>
-#include <boost/capy/io_task.hpp>
+#include <boost/capy/results.hpp>
+#include <boost/capy/task.hpp>
 #include <boost/corosio/timeout.hpp>
 #include <boost/http/io/any_buffer_source.hpp>
 #include <boost/http/io/any_read_source.hpp>
@@ -274,7 +275,7 @@ public:
         @see @ref as_view.
     */
     BOOST_BURL_DECL
-    capy::io_task<std::string_view>
+    capy::task<capy::results<std::string_view>>
     try_as_view() &;
 
     /** Asynchronously read the entire body in place.
@@ -326,7 +327,7 @@ public:
         requires requires(response& resp, Args&&... args) {
             tag_invoke(body_to_tag<T>{}, resp, std::forward<Args>(args)...);
         }
-    capy::io_task<T>
+    capy::task<capy::results<T>>
     try_as(Args&&... args) &
     {
         if(deadline_)

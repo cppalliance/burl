@@ -63,14 +63,14 @@ class connection_pool_test
 {
     struct slow_stream
     {
-        capy::io_task<std::size_t>
+        capy::task<capy::results<std::size_t>>
         read_some(auto)
         {
             auto [ec] = co_await corosio::delay(10s);
             co_return { ec, {} };
         }
 
-        capy::io_task<std::size_t>
+        capy::task<capy::results<std::size_t>>
         write_some(auto)
         {
             auto [ec] = co_await corosio::delay(10s);
@@ -117,7 +117,7 @@ class connection_pool_test
         }
     };
 
-    capy::io_task<std::size_t>
+    capy::task<capy::results<std::size_t>>
     read_until(
         capy::any_stream s,
         std::string& buf,
@@ -346,7 +346,8 @@ public:
         corosio::io_context ioc;
         client::config cfg;
         cfg.connect_timeout = 10ms;
-        cfg.connect_handler = [](urls::url_view) -> capy::io_task<capy::any_stream>
+        cfg.connect_handler = [](urls::url_view)
+            -> capy::task<capy::results<capy::any_stream>>
         {
             if(auto [ec] = co_await corosio::delay(1s); ec)
             {
@@ -379,7 +380,8 @@ public:
         corosio::io_context ioc;
         client::config cfg;
         cfg.io_timeout = 10ms;
-        cfg.connect_handler = [](urls::url_view) -> capy::io_task<capy::any_stream>
+        cfg.connect_handler = [](urls::url_view)
+            -> capy::task<capy::results<capy::any_stream>>
         {
             co_return { std::error_code(), capy::any_stream{ slow_stream{} } };
         };

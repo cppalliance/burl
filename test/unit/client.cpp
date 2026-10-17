@@ -47,7 +47,7 @@ class client_test
     {
         std::string rd_buf;
 
-        capy::io_task<std::size_t>
+        capy::task<capy::results<std::size_t>>
         read_some(auto mb)
         {
             if(!rd_buf.empty())
@@ -62,7 +62,7 @@ class client_test
             co_return { ec, {} };
         }
 
-        capy::io_task<std::size_t>
+        capy::task<capy::results<std::size_t>>
         write_some(auto cb)
         {
             co_return { std::error_code(), capy::buffer_size(cb) };
@@ -898,7 +898,8 @@ public:
             client::config cfg;
             cfg.timeout = 10ms;
             cfg.connect_handler =
-                [](urls::url_view) -> capy::io_task<capy::any_stream>
+                [](urls::url_view)
+                    -> capy::task<capy::results<capy::any_stream>>
             {
                 co_return { std::error_code(),
                             capy::any_stream{
@@ -925,7 +926,8 @@ public:
         {
             client::config cfg;
             cfg.timeout = 10ms;
-            cfg.connect_handler = [](urls::url_view) -> capy::io_task<capy::any_stream>
+            cfg.connect_handler = [](urls::url_view)
+                -> capy::task<capy::results<capy::any_stream>>
             {
                 co_return { std::error_code(), capy::any_stream{
                     slow_stream{

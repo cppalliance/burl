@@ -15,7 +15,8 @@
 #include <boost/burl/detail/config.hpp>
 #include <boost/burl/response.hpp>
 
-#include <boost/capy/io_task.hpp>
+#include <boost/capy/results.hpp>
+#include <boost/capy/task.hpp>
 #include <boost/corosio/file_base.hpp>
 
 #include <filesystem>
@@ -78,7 +79,7 @@ tag_invoke(body_from_tag<std::filesystem::path>, std::filesystem::path path);
     `(error_code,std::filesystem::path)`.
 */
 BOOST_BURL_DECL
-capy::io_task<std::filesystem::path>
+capy::task<capy::results<std::filesystem::path>>
 tag_invoke(
     body_to_tag<std::filesystem::path>,
     response& resp,

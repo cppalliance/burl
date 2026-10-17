@@ -104,7 +104,7 @@ public:
         corosio::io_context ioc;
         capy::run_async(
             ioc.get_executor(),
-            [&](capy::io_result<fs::path> res)
+            [&](capy::results<fs::path> res)
             {
                 BOOST_TEST(!get<0>(res));
                 BOOST_TEST_EQ(get<1>(res), dest.path);
@@ -125,7 +125,7 @@ public:
         corosio::io_context ioc;
         capy::run_async(
             ioc.get_executor(),
-            [&](capy::io_result<fs::path> res)
+            [&](capy::results<fs::path> res)
             {
                 BOOST_TEST(get<0>(res));
                 BOOST_TEST_EQ(get<1>(res), "");
@@ -148,7 +148,7 @@ public:
         corosio::io_context ioc;
         capy::run_async(
             ioc.get_executor(),
-            [&](capy::io_result<fs::path> res)
+            [&](capy::results<fs::path> res)
             {
                 BOOST_TEST_EQ(get<0>(res), http::error::incomplete);
                 BOOST_TEST_EQ(get<1>(res), dest.path);

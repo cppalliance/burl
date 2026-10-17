@@ -19,7 +19,8 @@
 
 #include <boost/capy/ex/executor_ref.hpp>
 #include <boost/capy/io/any_stream.hpp>
-#include <boost/capy/io_task.hpp>
+#include <boost/capy/results.hpp>
+#include <boost/capy/task.hpp>
 #include <boost/corosio/endpoint.hpp>
 #include <boost/corosio/tls_context.hpp>
 #include <boost/url/url.hpp>
@@ -298,7 +299,8 @@ public:
             @par Example
             @code
             cfg.connect_handler =
-                [](urls::url_view) -> capy::io_task<capy::any_stream>
+                [](urls::url_view)
+                    -> capy::task<capy::results<capy::any_stream>>
                 {
                     auto [a, b] = capy::test::make_stream_pair();
                     // drive b from the test; hand a to the client
@@ -307,7 +309,7 @@ public:
             @endcode
         */
         std::function<
-            capy::io_task<capy::any_stream>(urls::url_view url)>
+            capy::task<capy::results<capy::any_stream>>(urls::url_view url)>
                 connect_handler;
     };
 
@@ -581,12 +583,12 @@ public:
         @see @ref request_builder::send.
     */
     BOOST_BURL_DECL
-    capy::io_task<response>
+    capy::task<capy::results<response>>
     execute(burl::request request);
 
 private:
     BOOST_BURL_DECL
-    capy::io_task<response>
+    capy::task<capy::results<response>>
     execute_impl(
         burl::request request,
         std::optional<config::clock::time_point> deadline);

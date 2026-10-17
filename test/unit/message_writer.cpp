@@ -103,12 +103,12 @@ class message_writer_test
                 bool
                 await_suspend(
                     std::coroutine_handle<>,
-                    capy::io_env const*) noexcept
+                    capy::await_context const*) noexcept
                 {
                     return false;
                 }
 
-                capy::io_result<std::size_t>
+                capy::results<std::size_t>
                 await_resume()
                 {
                     auto const total =

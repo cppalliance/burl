@@ -59,7 +59,7 @@ struct body_from_tag
     object of type `T`. They have the form:
 
     @code
-    capy::io_task<T>
+    capy::task<capy::results<T>>
     tag_invoke(body_to_tag<T>, response& resp, Args... args);
     @endcode
 
@@ -70,7 +70,7 @@ struct body_from_tag
     @par Example
     Adding support for a user-defined type:
     @code
-    capy::io_task<my_type>
+    capy::task<capy::results<my_type>>
     tag_invoke(burl::body_to_tag<my_type>, burl::response& resp)
     {
         auto [ec, sv] = co_await resp.try_as_view();

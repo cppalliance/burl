@@ -27,7 +27,7 @@ struct MyRequestBody
 {
     std::optional<std::string>   content_type()   const;
     std::optional<std::uint64_t> content_length() const;
-    capy::io_task<>              write(http::any_buffer_sink& sink) const;
+    capy::task<capy::results<>>  write(http::any_buffer_sink& sink) const;
 };
 ----
 
@@ -62,7 +62,7 @@ auto [ec, r] = co_await client.post("https://example.com/post")
 To read a response into a value with cpp:request_builder::as<T>[as<T>] or
 cpp:request_builder::try_as<T>[try_as<T>], provide a `tag_invoke` overload
 taking cpp:body_to_tag<T>[] and the cpp:response[]. It returns a
-`capy::io_task<T>` that reads the body and converts it:
+`capy::task<capy::results<T>>` that reads the body and converts it:
 
 [source,cpp]
 ----
@@ -94,7 +94,7 @@ declares the extra parameter after the cpp:response[]:
 
 [source,cpp]
 ----
-capy::io_task<std::filesystem::path>
+capy::task<capy::results<std::filesystem::path>>
 tag_invoke(
     burl::body_to_tag<std::filesystem::path>,
     burl::response& resp,

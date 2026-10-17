@@ -171,7 +171,7 @@ client::request(http::method method, urls::url_view url)
     return { *this, method, url };
 }
 
-capy::io_task<response>
+capy::task<capy::results<response>>
 client::execute(burl::request request)
 {
     auto timeout =
@@ -184,7 +184,7 @@ client::execute(burl::request request)
         execute_impl(std::move(request), deadline), *timeout);
 }
 
-capy::io_task<response>
+capy::task<capy::results<response>>
 client::execute_impl(
     burl::request request,
     std::optional<config::clock::time_point> deadline)

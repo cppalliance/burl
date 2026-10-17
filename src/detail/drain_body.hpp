@@ -16,7 +16,8 @@
 #include <boost/capy/buffers.hpp>
 #include <boost/capy/concept/read_stream.hpp>
 #include <boost/capy/cond.hpp>
-#include <boost/capy/io_task.hpp>
+#include <boost/capy/results.hpp>
+#include <boost/capy/task.hpp>
 
 #include <cstddef>
 
@@ -28,7 +29,7 @@ namespace detail
 {
 
 template<capy::ReadStream S>
-capy::io_task<bool>
+capy::task<capy::results<bool>>
 drain_body(
     S& stream,
     response_parser& parser,

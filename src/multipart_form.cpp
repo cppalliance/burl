@@ -172,7 +172,7 @@ public:
         return n;
     }
 
-    capy::io_task<>
+    capy::task<capy::results<>>
     write(http::any_buffer_sink& sink) const
     {
         using capy::make_buffer;

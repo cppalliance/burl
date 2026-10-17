@@ -51,7 +51,7 @@ origin(urls::url_view url)
     return key;
 }
 
-capy::io_task<>
+capy::task<capy::results<>>
 connect_tcp(
     corosio::tcp_socket& socket,
     capy::executor_ref exec,
@@ -90,7 +90,7 @@ public:
         return socket_.is_open();
     }
 
-    // capy::io_task<>
+    // capy::task<capy::results<>>
     // shutdown() override
     // {
     //     socket_.shutdown(corosio::shutdown_both);
@@ -98,13 +98,13 @@ public:
     // }
 
 private:
-    capy::io_task<std::size_t>
+    capy::task<capy::results<std::size_t>>
     do_read_some(std::span<capy::mutable_buffer const> buffers) override
     {
         co_return co_await socket_.read_some(buffers);
     }
 
-    capy::io_task<std::size_t>
+    capy::task<capy::results<std::size_t>>
     do_write_some(std::span<capy::const_buffer const> buffers) override
     {
         co_return co_await socket_.write_some(buffers);
@@ -123,7 +123,7 @@ public:
     {
     }
 
-    capy::io_task<>
+    capy::task<capy::results<>>
     handshake()
     {
         return stream_.handshake(corosio::tls_role::client);
@@ -141,20 +141,20 @@ public:
         return socket_.is_open();
     }
 
-    // capy::io_task<>
+    // capy::task<capy::results<>>
     // shutdown() override
     // {
     //     return stream_.shutdown();
     // }
 
 private:
-    capy::io_task<std::size_t>
+    capy::task<capy::results<std::size_t>>
     do_read_some(std::span<capy::mutable_buffer const> buffers) override
     {
         return stream_.read_some(buffers);
     }
 
-    capy::io_task<std::size_t>
+    capy::task<capy::results<std::size_t>>
     do_write_some(std::span<capy::const_buffer const> buffers) override
     {
         return stream_.write_some(buffers);
@@ -178,7 +178,7 @@ public:
         return open_;
     }
 
-    // capy::io_task<>
+    // capy::task<capy::results<>>
     // shutdown() override
     // {
     //     open_ = false;
@@ -186,7 +186,7 @@ public:
     // }
 
 private:
-    capy::io_task<std::size_t>
+    capy::task<capy::results<std::size_t>>
     do_read_some(std::span<capy::mutable_buffer const> buffers) override
     {
         auto [ec, n] = co_await stream_.read_some(buffers);
@@ -195,7 +195,7 @@ private:
         co_return { ec, n };
     }
 
-    capy::io_task<std::size_t>
+    capy::task<capy::results<std::size_t>>
     do_write_some(std::span<capy::const_buffer const> buffers) override
     {
         auto [ec, n] = co_await stream_.write_some(buffers);
@@ -207,7 +207,7 @@ private:
 
 } // namespace
 
-capy::io_task<std::size_t>
+capy::task<capy::results<std::size_t>>
 connection::
 read_some_impl(capy::detail::mutable_buffer_array<8> rba)
 {
@@ -217,7 +217,7 @@ read_some_impl(capy::detail::mutable_buffer_array<8> rba)
     co_return co_await do_read_some(rba);
 }
 
-capy::io_task<std::size_t>
+capy::task<capy::results<std::size_t>>
 connection::
 write_some_impl(capy::detail::const_buffer_array<8> wba)
 {
@@ -237,7 +237,7 @@ connection_pool::connection_pool(
 {
 }
 
-capy::io_task<pooled_connection>
+capy::task<capy::results<pooled_connection>>
 connection_pool::acquire(urls::url_view url)
 {
     auto key = origin(url);
@@ -291,7 +291,7 @@ connection_pool::release(pooled_connection pc)
         idle_connection{ std::move(pc.conn_), config::clock::now() });
 }
 
-capy::io_task<std::unique_ptr<connection>>
+capy::task<capy::results<std::unique_ptr<connection>>>
 connection_pool::connect(urls::url_view url) const
 {
     using urls::scheme;

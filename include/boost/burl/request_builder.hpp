@@ -15,7 +15,8 @@
 #include <boost/burl/request.hpp>
 #include <boost/burl/response.hpp>
 
-#include <boost/capy/io_task.hpp>
+#include <boost/capy/results.hpp>
+#include <boost/capy/task.hpp>
 #include <boost/http/field.hpp>
 #include <boost/http/method.hpp>
 #include <boost/url/url.hpp>
@@ -330,7 +331,7 @@ public:
         `(error_code,response)`.
     */
     BOOST_BURL_DECL
-    capy::io_task<response>
+    capy::task<capy::results<response>>
     send() &&;
 
     /** Asynchronously send the request and convert the body.
@@ -373,7 +374,7 @@ public:
             @ref response::try_as.
     */
     template<class T, class... Args>
-    capy::io_task<T>
+    capy::task<capy::results<T>>
     try_as(Args&&... args) &&
     {
         return try_as_impl<T>(std::move(*this), std::forward<Args>(args)...);
@@ -434,7 +435,7 @@ private:
     }
 
     template<class T, class... Args>
-    static capy::io_task<T>
+    static capy::task<capy::results<T>>
     try_as_impl(request_builder rb, Args... args)
     {
         auto [ec1, resp] = co_await std::move(rb).send();

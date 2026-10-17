@@ -47,7 +47,7 @@ public:
         return body_.size();
     }
 
-    capy::io_task<>
+    capy::task<capy::results<>>
     write(http::any_buffer_sink& sink) const
     {
         auto [ec, n] =
@@ -79,7 +79,7 @@ public:
         return body_.size();
     }
 
-    capy::io_task<>
+    capy::task<capy::results<>>
     write(http::any_buffer_sink& sink) const
     {
         auto [ec, n] = co_await sink.write_eof(
@@ -102,7 +102,7 @@ tag_invoke(body_from_tag<std::string_view>, std::string_view body)
     return string_view_body{ body };
 }
 
-capy::io_task<std::string>
+capy::task<capy::results<std::string>>
 tag_invoke(body_to_tag<std::string>, response& resp)
 {
     std::string ret;

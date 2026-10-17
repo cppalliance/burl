@@ -27,7 +27,7 @@ namespace burl
 namespace detail
 {
 
-capy::io_task<>
+capy::task<capy::results<>>
 send_file(
     http::any_buffer_sink& sink,
     std::filesystem::path const& path,

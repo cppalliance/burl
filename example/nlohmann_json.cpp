@@ -49,7 +49,7 @@ tag_invoke(burl::body_from_tag<nlohmann::json>, const nlohmann::json& value)
             return text_.size();
         }
 
-        capy::io_task<>
+        capy::task<capy::results<>>
         write(http::any_buffer_sink& sink) const
         {
             auto [ec, n] = co_await sink.write_eof(capy::make_buffer(text_));
@@ -61,7 +61,7 @@ tag_invoke(burl::body_from_tag<nlohmann::json>, const nlohmann::json& value)
 // end::body_from[]
 
 // tag::body_to[]
-capy::io_task<nlohmann::json>
+capy::task<capy::results<nlohmann::json>>
 tag_invoke(burl::body_to_tag<nlohmann::json>, burl::response& resp)
 {
     // Try the parser's in-place buffer first; it is allocation-free
