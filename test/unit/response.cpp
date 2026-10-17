@@ -312,7 +312,7 @@ public:
             auto [ec, n] = co_await capy::read(
                 source, capy::make_buffer(buf));
             BOOST_TEST(ec == capy::cond::eof);
-            BOOST_TEST_EQ(buf, std::string_view(buf, n));
+            BOOST_TEST_EQ(std::string_view(buf, n), "aabbcc");
         }());
     }
 
