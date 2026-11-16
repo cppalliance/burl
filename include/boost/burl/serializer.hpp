@@ -539,8 +539,8 @@ private:
     {
         explicit
         source_of(CB const& bs) noexcept
-            : it_(capy::begin(bs))
-            , end_(capy::end(bs))
+            : it_(capy::buffer_sequence_begin(bs))
+            , end_(capy::buffer_sequence_end(bs))
         {
             remain = capy::buffer_size(bs);
         }
@@ -561,9 +561,9 @@ private:
         }
 
     private:
-        decltype(capy::begin(
+        decltype(capy::buffer_sequence_begin(
             std::declval<CB const&>())) it_;
-        decltype(capy::end(
+        decltype(capy::buffer_sequence_end(
             std::declval<CB const&>())) end_;
     };
 
