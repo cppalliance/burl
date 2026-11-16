@@ -543,8 +543,8 @@ parser::
 read_some(MB const& buffers)
 {
     std::size_t n = 0;
-    auto const end = capy::end(buffers);
-    for(auto it = capy::begin(buffers); it != end; ++it)
+    auto const end = capy::buffer_sequence_end(buffers);
+    for(auto it = capy::buffer_sequence_begin(buffers); it != end; ++it)
     {
         capy::mutable_buffer const b(*it);
         if(b.size() == 0)
