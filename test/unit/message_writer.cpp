@@ -543,12 +543,14 @@ public:
             if(auto [ec, n] = co_await writer.write(
                 capy::make_buffer(body)); ec)
             {
+                BOOST_TEST(ec == capy::error::test_failure);
                 BOOST_TEST(!sr.is_done());
                 co_return;
             }
 
             if(auto [ec] = co_await writer.write_eof(); ec)
             {
+                BOOST_TEST(ec == capy::error::test_failure);
                 BOOST_TEST(!sr.is_done());
                 co_return;
             }
