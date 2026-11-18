@@ -10,10 +10,10 @@
 #ifndef BOOST_BURL_MESSAGE_WRITER_HPP
 #define BOOST_BURL_MESSAGE_WRITER_HPP
 
+#include <boost/burl/detail/buffers_cursor.hpp>
 #include <boost/burl/serializer.hpp>
 
 #include <boost/assert.hpp>
-#include <boost/capy/buffers/consuming_buffers.hpp>
 #include <boost/capy/concept/write_stream.hpp>
 #include <boost/capy/results.hpp>
 #include <boost/capy/task.hpp>
@@ -257,17 +257,17 @@ drive_(
     CB buffers,
     bool more)
 {
-    capy::consuming_buffers cb(buffers);
+    detail::buffers_cursor rest(buffers);
     capy::const_buffer dest[16];
     std::size_t total = 0;
     for(;;)
     {
-        auto const fr = sr.frame(dest, cb.data(), more);
+        auto const fr = sr.frame(dest, rest, more);
         if(fr.has_error())
             co_return { fr.error(), total };
         auto [ec, n] = co_await stream.write_some(*fr);
         auto const k = sr.consume(n);
-        cb.consume(k);
+        rest.consume(k);
         total += k;
         if(ec || n == 0)
             co_return { ec, total };

@@ -10,11 +10,11 @@
 #ifndef BOOST_BURL_MESSAGE_READER_HPP
 #define BOOST_BURL_MESSAGE_READER_HPP
 
+#include <boost/burl/detail/buffers_cursor.hpp>
+#include <boost/burl/detail/buffers_prefix.hpp>
 #include <boost/burl/parser.hpp>
 
 #include <boost/assert.hpp>
-#include <boost/capy/buffers/buffer_slice.hpp>
-#include <boost/capy/buffers/consuming_buffers.hpp>
 #include <boost/capy/concept/read_stream.hpp>
 #include <boost/capy/cond.hpp>
 #include <boost/capy/error.hpp>
@@ -316,7 +316,7 @@ read_some_(
         if(auto const lim = pr.direct_capacity(); lim != 0)
         {
             auto [rec, rn] = co_await stream.read_some(
-                capy::buffer_slice(buffers, 0, lim));
+                detail::buffers_prefix(buffers, lim));
             pr.commit_direct(rn);
             if(rec == capy::cond::eof)
                 pr.commit_eof();
@@ -342,12 +342,12 @@ read_(
     MB buffers)
 {
     auto const total_size = capy::buffer_size(buffers);
-    capy::consuming_buffers dest(buffers);
+    detail::buffers_cursor dest(buffers);
     std::size_t total = 0;
 
     while(total < total_size)
     {
-        auto [ec, n] = co_await read_some_(stream, pr, dest.data());
+        auto [ec, n] = co_await read_some_(stream, pr, dest);
         dest.consume(n);
         total += n;
         if(ec && total < total_size)
