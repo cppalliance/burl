@@ -18,7 +18,6 @@
 #include <boost/capy/results.hpp>
 #include <boost/capy/task.hpp>
 #include <boost/capy/test/fuse.hpp>
-#include <boost/capy/buffers/buffer_slice.hpp>
 
 #include <cstddef>
 #include <string>
@@ -71,9 +70,9 @@ private:
     {
         if(head_pos_ < head_.size())
         {
-            auto const b = capy::make_buffer(head_);
-            auto const n = capy::buffer_copy(
-                bufs, capy::buffer_slice(b, head_pos_));
+            auto b = capy::make_buffer(head_);
+            b += head_pos_;
+            auto const n = capy::buffer_copy(bufs, b);
             head_pos_ += n;
             co_return { std::error_code(), n };
         }
@@ -84,11 +83,12 @@ private:
         if(idx_ >= chunks_.size())
             co_return { capy::error::eof, 0 };
 
-        auto const b = capy::make_buffer(chunks_[idx_]);
-        auto const n = capy::buffer_copy(
-            bufs, capy::buffer_slice(b, pos_));
+        auto const& chunk = chunks_[idx_];
+        auto b = capy::make_buffer(chunk);
+        b += pos_;
+        auto const n = capy::buffer_copy(bufs, b);
         pos_ += n;
-        if(pos_ == b.size())
+        if(pos_ == chunk.size())
         {
             ++idx_;
             pos_ = 0;

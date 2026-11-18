@@ -10,14 +10,14 @@
 // Test that header file is self-contained.
 #include <boost/burl/parser.hpp>
 
+#include <boost/burl/detail/buffers_cursor.hpp>
+#include <boost/burl/detail/buffers_prefix.hpp>
 #include <boost/burl/error.hpp>
 #include <boost/burl/fields.hpp>
 #include <boost/burl/static_fields.hpp>
 
 #include <boost/capy/buffers.hpp>
 #include <boost/capy/buffers/buffer_copy.hpp>
-#include <boost/capy/buffers/buffer_slice.hpp>
-#include <boost/capy/buffers/consuming_buffers.hpp>
 #include <boost/capy/buffers/make_buffer.hpp>
 #include <boost/capy/cond.hpp>
 #include <boost/capy/error.hpp>
@@ -215,7 +215,7 @@ struct test_parser : parser
             if(auto const lim = direct_capacity(); lim != 0)
             {
                 auto const rn = direct_read(
-                    capy::buffer_slice(buffers, 0, lim));
+                    detail::buffers_prefix(buffers, lim));
                 if(rn != 0)
                     return { std::error_code(), rn };
                 continue;
@@ -230,12 +230,12 @@ struct test_parser : parser
     read(MB buffers)
     {
         auto const total_size = capy::buffer_size(buffers);
-        capy::consuming_buffers dest(buffers);
+        detail::buffers_cursor dest(buffers);
         std::size_t total = 0;
 
         while(total < total_size)
         {
-            auto [ec, n] = read_some(dest.data());
+            auto [ec, n] = read_some(dest);
             dest.consume(n);
             total += n;
             if(ec && total < total_size)
