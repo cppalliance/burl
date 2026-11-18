@@ -30,7 +30,7 @@ project
       <link>static
     ;
 
-for local f in [ glob *.cpp ]
+for local f in [ glob-tree *.cpp ]
 {
     run $(f) ;
 }
