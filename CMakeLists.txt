@@ -152,8 +152,8 @@ file(GLOB_RECURSE BOOST_BURL_SOURCES CONFIGURE_DEPENDS
     "${CMAKE_CURRENT_SOURCE_DIR}/src/*.hpp"
     "${CMAKE_CURRENT_SOURCE_DIR}/src/*.cpp")
 
-source_group("" FILES "include/boost/burl.hpp")
-source_group(TREE "${CMAKE_CURRENT_SOURCE_DIR}/include/boost/burl" PREFIX "include" FILES ${BOOST_BURL_HEADERS})
+source_group("" FILES "build/Jamfile")
+source_group(TREE "${CMAKE_CURRENT_SOURCE_DIR}/include/boost" PREFIX "include" FILES ${BOOST_BURL_HEADERS})
 source_group(TREE "${CMAKE_CURRENT_SOURCE_DIR}/src" PREFIX "src" FILES ${BOOST_BURL_SOURCES})
 
 function(boost_burl_setup_properties target)
@@ -182,7 +182,7 @@ if (BOOST_BURL_MRDOCS_BUILD)
     return()
 endif ()
 
-add_library(boost_burl ${BOOST_BURL_HEADERS} ${BOOST_BURL_SOURCES})
+add_library(boost_burl build/Jamfile ${BOOST_BURL_HEADERS} ${BOOST_BURL_SOURCES})
 add_library(Boost::burl ALIAS boost_burl)
 boost_burl_setup_properties(boost_burl)
 
