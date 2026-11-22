@@ -640,8 +640,34 @@ public:
         h3.append(http::field::transfer_encoding, "gzip");
         h3.set_chunked(true);
         BOOST_TEST(! h3.contains(http::field::content_length));
-        BOOST_TEST_EQ(h3.count(http::field::transfer_encoding), 2u);
+        BOOST_TEST_EQ(h3.count(http::field::transfer_encoding), 1u);
+        BOOST_TEST_EQ(
+            h3.at(http::field::transfer_encoding), "gzip, chunked");
         BOOST_TEST(h3.chunked());
+
+        // enabling combines the fields into one list
+        // in which "chunked" appears once, last, wherever
+        // it was before
+        request_head h4(http::method::post, "/u");
+        h4.append(http::field::transfer_encoding, "chunked");
+        h4.append(http::field::transfer_encoding, "gzip");
+        h4.append(http::field::transfer_encoding, "deflate, chunked");
+        h4.set_chunked(true);
+        BOOST_TEST_EQ(h4.count(http::field::transfer_encoding), 1u);
+        BOOST_TEST_EQ(
+            h4.at(http::field::transfer_encoding),
+            "gzip, deflate, chunked");
+        BOOST_TEST(h4.chunked());
+
+        // the result is a header the parser accepts
+        {
+            alignas(4) char buf[4096];
+            head_parser pr(true, buf, sizeof(buf));
+            auto const s = h4.buffer();
+            std::memcpy(buf, s.data(), s.size());
+            BOOST_TEST(pr.parse(s.size()).has_value());
+            BOOST_TEST(pr.request_head().chunked());
+        }
 
         // disabling removes a final "chunked" coding
         h1.set_chunked(false);
@@ -669,6 +695,52 @@ public:
         h7.erase(http::field::transfer_encoding);
         h7.set_chunked(false);
         BOOST_TEST(! h7.contains(http::field::transfer_encoding));
+
+        // without any "chunked" the fields are not
+        // combined either
+        request_head h8(http::method::post, "/u");
+        h8.append(http::field::transfer_encoding, "gzip");
+        h8.append(http::field::transfer_encoding, "deflate");
+        h8.set_chunked(false);
+        BOOST_TEST_EQ(h8.count(http::field::transfer_encoding), 2u);
+
+        // disabling removes every "chunked", so a
+        // repeated one does not leave the header chunked
+        request_head h9(http::method::post, "/u");
+        h9.append(http::field::transfer_encoding, "chunked");
+        h9.append(http::field::transfer_encoding, "chunked");
+        BOOST_TEST(h9.chunked());
+        h9.set_chunked(false);
+        BOOST_TEST(! h9.contains(http::field::transfer_encoding));
+        BOOST_TEST(! h9.chunked());
+        request_head h10(http::method::post, "/u");
+        h10.append(http::field::transfer_encoding, "gzip, chunked");
+        h10.append(http::field::transfer_encoding, "chunked, chunked");
+        h10.set_chunked(false);
+        BOOST_TEST_EQ(h10.count(http::field::transfer_encoding), 1u);
+        BOOST_TEST_EQ(h10.at(http::field::transfer_encoding), "gzip");
+        BOOST_TEST(! h10.chunked());
+
+        // empty list elements, which the parser accepts,
+        // do not shield a "chunked" from removal
+        request_head h11(http::method::post, "/u");
+        h11.append(http::field::transfer_encoding, "chunked,");
+        BOOST_TEST(h11.chunked());
+        h11.set_chunked(false);
+        BOOST_TEST(! h11.contains(http::field::transfer_encoding));
+        BOOST_TEST(! h11.chunked());
+        request_head h12(http::method::post, "/u");
+        h12.append(http::field::transfer_encoding, "gzip,,chunked,");
+        h12.set_chunked(false);
+        BOOST_TEST_EQ(h12.at(http::field::transfer_encoding), "gzip");
+
+        // a value which is not a token list does not
+        // survive the rewrite
+        request_head h13(http::method::post, "/u");
+        h13.append(http::field::transfer_encoding, "gzip;q=1");
+        h13.set_chunked(true);
+        BOOST_TEST_EQ(h13.at(http::field::transfer_encoding), "chunked");
+        BOOST_TEST(h13.chunked());
     }
 
     void

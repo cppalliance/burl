@@ -75,26 +75,6 @@ token_list_contains(
     return false;
 }
 
-bool
-last_coding_is_chunked(
-    std::string_view value) noexcept
-{
-    auto const rv = grammar::parse(value, token_list_rule);
-    auto chunked = false;
-    if(rv)
-    {
-        for(auto t : *rv)
-            chunked = ci_is_equal(t, "chunked");
-    }
-    return chunked;
-}
-
-bool
-is_ws(char c) noexcept
-{
-    return c == ' ' || c == '\t';
-}
-
 } // namespace
 
 std::uint16_t
@@ -447,31 +427,42 @@ void
 message_head_base::
 set_chunked(bool value)
 {
+    // TODO: Use static buffer
+    std::string list;
+    bool found = false;
+    for(auto v : find_all(field::transfer_encoding))
+    {
+        auto const rv = grammar::parse(v, token_list_rule);
+        if(rv)
+        {
+            for(auto t : *rv)
+            {
+                if(ci_is_equal(t, "chunked"))
+                {
+                    found = true;
+                    continue;
+                }
+                if(!list.empty())
+                    list += ", ";
+                list += t;
+            }
+        }
+    }
     if(value)
     {
         erase(field::content_length);
-        auto const it = find_last(end(), field::transfer_encoding);
-        if(it != end() && last_coding_is_chunked((*it).value))
-            return;
-        append(field::transfer_encoding, "chunked");
+        if(!list.empty())
+            list += ", ";
+        list += "chunked";
+        set(field::transfer_encoding, list);
         return;
     }
-    auto const it = find_last(end(), field::transfer_encoding);
-    if(it == end())
+    if(!found)
         return;
-    auto const v = (*it).value;
-    if(!last_coding_is_chunked(v))
-        return;
-    auto const comma = v.rfind(',');
-    if(comma == std::string_view::npos)
-    {
-        erase(it);
-        return;
-    }
-    std::string_view head = v.substr(0, comma);
-    while(!head.empty() && is_ws(head.back()))
-        head.remove_suffix(1);
-    set(it, head);
+    if(list.empty())
+        erase(field::transfer_encoding);
+    else
+        set(field::transfer_encoding, list);
 }
 
 void
