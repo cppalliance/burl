@@ -303,8 +303,8 @@ public:
 
     /** Set the Content-Length field.
 
-        Any chunked Transfer-Encoding is removed
-        first, as if by `set_chunked(false)`.
+        Any Transfer-Encoding fields are removed
+        first.
 
         @par Exception Safety
         Basic guarantee.

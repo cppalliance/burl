@@ -415,7 +415,7 @@ void
 message_head_base::
 set_content_length(std::uint64_t n)
 {
-    set_chunked(false);
+    erase(field::transfer_encoding);
     char tmp[20];
     auto const r = std::to_chars(tmp, tmp + sizeof(tmp), n);
     set(
