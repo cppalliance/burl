@@ -11,6 +11,7 @@
 #include <boost/burl/head_parser.hpp>
 
 #include <boost/burl/request_head.hpp>
+#include <boost/burl/response_head.hpp>
 #include <boost/burl/static_fields.hpp>
 
 #include <boost/assert.hpp>
@@ -305,6 +306,21 @@ public:
                 pr.response_head().payload() == http::payload::to_eof);
         }
 
+        // so is a response which lists a coding after
+        // chunked
+        {
+            head_parser pr(false, buf_, sizeof(buf_));
+            auto const ec = feed(
+                pr,
+                "HTTP/1.1 200 OK\r\n"
+                "Transfer-Encoding: chunked, gzip\r\n"
+                "\r\n");
+            BOOST_TEST(!ec);
+            BOOST_TEST(
+                pr.response_head().payload() == http::payload::to_eof);
+            BOOST_TEST(!pr.response_head().keep_alive());
+        }
+
         // chunked framing
         {
             head_parser pr(true, buf_, sizeof(buf_));
@@ -316,6 +332,33 @@ public:
             BOOST_TEST(!ec);
             BOOST_TEST(
                 pr.request_head().payload() == http::payload::chunked);
+        }
+
+        // a response which repeats chunked, as some
+        // servers do, is chunked once
+        {
+            head_parser pr(false, buf_, sizeof(buf_));
+            auto const ec = feed(
+                pr,
+                "HTTP/1.1 200 OK\r\n"
+                "Transfer-Encoding: chunked\r\n"
+                "Transfer-Encoding: chunked\r\n"
+                "\r\n");
+            BOOST_TEST(!ec);
+            BOOST_TEST(
+                pr.response_head().payload() == http::payload::chunked);
+            BOOST_TEST(pr.response_head().keep_alive());
+        }
+        {
+            head_parser pr(false, buf_, sizeof(buf_));
+            auto const ec = feed(
+                pr,
+                "HTTP/1.1 200 OK\r\n"
+                "Transfer-Encoding: chunked, chunked\r\n"
+                "\r\n");
+            BOOST_TEST(!ec);
+            BOOST_TEST(
+                pr.response_head().payload() == http::payload::chunked);
         }
 
         // connection close
@@ -525,6 +568,49 @@ public:
         check({ { http::field::expect, "100-continue" } });
         check({ { http::field::host, "example.com" },
                 { http::field::content_length, "12" } });
+
+        // a response is framed by the final coding of
+        // its combined Transfer-Encoding fields,
+        // however chunked is repeated or placed
+        auto const check_response = [&](
+            std::initializer_list<std::string_view> codings,
+            http::payload pl)
+        {
+            std::string msg = "HTTP/1.1 200 OK\r\n";
+            response_head h;
+            for(auto const v : codings)
+            {
+                msg += "Transfer-Encoding: ";
+                msg += v;
+                msg += "\r\n";
+                h.append(http::field::transfer_encoding, v);
+            }
+            msg += "\r\n";
+
+            head_parser pr(false, buf_, sizeof(buf_));
+            if(! BOOST_TEST(! feed(pr, msg)))
+                return;
+            auto const& p = pr.response_head();
+            BOOST_TEST_EQ(p.buffer(), h.buffer());
+            BOOST_TEST(p.payload() == pl);
+            BOOST_TEST(h.payload() == pl);
+            BOOST_TEST_EQ(p.keep_alive(), h.keep_alive());
+        };
+
+        check_response(
+            { "chunked, chunked" }, http::payload::chunked);
+        check_response(
+            { "chunked", "chunked" }, http::payload::chunked);
+        check_response(
+            { "gzip", "chunked" }, http::payload::chunked);
+        check_response(
+            { "chunked", "gzip, chunked" }, http::payload::chunked);
+        check_response(
+            { "chunked,", "," }, http::payload::chunked);
+        check_response(
+            { "chunked, gzip" }, http::payload::to_eof);
+        check_response(
+            { "chunked", "gzip" }, http::payload::to_eof);
     }
 
     void
@@ -753,8 +839,8 @@ public:
             "PUT / HTTP/1.1\r\nTransfer-Encoding: @\r\n\r\n",
             http::error::bad_transfer_encoding);
 
-        // "chunked" must be applied exactly once, as
-        // the final coding of the joined value
+        // a request must apply "chunked" exactly once,
+        // as the final coding of the joined value
         check(
             true,
             "PUT / HTTP/1.1\r\n"
@@ -773,9 +859,14 @@ public:
             "Transfer-Encoding: gzip\r\n\r\n",
             http::error::bad_transfer_encoding);
         check(
-            false,
-            "HTTP/1.1 200 OK\r\n"
+            true,
+            "PUT / HTTP/1.1\r\n"
             "Transfer-Encoding: chunked, gzip\r\n\r\n",
+            http::error::bad_transfer_encoding);
+        check(
+            true,
+            "PUT / HTTP/1.1\r\n"
+            "Transfer-Encoding: chunked, gzip, chunked\r\n\r\n",
             http::error::bad_transfer_encoding);
 
         // the length of a request framed by a coding

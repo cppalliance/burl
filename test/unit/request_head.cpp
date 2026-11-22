@@ -923,6 +923,36 @@ public:
             BOOST_TEST(h.payload() == http::payload::error);
         }
 
+        // the final coding is that of the combined
+        // fields, however often "chunked" appears
+        {
+            request_head h(http::method::put, "/u");
+            h.append(http::field::transfer_encoding, "chunked");
+            h.append(http::field::transfer_encoding, "chunked");
+            BOOST_TEST(h.chunked());
+            h.append(http::field::transfer_encoding, "gzip");
+            BOOST_TEST(! h.chunked());
+            BOOST_TEST(h.payload() == http::payload::error);
+            h.append(http::field::transfer_encoding, "deflate, chunked");
+            BOOST_TEST(h.chunked());
+            h.erase(--h.end());
+            BOOST_TEST(! h.chunked());
+        }
+
+        // a field of empty list elements adds no coding,
+        // and one which is not a token list counts as an
+        // unknown one
+        {
+            request_head h(http::method::put, "/u");
+            h.append(http::field::transfer_encoding, "chunked");
+            h.append(http::field::transfer_encoding, ",");
+            BOOST_TEST(h.chunked());
+            h.append(http::field::transfer_encoding, "@@");
+            BOOST_TEST(! h.chunked());
+            h.append(http::field::transfer_encoding, "chunked");
+            BOOST_TEST(h.chunked());
+        }
+
         // the cached state is a function of the field
         // section, not of the mutations which produced
         // it: `a` reaches these fields by appending, `b`
