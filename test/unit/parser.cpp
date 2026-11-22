@@ -1084,6 +1084,33 @@ public:
     }
 
     void
+    testChunkedRepeatedCoding()
+    {
+        // a response which lists chunked twice, as some
+        // servers do, carries a body chunked once
+        for(std::string_view const te : {
+            "Transfer-Encoding: chunked\r\n"
+            "Transfer-Encoding: chunked\r\n",
+            "Transfer-Encoding: chunked, chunked\r\n" })
+        {
+            test_parser pr;
+            pr.provide("HTTP/1.1 200 OK\r\n");
+            pr.provide(te);
+            pr.provide(
+                "\r\n"
+                "5\r\nhello\r\n"
+                "0\r\n\r\n");
+
+            pr.start();
+            auto [ec, body] = pr.read_body();
+            BOOST_TEST(!ec);
+            BOOST_TEST(body == "hello");
+            BOOST_TEST(pr.got_body());
+            BOOST_TEST(!pr.has_buffered_data());
+        }
+    }
+
+    void
     testChunkedReadBodyByteByByte()
     {
         // one octet per refill exercises every resume point of the
@@ -4293,6 +4320,7 @@ public:
         testChunkedReadSome();
         testChunkedPullConsume();
         testChunkedReadBody();
+        testChunkedRepeatedCoding();
         testChunkedReadBodyByteByByte();
         testChunkedReadBodySplitMidChunk();
         testChunkedReadBodyPipelined();

@@ -229,27 +229,23 @@ push_field_(
         break;
     case field::transfer_encoding:
     {
-        if(flags_ & f_chunked)
-            return error::bad_transfer_encoding;
         if(!(flags_ & f_http_1_1))
             return error::bad_transfer_encoding;
         auto const rv = grammar::parse(value, token_list_rule);
         if(!rv)
             return error::bad_transfer_encoding;
-        std::size_t n_chunked = 0;
-        auto is_last = false;
+        bool chunked = flags_ & f_chunked;
         for(auto t : *rv)
         {
-            is_last = ci_is_equal(t, "chunked");
-            if(is_last)
-                ++n_chunked;
+            if(chunked && (flags_ & f_req))
+                return error::bad_transfer_encoding;
+            chunked = ci_is_equal(t, "chunked");
         }
-        if(n_chunked > (is_last ? 1u : 0u))
-            return error::bad_transfer_encoding;
         if(flags_ & f_content_length)
             return error::bad_payload;
+        flags_ &= ~f_chunked;
         flags_ |= f_transfer_encoding;
-        if(is_last)
+        if(chunked)
             flags_ |= f_chunked;
         break;
     }
@@ -325,12 +321,23 @@ on_special_(field id) noexcept
     case field::transfer_encoding:
     {
         flags_ &= ~(f_transfer_encoding | f_chunked);
-        auto const it = find_last(end(), field::transfer_encoding);
-        if(it == end())
-            break;
-        flags_ |= f_transfer_encoding;
-        if(last_coding_is_chunked((*it).value))
-            flags_ |= f_chunked;
+        for(auto v : find_all(field::transfer_encoding))
+        {
+            flags_ |= f_transfer_encoding;
+            auto const rv = grammar::parse(v, token_list_rule);
+            if(!rv)
+            {
+                flags_ &= ~f_chunked;
+                continue;
+            }
+            for(auto t : *rv)
+            {
+                if(ci_is_equal(t, "chunked"))
+                    flags_ |= f_chunked;
+                else
+                    flags_ &= ~f_chunked;
+            }
+        }
         break;
     }
     case field::upgrade:
