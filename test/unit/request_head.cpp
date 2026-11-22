@@ -744,6 +744,34 @@ public:
     }
 
     void
+    testSetContentLength()
+    {
+        // a Content-Length replaces chunked framing
+        request_head h1(http::method::post, "/u");
+        h1.set_chunked(true);
+        h1.set_content_length(7);
+        BOOST_TEST(! h1.contains(http::field::transfer_encoding));
+        BOOST_TEST_EQ(h1.content_length().value_or(0), 7u);
+        BOOST_TEST(h1.payload() == http::payload::size);
+
+        // no transfer coding is left beside it, whatever
+        // the fields held
+        request_head h2(http::method::post, "/u");
+        h2.append(http::field::transfer_encoding, "gzip, chunked");
+        h2.append(http::field::transfer_encoding, "chunked,");
+        h2.set_content_length(7);
+        BOOST_TEST(! h2.contains(http::field::transfer_encoding));
+        BOOST_TEST_EQ(h2.at(http::field::content_length), "7");
+        BOOST_TEST(h2.payload() == http::payload::size);
+
+        // an earlier Content-Length is replaced
+        h2.set_content_length(0);
+        BOOST_TEST_EQ(h2.count(http::field::content_length), 1u);
+        BOOST_TEST_EQ(h2.at(http::field::content_length), "0");
+        BOOST_TEST(h2.payload() == http::payload::none);
+    }
+
+    void
     testSetKeepAlive()
     {
         // HTTP/1.1 defaults to keep-alive; requesting
@@ -1212,6 +1240,7 @@ public:
         testCopy();
         testCopyAssign();
         testSetChunked();
+        testSetContentLength();
         testSetKeepAlive();
         testSetVersion();
         testExpect100Continue();
